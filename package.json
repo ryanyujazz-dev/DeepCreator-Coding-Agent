@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:all": "concurrently \"npm:dev:runtime\" \"npm:dev\"",
-    "dev:runtime": "tsx watch server/index.ts",
+    "dev:runtime": "tsx server/index.ts",
+    "dev:runtime:watch": "tsx watch server/index.ts",
     "build": "tsc && vite build",
+    "test": "tsx --test tests/**/*.test.ts",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
