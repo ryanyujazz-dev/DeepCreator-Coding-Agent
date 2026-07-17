@@ -21,6 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(__dirname, "..");
 const dataDirectory = path.resolve(process.env.RUNTIME_DATA_DIR ?? path.join(workspaceRoot, ".deepseeker"));
 const port = Number(process.env.RUNTIME_PORT ?? 8787);
+const frontendUrl = process.env.FRONTEND_URL ?? "http://127.0.0.1:5173/";
 const defaultModel = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
 const store = new SignalStore(dataDirectory);
 const registry = new LiveRegistry();
@@ -40,6 +41,20 @@ function writeSSE(raw: NodeJS.WritableStream, message: SignalStreamMessage): voi
 }
 
 app.get("/api/health", async () => ({ ok: true, service: "deepseeker-runtime", storage: dataDirectory }));
+
+app.get("/", async (_request, reply) => {
+  return reply.type("text/html; charset=utf-8").send(`<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="refresh" content="0; url=${frontendUrl}" />
+    <title>DeepSeeker Runtime</title>
+  </head>
+  <body>
+    <p>DeepSeeker Runtime 正在运行。正在打开前端：<a href="${frontendUrl}">${frontendUrl}</a></p>
+  </body>
+</html>`);
+});
 
 app.get("/api/config", async () => ({
   compactThresholdTokens: getCompactThresholdTokens(),
