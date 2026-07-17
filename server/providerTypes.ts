@@ -17,6 +17,7 @@ export type ProviderUsage = {
   inputTokens?: number;
   outputTokens?: number;
   cacheHitTokens?: number;
+  cacheMissTokens?: number;
 };
 
 export type ProviderFinishCause =

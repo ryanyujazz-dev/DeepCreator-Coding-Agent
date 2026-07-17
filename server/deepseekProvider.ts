@@ -80,10 +80,12 @@ function mapUsage(raw?: {
   prompt_tokens?: number;
   completion_tokens?: number;
   prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
 }): ProviderUsage | undefined {
   if (!raw) return undefined;
   return {
     cacheHitTokens: raw.prompt_cache_hit_tokens,
+    cacheMissTokens: raw.prompt_cache_miss_tokens,
     inputTokens: raw.prompt_tokens,
     outputTokens: raw.completion_tokens
   };
@@ -177,6 +179,7 @@ export class DeepSeekProvider implements ProviderAdapter {
             prompt_tokens?: number;
             completion_tokens?: number;
             prompt_cache_hit_tokens?: number;
+            prompt_cache_miss_tokens?: number;
           };
         };
         const choice = chunk.choices?.[0];

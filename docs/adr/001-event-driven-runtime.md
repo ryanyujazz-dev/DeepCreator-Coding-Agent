@@ -42,7 +42,7 @@ unit.opened -> zero or more typed deltas -> unit.sealed
 
 Providers emit normalized fragments: thinking, answer, tool-call, usage, and finish fragments. DeepSeek-specific `reasoning_content`, `content`, and `tool_calls` never appear in the public domain protocol.
 
-Provider continuation state is scoped to one `WorkCycle`. It may retain reasoning required to continue a DeepSeek tool loop, but historical reasoning is not added to later user cycles. Stable system instructions and tool schemas stay at the beginning of requests to preserve prefix-cache opportunities.
+Provider continuation state is stored outside the public signal protocol. Ordinary reasoning is scoped to one model step and is not added to later cycles. For DeepSeek tool-call assistant messages, the corresponding `reasoning_content`, structured `tool_calls`, and paired tool results are retained together for as long as that trajectory remains in model context, including later user cycles. Stable system instructions and tool schemas stay at the beginning of requests to preserve prefix-cache opportunities.
 
 ## Consequences
 
@@ -50,4 +50,3 @@ Provider continuation state is scoped to one `WorkCycle`. It may retain reasonin
 - Restart recovery and SSE resume are deterministic.
 - The event log is append-only, while SQLite projections can be rebuilt later.
 - Schema migrations and projection versioning become explicit responsibilities.
-

@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -13,6 +13,12 @@ import {
 import { createSessionView, rebuildSession, reduceSignal } from "../shared/signalReducer";
 import { assertSignalTransition } from "../shared/signalStateMachine";
 import { settleWorkCycle } from "./cycleLifecycle";
+import {
+  ContextRecord,
+  ContextTelemetry,
+  NewContextRecord,
+  createContextRecord
+} from "./contextRecords";
 
 type SignalSubscriber = (signals: AgentSignal[]) => void;
 
@@ -27,11 +33,13 @@ function safeLogName(sessionKey: string): string {
 
 export class SignalStore {
   private readonly database: DatabaseSync;
+  private readonly dataDirectory: string;
   private readonly logDirectory: string;
   private readonly sessions = new Map<string, WorkspaceSessionView>();
   private readonly subscribers = new Map<string, Set<SignalSubscriber>>();
 
   constructor(dataDirectory: string) {
+    this.dataDirectory = dataDirectory;
     mkdirSync(dataDirectory, { recursive: true });
     this.logDirectory = path.join(dataDirectory, "signals");
     mkdirSync(this.logDirectory, { recursive: true });
@@ -63,6 +71,26 @@ export class SignalStore {
         emitted_at TEXT NOT NULL,
         UNIQUE(session_key, offset)
       );
+      CREATE TABLE IF NOT EXISTS context_records (
+        record_key TEXT PRIMARY KEY,
+        session_key TEXT NOT NULL,
+        cycle_key TEXT,
+        sequence INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        UNIQUE(session_key, sequence)
+      );
+      CREATE INDEX IF NOT EXISTS context_records_session_idx
+        ON context_records(session_key, sequence);
+      CREATE TABLE IF NOT EXISTS context_telemetry (
+        telemetry_key TEXT PRIMARY KEY,
+        session_key TEXT NOT NULL,
+        cycle_key TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        telemetry_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS context_telemetry_session_idx
+        ON context_telemetry(session_key, created_at);
     `);
     this.ensureSessionColumn("title", "TEXT NOT NULL DEFAULT ''");
     this.ensureSessionColumn("project_root", "TEXT NOT NULL DEFAULT ''");
@@ -140,6 +168,85 @@ export class SignalStore {
       if (cycle) return clone(cycle);
     }
     return undefined;
+  }
+
+  appendContextRecord(input: NewContextRecord): ContextRecord {
+    if (!this.sessions.has(input.sessionKey)) throw new Error(`WorkspaceSession not found: ${input.sessionKey}`);
+    this.ensureLegacyContextRecords(input.sessionKey);
+    const row = this.database
+      .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM context_records WHERE session_key = ?")
+      .get(input.sessionKey) as { sequence: number };
+    const record = createContextRecord(input, Number(row.sequence) + 1);
+    this.database
+      .prepare(`INSERT INTO context_records
+        (record_key, session_key, cycle_key, sequence, created_at, record_json)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(
+        record.recordKey,
+        record.sessionKey,
+        record.cycleKey ?? null,
+        record.sequence,
+        record.createdAt,
+        JSON.stringify(record)
+      );
+    return clone(record);
+  }
+
+  readContextRecords(sessionKey: string): ContextRecord[] {
+    this.ensureLegacyContextRecords(sessionKey);
+    const rows = this.database
+      .prepare("SELECT record_json FROM context_records WHERE session_key = ? ORDER BY sequence")
+      .all(sessionKey) as Array<{ record_json: string }>;
+    return rows.map((row) => JSON.parse(row.record_json) as ContextRecord);
+  }
+
+  storeContextArtifact(sessionKey: string, recordKey: string, text: string): string {
+    const directory = path.join(this.dataDirectory, "context-artifacts", safeLogName(sessionKey).replace(/\.jsonl$/, ""));
+    mkdirSync(directory, { recursive: true });
+    const safeRecordKey = recordKey.replace(/[^a-zA-Z0-9_-]/g, "_");
+    writeFileSync(path.join(directory, `${safeRecordKey}.txt`), text, "utf8");
+    return `context-artifact://${sessionKey}/${safeRecordKey}`;
+  }
+
+  recordContextTelemetry(telemetry: ContextTelemetry): void {
+    this.database
+      .prepare(`INSERT INTO context_telemetry
+        (telemetry_key, session_key, cycle_key, created_at, telemetry_json)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(telemetry_key) DO UPDATE SET telemetry_json = excluded.telemetry_json`)
+      .run(
+        telemetry.telemetryKey,
+        telemetry.sessionKey,
+        telemetry.cycleKey,
+        telemetry.createdAt,
+        JSON.stringify(telemetry)
+      );
+  }
+
+  updateContextTelemetryUsage(
+    telemetryKey: string,
+    usage: Pick<ContextTelemetry, "actualInputTokens" | "outputTokens" | "cacheHitTokens" | "cacheMissTokens">
+  ): void {
+    const row = this.database
+      .prepare("SELECT telemetry_json FROM context_telemetry WHERE telemetry_key = ?")
+      .get(telemetryKey) as { telemetry_json: string } | undefined;
+    if (!row) return;
+    const telemetry = { ...JSON.parse(row.telemetry_json), ...usage } as ContextTelemetry;
+    this.recordContextTelemetry(telemetry);
+  }
+
+  readContextTelemetry(sessionKey: string): ContextTelemetry[] {
+    return (this.database
+      .prepare("SELECT telemetry_json FROM context_telemetry WHERE session_key = ? ORDER BY created_at")
+      .all(sessionKey) as Array<{ telemetry_json: string }>)
+      .map((row) => JSON.parse(row.telemetry_json) as ContextTelemetry);
+  }
+
+  writeContextDebugSnapshot(sessionKey: string, cycleKey: string, value: unknown): void {
+    if (process.env.NODE_ENV === "production" || process.env.DEEPSEEK_CONTEXT_DEBUG !== "1") return;
+    const directory = path.join(this.dataDirectory, "context-debug", safeLogName(sessionKey).replace(/\.jsonl$/, ""));
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, `${cycleKey}.json`), JSON.stringify(value, null, 2), "utf8");
   }
 
   listSessions(query = ""): SessionListEntry[] {
@@ -264,6 +371,49 @@ export class SignalStore {
     const columns = this.database.prepare("PRAGMA table_info(session_views)").all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === name)) {
       this.database.exec(`ALTER TABLE session_views ADD COLUMN ${name} ${definition}`);
+    }
+  }
+
+  private ensureLegacyContextRecords(sessionKey: string): void {
+    const session = this.sessions.get(sessionKey);
+    if (!session) return;
+    const coveredRows = this.database
+      .prepare("SELECT DISTINCT cycle_key FROM context_records WHERE session_key = ? AND cycle_key IS NOT NULL")
+      .all(sessionKey) as Array<{ cycle_key: string }>;
+    const coveredCycles = new Set(coveredRows.map((row) => row.cycle_key));
+    let sequence = Number((this.database
+      .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM context_records WHERE session_key = ?")
+      .get(sessionKey) as { sequence: number }).sequence);
+    for (const cycle of session.cycles) {
+      if (coveredCycles.has(cycle.cycleKey) || !["succeeded", "failed", "cancelled"].includes(cycle.phase)) continue;
+      const inputs: NewContextRecord[] = [{
+        createdAt: cycle.startedAt,
+        cycleKey: cycle.cycleKey,
+        kind: "human_text",
+        recordKey: `legacy_${cycle.cycleKey}_human`,
+        sessionKey,
+        source: "legacy_projection",
+        text: cycle.prompt
+      }];
+      if (cycle.finalResponse || cycle.failure) {
+        inputs.push({
+          createdAt: cycle.settledAt ?? cycle.startedAt,
+          cycleKey: cycle.cycleKey,
+          isError: cycle.phase !== "succeeded",
+          kind: "agent_text",
+          recordKey: `legacy_${cycle.cycleKey}_agent`,
+          sessionKey,
+          source: "legacy_projection",
+          text: cycle.finalResponse || cycle.failure
+        });
+      }
+      for (const input of inputs) {
+        const record = createContextRecord(input, sequence += 1);
+        this.database.prepare(`INSERT OR IGNORE INTO context_records
+          (record_key, session_key, cycle_key, sequence, created_at, record_json)
+          VALUES (?, ?, ?, ?, ?, ?)`)
+          .run(record.recordKey, sessionKey, record.cycleKey ?? null, record.sequence, record.createdAt, JSON.stringify(record));
+      }
     }
   }
 

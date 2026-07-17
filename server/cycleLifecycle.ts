@@ -83,6 +83,42 @@ export function settleWorkCycle(input: {
         projectRoot: input.projectRoot,
         settledAt
       });
+  const contextRecords = input.store.readContextRecords(input.sessionKey)
+    .filter((record) => record.cycleKey === input.cycleKey);
+  if (!contextRecords.some((record) => record.kind === "human_text")) {
+    input.store.appendContextRecord({
+      createdAt: cycle.startedAt,
+      cycleKey: input.cycleKey,
+      kind: "human_text",
+      sessionKey: input.sessionKey,
+      source: "runtime",
+      text: cycle.prompt
+    });
+  }
+  if (!contextRecords.some((record) => record.kind === "agent_text")) {
+    input.store.appendContextRecord({
+      createdAt: settledAt,
+      cycleKey: input.cycleKey,
+      isError: input.phase !== "succeeded",
+      kind: "agent_text",
+      metadata: { terminalPhase: input.phase },
+      sessionKey: input.sessionKey,
+      source: "runtime",
+      text: input.finalResponse
+    });
+  }
+  if (recovery) {
+    input.store.appendContextRecord({
+      createdAt: settledAt,
+      cycleKey: input.cycleKey,
+      isError: true,
+      kind: "runtime_fact",
+      metadata: { factKind: "recovery" },
+      sessionKey: input.sessionKey,
+      source: "runtime",
+      text: `上一工作周期未完成：${JSON.stringify(recovery)}`
+    });
+  }
   input.store.append({
     cycleKey: input.cycleKey,
     payload: {

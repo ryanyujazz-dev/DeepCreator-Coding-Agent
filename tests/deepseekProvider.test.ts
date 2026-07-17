@@ -15,7 +15,7 @@ test("normalizes thinking, answer, usage, and interleaved tool-call chunks", asy
         { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_a", function: { name: "read_file", arguments: "{\"path\":" } }] }, finish_reason: null }] },
         { choices: [{ delta: { tool_calls: [{ index: 1, id: "call_b", function: { name: "git_status", arguments: "{}" } }] }, finish_reason: null }] },
         { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: "\"src/App.tsx\"}" } }] }, finish_reason: "tool_calls" }] },
-        { choices: [], usage: { prompt_tokens: 90, completion_tokens: 20, prompt_cache_hit_tokens: 40 } }
+        { choices: [], usage: { prompt_tokens: 90, completion_tokens: 20, prompt_cache_hit_tokens: 40, prompt_cache_miss_tokens: 50 } }
       ];
       for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`);
       response.end("data: [DONE]\n\n");
@@ -28,7 +28,16 @@ test("normalizes thinking, answer, usage, and interleaved tool-call chunks", asy
     const fragments: Array<{ kind: string; name?: string }> = [];
     const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}`);
     const result = await provider.stream({
-      messages: [{ role: "user", text: "检查项目" }],
+      messages: [
+        { role: "user", text: "检查项目" },
+        {
+          continuationThinking: "保留工具推理",
+          role: "assistant",
+          text: "先读取文件",
+          toolCalls: [{ argumentsText: "{\"path\":\"src/App.tsx\"}", callKey: "previous_call", index: 0, name: "read_file" }]
+        },
+        { role: "tool", text: "文件内容", toolCallKey: "previous_call" }
+      ],
       model: "deepseek-chat",
       onFragment: (fragment) => fragments.push({ kind: fragment.kind, name: fragment.kind === "tool_call" ? fragment.name : undefined }),
       tools: []
@@ -41,10 +50,13 @@ test("normalizes thinking, answer, usage, and interleaved tool-call chunks", asy
     ]);
     assert.equal(result.continuationMessage.continuationThinking, "先检查");
     assert.equal(result.usage?.cacheHitTokens, 40);
+    assert.equal(result.usage?.cacheMissTokens, 50);
     assert.ok(fragments.some((fragment) => fragment.kind === "thinking"));
     assert.ok(fragments.some((fragment) => fragment.kind === "tool_call"));
     assert.equal(fragments.filter((fragment) => fragment.kind === "tool_call").at(-1)?.name, "read_file");
     assert.equal(JSON.parse(requestBody).messages[0].content, "检查项目");
+    assert.equal(JSON.parse(requestBody).messages[1].reasoning_content, "保留工具推理");
+    assert.equal(JSON.parse(requestBody).messages[2].tool_call_id, "previous_call");
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

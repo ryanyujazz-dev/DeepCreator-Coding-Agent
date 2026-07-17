@@ -173,6 +173,7 @@ export type UsageView = {
   inputTokens?: number;
   outputTokens?: number;
   cacheHitTokens?: number;
+  cacheMissTokens?: number;
   source: "provider" | "estimated";
 };
 

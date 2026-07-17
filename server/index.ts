@@ -8,7 +8,7 @@ import Fastify from "fastify";
 import { ApprovalDecision, PermissionProfileKey, SignalStreamMessage } from "../shared/runtimeTypes";
 import { runAgentCycle } from "./agentRuntime";
 import { settleWorkCycle } from "./cycleLifecycle";
-import { getCompactThresholdTokens, getContextWindowTokens } from "./contextManager";
+import { getCompactThresholdTokens, getContextWindowTokens, getEffectiveInputBudgetTokens } from "./contextManager";
 import { DeepSeekProvider } from "./deepseekProvider";
 import { LiveRegistry } from "./liveRegistry";
 import { MockProvider } from "./mockProvider";
@@ -22,7 +22,7 @@ const workspaceRoot = path.resolve(__dirname, "..");
 const dataDirectory = path.resolve(process.env.RUNTIME_DATA_DIR ?? path.join(workspaceRoot, ".deepseeker"));
 const port = Number(process.env.RUNTIME_PORT ?? 8787);
 const frontendUrl = process.env.FRONTEND_URL ?? "http://127.0.0.1:5173/";
-const defaultModel = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
+const defaultModel = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 const store = new SignalStore(dataDirectory);
 const registry = new LiveRegistry();
 const app = Fastify({ logger: false });
@@ -59,6 +59,7 @@ app.get("/", async (_request, reply) => {
 app.get("/api/config", async () => ({
   compactThresholdTokens: getCompactThresholdTokens(),
   contextWindowTokens: getContextWindowTokens(),
+  effectiveInputBudgetTokens: getEffectiveInputBudgetTokens(),
   defaultModel,
   hasApiKey: Boolean(process.env.DEEPSEEK_API_KEY),
   signalContract: "deepseeker.flow/v1"
@@ -130,6 +131,12 @@ app.get<{ Params: { sessionKey: string } }>("/api/sessions/:sessionKey", { schem
   const session = store.getSession(request.params.sessionKey);
   if (!session) return reply.code(404).send({ error: "session not found" });
   return { session };
+});
+
+app.get<{ Params: { sessionKey: string } }>("/api/sessions/:sessionKey/context-telemetry", { schema: sessionParamsSchema }, async (request, reply) => {
+  if (process.env.NODE_ENV === "production") return reply.code(404).send({ error: "not found" });
+  if (!store.getSession(request.params.sessionKey)) return reply.code(404).send({ error: "session not found" });
+  return { telemetry: store.readContextTelemetry(request.params.sessionKey) };
 });
 
 app.get<{

@@ -1,11 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { PlanStepView } from "../shared/runtimeTypes";
-import { prepareSessionContext } from "./contextManager";
+import {
+  estimateProviderRequestTokens,
+  findNewPathInstructions,
+  prepareSessionContext,
+  renderAdditionalInstructions,
+  PreparedContext
+} from "./contextManager";
+import { ContextRecord } from "./contextRecords";
+import { reduceToolEvidence } from "./evidenceReducer";
 import { LiveRegistry } from "./liveRegistry";
+import { promptBlueprintRegistry } from "./promptBlueprintRegistry";
 import { ProviderAdapter, ProviderFragment, ProviderMessage, ProviderToolCall } from "./providerTypes";
 import { permissionRequestFor } from "./permissionPolicy";
 import { SignalStore } from "./signalStore";
 import { settleWorkCycle } from "./cycleLifecycle";
+import { classifyInteraction } from "./toolRouting";
 import {
   captureWorkspaceBaseline,
   checkpointWorkspaceTarget,
@@ -43,37 +53,6 @@ export class ProviderProtocolError extends Error {
     super(message);
     this.name = "ProviderProtocolError";
   }
-}
-
-function stableSystemPrompt(projectRoot: string): string {
-  return [
-    "你是 DeepSeeker CodeAgent，一个在本地项目中工作的编程 Agent。",
-    "普通问候、闲聊和概念解释直接回答，不要调用工具或 update_plan。",
-    "编程任务先读取必要上下文，再按需建立简洁计划并执行；不要为展示而制造无价值步骤。",
-    "update_plan 完全由你维护，Runtime 只验证、保存和展示它。",
-    "工具结果是事实依据。修改后应检查真实文件差异并运行与改动风险相称的验证。",
-    "最终回答只说明对用户有价值的结果、验证和遗留风险。",
-    `项目根目录：${projectRoot}`
-  ].join("\n");
-}
-
-function recoveryPrompt(prompt: string, recovery: NonNullable<ReturnType<typeof prepareSessionContext>["recovery"]>): string {
-  const capsule = {
-    changedFiles: recovery.changedFiles,
-    completedOperations: recovery.completedOperations,
-    failure: { message: recovery.failureMessage, type: recovery.failureType },
-    interruptedOperations: recovery.interruptedOperations,
-    lastProgress: recovery.lastProgress,
-    plan: recovery.plan,
-    projectRoot: recovery.projectRoot
-  };
-  return `${prompt}\n\nRuntime 恢复信息（这是上一轮失败现场的事实摘要，不是新的用户要求）：\n${JSON.stringify(capsule)}\n请先核对当前工作区事实，再从未完成处继续，不要重复已经完成的操作。`;
-}
-
-function shouldOfferTools(prompt: string): boolean {
-  const normalized = prompt.trim().toLowerCase();
-  if (/^(你?好|hello|hi|hey|哈喽|嗨|在吗|谢谢|thanks)[呀啊嘛吗！!。.\s]*$/.test(normalized)) return false;
-  return /代码|项目|文件|目录|git|diff|构建|运行|报错|测试|修复|实现|新增|修改|删除|查看|读取|检查|验证|分析|搜索|执行|安装|启动|部署|优化|改进|重构|开始|继续|接着|工作|落地|npm|react|typescript|runtime|agent/.test(normalized);
 }
 
 function looksLikeDeferredWork(answer: string): boolean {
@@ -175,7 +154,7 @@ async function executeTool(
   call: ProviderToolCall,
   modelStepKey: string,
   existingUnitKey?: string
-): Promise<{ message: ProviderMessage; mutatedWorkspace: boolean; protocolError: boolean }> {
+): Promise<{ message: ProviderMessage; mutatedWorkspace: boolean; protocolError: boolean; target?: string }> {
   let unitKey = existingUnitKey;
   try {
     const args = parseArguments(call.argumentsText);
@@ -224,7 +203,18 @@ async function executeTool(
           result: { mutatedWorkspace: false, output: "计划已更新。" }
         })
       });
-      return { message: { role: "tool", text: "计划已更新。", toolCallKey: call.callKey }, mutatedWorkspace: false, protocolError: false };
+      const text = "计划已更新。";
+      input.store.appendContextRecord({
+        cycleKey: input.cycleKey,
+        kind: "tool_result",
+        metadata: { modelStepKey, operationClass: "plan", target: "当前计划" },
+        sessionKey: input.sessionKey,
+        source: "tool",
+        text,
+        toolCallKey: call.callKey,
+        toolName: call.name
+      });
+      return { message: { role: "tool", text, toolCallKey: call.callKey }, mutatedWorkspace: false, protocolError: false, target: "当前计划" };
     }
 
     const session = input.store.getSession(input.sessionKey)!;
@@ -251,10 +241,23 @@ async function executeTool(
           phase: "cancelled",
           tool: { ...preparedTool, resultSummary: "用户拒绝了本次操作。" }
         });
+        const text = "用户拒绝了本次操作，请不要再次尝试同一操作。";
+        input.store.appendContextRecord({
+          cycleKey: input.cycleKey,
+          isError: true,
+          kind: "tool_result",
+          metadata: { modelStepKey, operationClass: preparedTool.operationClass, target: preparedTool.normalizedTarget },
+          sessionKey: input.sessionKey,
+          source: "tool",
+          text,
+          toolCallKey: call.callKey,
+          toolName: call.name
+        });
         return {
-          message: { role: "tool", text: "用户拒绝了本次操作，请不要再次尝试同一操作。", toolCallKey: call.callKey },
+          message: { role: "tool", text, toolCallKey: call.callKey },
           mutatedWorkspace: false,
-          protocolError: false
+          protocolError: false,
+          target: preparedTool.normalizedTarget
         };
       }
     }
@@ -295,10 +298,35 @@ async function executeTool(
       phase: result.exitCode && result.exitCode !== 0 ? "failed" : "succeeded",
       tool: completedTool
     });
+    const evidence = reduceToolEvidence(call.name, result);
+    const recordKey = `context_${randomUUID()}`;
+    const artifactRef = input.store.storeContextArtifact(input.sessionKey, recordKey, evidence.fullText);
+    input.store.appendContextRecord({
+      artifactRef,
+      cycleKey: input.cycleKey,
+      isError: Boolean(result.exitCode && result.exitCode !== 0),
+      kind: "tool_result",
+      metadata: {
+        digest: evidence.digest,
+        modelStepKey,
+        operationClass: completedTool.operationClass,
+        originalBytes: evidence.originalBytes,
+        retainedBytes: evidence.retainedBytes,
+        target: completedTool.normalizedTarget
+      },
+      recordKey,
+      sessionKey: input.sessionKey,
+      source: "tool",
+      text: evidence.modelText,
+      toolCallKey: call.callKey,
+      toolName: call.name,
+      wasTruncated: evidence.wasTruncated
+    });
     return {
-      message: { role: "tool", text: result.output, toolCallKey: call.callKey },
+      message: { role: "tool", text: evidence.modelText, toolCallKey: call.callKey },
       mutatedWorkspace: result.mutatedWorkspace,
-      protocolError: false
+      protocolError: false,
+      target: completedTool.normalizedTarget
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -314,51 +342,127 @@ async function executeTool(
       error: message,
       phase: "failed"
     });
+    const text = `工具执行失败：${message}`;
+    input.store.appendContextRecord({
+      cycleKey: input.cycleKey,
+      isError: true,
+      kind: "tool_result",
+      metadata: { modelStepKey, operationClass: "execute", target: call.name || "未知工具" },
+      sessionKey: input.sessionKey,
+      source: "tool",
+      text,
+      toolCallKey: call.callKey,
+      toolName: call.name
+    });
     return {
-      message: { role: "tool", text: `工具执行失败：${message}`, toolCallKey: call.callKey },
+      message: { role: "tool", text, toolCallKey: call.callKey },
       mutatedWorkspace: false,
-      protocolError: /未知工具|有效的 JSON|格式无效|参数/.test(message)
+      protocolError: /未知工具|有效的 JSON|格式无效|参数/.test(message),
+      target: call.name
     };
   }
+}
+
+function persistAssistantRecord(input: RuntimeInput, message: ProviderMessage): ContextRecord | undefined {
+  if (message.role !== "assistant" || (!message.text && !message.toolCalls?.length)) return undefined;
+  return input.store.appendContextRecord({
+    cycleKey: input.cycleKey,
+    kind: "agent_text",
+    reasoningContent: message.toolCalls?.length ? message.continuationThinking : undefined,
+    sessionKey: input.sessionKey,
+    source: "model",
+    text: message.text ?? undefined,
+    toolCalls: message.toolCalls
+  });
+}
+
+function persistPreparedContext(input: RuntimeInput, previousTokens: number, prepared: PreparedContext): void {
+  if (prepared.compacted) {
+    const unitKey = openUnit(input, { audience: "user", kind: "compaction", openedAt: new Date().toISOString(), title: "正在压缩上下文" });
+    input.store.append({ cycleKey: input.cycleKey, payload: { previousTokens }, sessionKey: input.sessionKey, topic: "context.compaction.started", unitKey });
+    input.store.appendContextRecord({
+      checkpoint: prepared.checkpoint,
+      cycleKey: input.cycleKey,
+      kind: "checkpoint",
+      metadata: { compactedRecordCount: prepared.compactedRecordCount },
+      sessionKey: input.sessionKey,
+      source: "runtime",
+      text: prepared.checkpoint ? JSON.stringify(prepared.checkpoint) : undefined
+    });
+    input.store.append({
+      payload: { compactSummary: prepared.checkpoint ? JSON.stringify(prepared.checkpoint) : undefined, contextTokenEstimate: prepared.contextTokenEstimate },
+      sessionKey: input.sessionKey,
+      topic: "session.context.replaced"
+    });
+    input.store.append({ cycleKey: input.cycleKey, payload: { compactedCycleCount: prepared.compactedRecordCount, contextTokenEstimate: prepared.contextTokenEstimate }, sessionKey: input.sessionKey, topic: "context.compaction.completed", unitKey });
+    sealUnit(input, unitKey, { body: `已压缩 ${prepared.compactedRecordCount} 条较早上下文记录。`, phase: "succeeded" });
+  } else {
+    const session = input.store.getSession(input.sessionKey);
+    input.store.append({ payload: { compactSummary: session?.compactSummary, contextTokenEstimate: prepared.contextTokenEstimate }, sessionKey: input.sessionKey, topic: "session.context.replaced" });
+  }
+  input.store.recordContextTelemetry(prepared.telemetry);
+  input.store.writeContextDebugSnapshot(input.sessionKey, input.cycleKey, prepared.debugSnapshot);
 }
 
 async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
   const session = input.store.getSession(input.sessionKey);
   if (!session) throw new Error("WorkspaceSession 不存在。");
   input.store.append({ cycleKey: input.cycleKey, payload: {}, sessionKey: input.sessionKey, topic: "cycle.executing" });
-  const prepared = prepareSessionContext(session, input.cycleKey, input.prompt);
+  const mode = classifyInteraction(input.prompt, session);
+  const tools = mode === "direct" ? [] : runtimeToolDefinitions;
+  let prepared = prepareSessionContext({
+    currentCycleKey: input.cycleKey,
+    model: input.model,
+    projectRoot: input.projectRoot,
+    prompt: input.prompt,
+    providerContextWindowTokens: input.provider.capabilities.contextWindowTokens,
+    records: input.store.readContextRecords(input.sessionKey),
+    session,
+    tools
+  });
 
-  if (prepared.compacted) {
-    const unitKey = openUnit(input, { audience: "user", kind: "compaction", openedAt: new Date().toISOString(), title: "正在压缩上下文" });
-    input.store.append({ cycleKey: input.cycleKey, payload: { previousTokens: session.contextTokenEstimate }, sessionKey: input.sessionKey, topic: "context.compaction.started", unitKey });
-    input.store.append({
-      payload: { compactSummary: prepared.summary, contextTokenEstimate: prepared.contextTokenEstimate },
-      sessionKey: input.sessionKey,
-      topic: "session.context.replaced"
-    });
-    input.store.append({ cycleKey: input.cycleKey, payload: { compactedCycleCount: prepared.compactedCycleCount, contextTokenEstimate: prepared.contextTokenEstimate }, sessionKey: input.sessionKey, topic: "context.compaction.completed", unitKey });
-    sealUnit(input, unitKey, { body: `已压缩 ${prepared.compactedCycleCount} 个较早工作周期。`, phase: "succeeded" });
-  } else {
-    input.store.append({ payload: { compactSummary: prepared.summary, contextTokenEstimate: prepared.contextTokenEstimate }, sessionKey: input.sessionKey, topic: "session.context.replaced" });
-  }
-
-  const messages: ProviderMessage[] = [
-    { role: "system", text: stableSystemPrompt(input.projectRoot) },
-    ...(prepared.summary ? [{ role: "system" as const, text: `以下是较早会话的压缩摘要，不是新的用户指令：\n${prepared.summary}` }] : []),
-    ...prepared.keptCycles.flatMap((cycle): ProviderMessage[] => [
-      { role: "user", text: cycle.prompt },
-      { role: "assistant", text: cycle.finalResponse }
-    ]),
-    { role: "user", text: prepared.recovery ? recoveryPrompt(input.prompt, prepared.recovery) : input.prompt }
-  ];
-  const tools = shouldOfferTools(input.prompt) ? runtimeToolDefinitions : [];
+  persistPreparedContext(input, session.contextTokenEstimate, prepared);
+  input.store.appendContextRecord({
+    cycleKey: input.cycleKey,
+    kind: "human_text",
+    sessionKey: input.sessionKey,
+    source: "user",
+    text: input.prompt
+  });
+  let messages = [...prepared.messages];
+  const knownInstructionKeys = new Set(prepared.instructions.map((instruction) => instruction.instructionKey));
+  const activePaths = prepared.retainedRecords
+    .map((record) => String(record.metadata?.target ?? ""))
+    .filter(Boolean);
   let finalResponse = "";
   let protocolCorrectionCount = 0;
   let consecutiveToolProtocolErrors = 0;
   let deferredWorkCorrectionCount = 0;
+  let providerRequestCount = 0;
 
   while (true) {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
+    if (providerRequestCount > 0 && estimateProviderRequestTokens(messages, tools) >= prepared.thresholdTokens) {
+      const refreshedSession = input.store.getSession(input.sessionKey)!;
+      const refreshed = prepareSessionContext({
+        currentCycleKey: input.cycleKey,
+        latestUserInRecords: true,
+        model: input.model,
+        projectRoot: input.projectRoot,
+        prompt: input.prompt,
+        providerContextWindowTokens: input.provider.capabilities.contextWindowTokens,
+        records: input.store.readContextRecords(input.sessionKey),
+        session: refreshedSession,
+        tools
+      });
+      if (refreshed.compacted) {
+        prepared = refreshed;
+        messages = [...refreshed.messages];
+        persistPreparedContext(input, refreshedSession.contextTokenEstimate, refreshed);
+        for (const instruction of refreshed.instructions) knownInstructionKeys.add(instruction.instructionKey);
+      }
+    }
+    providerRequestCount += 1;
     let thinkingUnit: string | undefined;
     let answerUnit: string | undefined;
     const modelStepKey = `model_step_${randomUUID()}`;
@@ -419,6 +523,13 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
       }
     };
 
+    input.store.writeContextDebugSnapshot(input.sessionKey, input.cycleKey, {
+      ...prepared.debugSnapshot,
+      currentRequestEstimatedTokens: estimateProviderRequestTokens(messages, tools),
+      finalMessageRoles: messages.map((message) => message.role),
+      providerRequestCount,
+      updatedAt: new Date().toISOString()
+    });
     const response = await streamWithRecovery(input, {
       messages,
       model: input.model,
@@ -437,6 +548,12 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
         sessionKey: input.sessionKey,
         topic: "cycle.usage.replaced"
       });
+      input.store.updateContextTelemetryUsage(prepared.telemetry.telemetryKey, {
+        actualInputTokens: response.usage.inputTokens,
+        cacheHitTokens: response.usage.cacheHitTokens,
+        cacheMissTokens: response.usage.cacheMissTokens,
+        outputTokens: response.usage.outputTokens
+      });
     }
 
     if (response.protocolIssue) {
@@ -451,7 +568,7 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
         protocolCorrectionCount += 1;
         messages.push({
           role: "user",
-          text: `Runtime 检测到协议错误：${response.protocolIssue.message}\n不要输出 DSML、XML 或文本形式的工具标记。需要工具时请使用已提供的结构化 function tool_calls；否则直接给出完整最终回答。`
+          text: `${promptBlueprintRegistry.get("protocol_repair", input.model).text}\n错误详情：${response.protocolIssue.message}`
         });
         continue;
       }
@@ -462,6 +579,7 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
     if (answerUnit) sealUnit(input, answerUnit, { phase: "succeeded" });
     if (response.answer.trim()) finalResponse = response.answer.trim();
     messages.push(response.continuationMessage);
+    persistAssistantRecord(input, response.continuationMessage);
 
     if (response.finishCause === "length" || response.finishCause === "content_filter" || response.finishCause === "insufficient_system_resource") {
       throw new Error(response.finishCause === "length"
@@ -497,12 +615,19 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
     }
     let mutatedWorkspace = false;
     let protocolErrors = 0;
+    const nextPaths: string[] = [];
     for (const call of response.toolCalls) {
       const outcome = await executeTool(input, call, modelStepKey, toolUnits.get(call.callKey));
       messages.push(outcome.message);
       mutatedWorkspace ||= outcome.mutatedWorkspace;
       if (outcome.protocolError) protocolErrors += 1;
+      if (outcome.target) nextPaths.push(outcome.target);
     }
+    activePaths.push(...nextPaths);
+    const additionalInstructions = findNewPathInstructions(input.projectRoot, activePaths, knownInstructionKeys);
+    const instructionMessage = renderAdditionalInstructions(additionalInstructions);
+    if (instructionMessage) messages.push(instructionMessage);
+    for (const instruction of additionalInstructions) knownInstructionKeys.add(instruction.instructionKey);
     if (mutatedWorkspace) {
       input.store.append({
         cycleKey: input.cycleKey,
