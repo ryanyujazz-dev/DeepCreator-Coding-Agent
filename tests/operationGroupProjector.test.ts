@@ -104,7 +104,7 @@ test("visible model content seals inspection groups but completed thinking does 
   assert.equal(projection[0].type === "operation_group" && projection[0].group.totalCalls, 2);
 });
 
-test("groups consecutive successful commands but keeps failures standalone", () => {
+test("keeps failed commands inside command groups with an explicit failure summary", () => {
   const command = unit(2, {
     kind: "command",
     tool: tool({
@@ -133,10 +133,71 @@ test("groups consecutive successful commands but keeps failures standalone", () 
       toolName: "run_command"
     })
   });
-  const failed = unit(4, { error: "missing", phase: "failed", tool: tool({ callKey: "failed" }) });
-  const projection = projectOperationGroups(cycle([unit(1), command, secondCommand, failed]));
-  assert.deepEqual(projection.map((entry) => entry.type), ["operation_group", "operation_group", "activity_unit"]);
-  assert.equal(projection[1].type === "operation_group" && projection[1].group.summaryLabel, "已运行 2 条命令");
+  const failedCommand = unit(4, {
+    error: "missing",
+    kind: "command",
+    phase: "failed",
+    tool: tool({
+      aggregationPolicy: "standalone",
+      callKey: "command_3",
+      displayTarget: "npm run build",
+      effectKind: "process_side_effect",
+      importance: "notable",
+      normalizedTarget: "npm run build",
+      operationClass: "execute",
+      resourceKind: "process",
+      toolName: "run_command"
+    })
+  });
+  const projection = projectOperationGroups(cycle([unit(1), command, secondCommand, failedCommand]));
+  assert.deepEqual(projection.map((entry) => entry.type), ["operation_group", "operation_group"]);
+  assert.equal(projection[1].type === "operation_group" && projection[1].group.summaryLabel, "已运行 3 条命令 · 1 条失败");
+  assert.equal(projection[1].type === "operation_group" && projection[1].group.failureCount, 1);
+});
+
+test("renders one failed command as a collapsible command group", () => {
+  const failedCommand = unit(1, {
+    kind: "command",
+    phase: "failed",
+    tool: tool({
+      aggregationPolicy: "standalone",
+      displayTarget: "npm run dev:h5",
+      effectKind: "process_side_effect",
+      normalizedTarget: "npm run dev:h5",
+      operationClass: "execute",
+      resourceKind: "process",
+      toolName: "run_command"
+    })
+  });
+  const projection = projectOperationGroups(cycle([failedCommand]));
+  assert.equal(projection[0].type, "operation_group");
+  assert.equal(projection[0].type === "operation_group" && projection[0].group.summaryLabel, "命令运行失败");
+  assert.deepEqual(projection[0].type === "operation_group" && projection[0].group.memberUnitKeys, [failedCommand.unitKey]);
+});
+
+test("hides plan updates without splitting a surrounding inspection group", () => {
+  const plan = unit(2, {
+    kind: "tool",
+    title: "更新计划",
+    tool: tool({
+      aggregationPolicy: "standalone",
+      callKey: "plan",
+      displayTarget: "当前计划",
+      effectKind: "control_only",
+      normalizedTarget: "当前计划",
+      operationClass: "plan",
+      resourceKind: "plan",
+      toolName: "update_plan"
+    })
+  });
+  const projection = projectOperationGroups(cycle([
+    unit(1),
+    plan,
+    unit(3, { tool: tool({ callKey: "after-plan", displayTarget: "src/main.ts", normalizedTarget: "src/main.ts" }) })
+  ]));
+  assert.equal(projection.length, 1);
+  assert.equal(projection[0].type === "operation_group" && projection[0].group.totalCalls, 2);
+  assert.equal(projection[0].type === "operation_group" && projection[0].group.summaryLabel, "已检查 2 个文件");
 });
 
 test("uses authoritative workspace delta for modification summaries", () => {
@@ -165,6 +226,35 @@ test("uses authoritative workspace delta for modification summaries", () => {
   if (projection[0].type !== "operation_group") return;
   assert.equal(projection[0].group.summaryLabel, "已修改 1 个文件 +22 -4");
   assert.deepEqual(projection[0].group.workspaceDelta, { additions: 22, deletions: 4, fileCount: 1 });
+});
+
+test("projects standalone file mutations through the unified operation group", () => {
+  const deletion = unit(1, {
+    kind: "file_mutation",
+    tool: tool({
+      aggregationPolicy: "standalone",
+      displayTarget: "src/legacy.ts",
+      effectKind: "workspace_write",
+      importance: "notable",
+      normalizedTarget: "src/legacy.ts",
+      operationClass: "modify",
+      toolName: "delete_file"
+    })
+  });
+  const input = cycle([deletion]);
+  input.workspaceDelta = {
+    additions: 0,
+    comparisonBase: "cycle_start",
+    deletions: 18,
+    fileCount: 1,
+    files: [{ additions: 0, deletions: 18, operation: "deleted", path: "src/legacy.ts" }]
+  };
+
+  const projection = projectOperationGroups(input);
+  assert.equal(projection.length, 1);
+  assert.equal(projection[0].type, "operation_group");
+  assert.equal(projection[0].type === "operation_group" && projection[0].group.category, "modify");
+  assert.equal(projection[0].type === "operation_group" && projection[0].group.summaryLabel, "已修改 1 个文件 +0 -18");
 });
 
 test("updates the live group in place with a current target", () => {

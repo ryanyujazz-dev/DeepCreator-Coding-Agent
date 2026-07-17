@@ -63,6 +63,7 @@ export type ToolResultMetrics = {
   exitCode?: number;
   itemCount?: number;
   matchCount?: number;
+  timedOut?: boolean;
   truncated?: boolean;
 };
 
@@ -213,6 +214,7 @@ export type ActivityUnitView = {
   command?: {
     command: string;
     exitCode?: number;
+    timedOut?: boolean;
   };
   files?: FileDeltaView[];
   error?: string;

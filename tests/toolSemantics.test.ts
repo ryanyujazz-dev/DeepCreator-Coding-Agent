@@ -76,3 +76,22 @@ test("classifies command permission and mutation semantics from parsed arguments
   });
   assert.equal(destructive?.risk, "high");
 });
+
+test("reports command timeouts explicitly and preserves pipeline failures", async () => {
+  const timedOut = await executeRuntimeTool({
+    args: { command: "sleep 1" },
+    commandTimeoutMs: 25,
+    name: "run_command",
+    projectRoot: "/tmp"
+  });
+  assert.equal(timedOut.exitCode, 124);
+  assert.equal(timedOut.timedOut, true);
+  assert.match(timedOut.output, /执行超时/);
+
+  const pipeline = await executeRuntimeTool({
+    args: { command: "sh -c 'exit 7' | tail -1" },
+    name: "run_command",
+    projectRoot: "/tmp"
+  });
+  assert.equal(pipeline.exitCode, 7);
+});

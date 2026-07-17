@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { projectOperationGroups } from "../../shared/operationGroupProjector";
-import { CycleView, FileDeltaView, isTerminalCycle } from "../../shared/runtimeTypes";
+import { CycleView, WorkspaceDeltaView, isTerminalCycle } from "../../shared/runtimeTypes";
 import { ActivityRenderer } from "./ActivityRenderer";
 import { ChangePanel } from "./ChangePanel";
 import { OperationGroupRenderer } from "./OperationGroupRenderer";
@@ -13,10 +13,12 @@ function elapsed(cycle: CycleView): string {
 
 export function WorkCycleTimeline({
   cycle,
-  onOpenFile
+  onOpenFile,
+  onOpenReview
 }: {
   cycle: CycleView;
-  onOpenFile: (path: string, file?: FileDeltaView) => void;
+  onOpenFile: (path: string) => void;
+  onOpenReview: (delta: WorkspaceDeltaView) => void;
 }) {
   const active = !isTerminalCycle(cycle.phase);
   const visibleUnits = active
@@ -41,7 +43,13 @@ export function WorkCycleTimeline({
       {expanded && timelineEntries.length > 0 && (
         <section className="work-process" aria-label="工作过程">
           {timelineEntries.map((entry) => entry.type === "operation_group"
-            ? <OperationGroupRenderer group={entry.group} key={entry.entryKey} onOpenFile={onOpenFile} units={visibleUnits} />
+            ? <OperationGroupRenderer
+                group={entry.group}
+                key={entry.entryKey}
+                onOpenFile={onOpenFile}
+                units={visibleUnits}
+                workspaceDelta={cycle.workspaceDelta}
+              />
             : <ActivityRenderer cycleActive={active} key={entry.entryKey} onOpenFile={onOpenFile} unit={entry.unit} />)}
         </section>
       )}
@@ -50,7 +58,7 @@ export function WorkCycleTimeline({
           {(cycle.finalResponse || cycle.failure || "本次工作未产生回答。").split(/\n{2,}/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 20)}`}>{paragraph}</p>)}
         </section>
       )}
-      {!active && <ChangePanel delta={cycle.workspaceDelta} onOpenFile={onOpenFile} />}
+      {!active && <ChangePanel delta={cycle.workspaceDelta} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />}
     </div>
   );
 }

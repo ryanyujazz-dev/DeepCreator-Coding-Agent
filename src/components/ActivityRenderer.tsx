@@ -1,6 +1,6 @@
 import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, TerminalSquare, Wrench } from "lucide-react";
 import { useState } from "react";
-import { ActivityUnitView, FileDeltaView } from "../../shared/runtimeTypes";
+import { ActivityUnitView } from "../../shared/runtimeTypes";
 
 function iconFor(unit: ActivityUnitView) {
   if (unit.kind === "command") return <TerminalSquare size={13} />;
@@ -11,6 +11,9 @@ function iconFor(unit: ActivityUnitView) {
 }
 
 function completedTitle(unit: ActivityUnitView): string {
+  if (unit.command?.timedOut) return "命令运行超时";
+  if (unit.kind === "command" && unit.phase === "failed") return "命令运行失败";
+  if (unit.kind === "command" && unit.phase === "cancelled") return "命令已取消";
   if (unit.phase !== "succeeded") return unit.title;
   if (unit.kind === "command") {
     return unit.command?.command ? `已运行 ${unit.command.command}` : "命令执行完成";
@@ -40,7 +43,7 @@ export function ActivityRenderer({
   unit
 }: {
   cycleActive: boolean;
-  onOpenFile: (path: string, file?: FileDeltaView) => void;
+  onOpenFile: (path: string) => void;
   unit: ActivityUnitView;
 }) {
   const [commandExpanded, setCommandExpanded] = useState(false);
@@ -64,7 +67,10 @@ export function ActivityRenderer({
     );
   }
   if (unit.kind === "command") {
-    const output = [unit.command?.exitCode === undefined ? "" : `退出码 ${unit.command.exitCode}`, unit.body].filter(Boolean).join("\n\n") || "命令执行完成，无输出。";
+    const status = unit.command?.timedOut
+      ? "执行超时"
+      : unit.command?.exitCode === undefined ? "" : `退出码 ${unit.command.exitCode}`;
+    const output = [status, unit.body].filter(Boolean).join("\n\n") || "命令执行完成，无输出。";
     return (
       <article className={`work-step tool-step command-step is-${unit.phase}`}>
         <div className="work-dot">{iconFor(unit)}</div>

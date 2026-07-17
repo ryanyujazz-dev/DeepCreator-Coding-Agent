@@ -1,33 +1,28 @@
 import { CheckSquare, Copy, FileCode2, GitPullRequest, Globe2, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { FileDeltaView } from "../../shared/runtimeTypes";
 import { RuntimeFilePreview } from "../runtimeClient";
+import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
 
 export type WorkspaceSurface =
-  | { changedFiles?: FileDeltaView[]; file?: FileDeltaView; kind: "file"; path: string }
-  | { kind: "browser"; title?: string; url: string };
+  | { id: string; kind: "file"; path: string }
+  | { files: FileDeltaView[]; id: string; kind: "review"; selectedPath?: string; title?: string }
+  | { id: string; kind: "browser"; title?: string; url: string };
 
 function fileBreadcrumbs(file: RuntimeFilePreview): string[] {
   return file.path.split("/").filter(Boolean);
 }
 
 function FileSurface({
-  changedFiles,
   error,
   file,
-  fileDelta,
   loading
 }: {
-  changedFiles: FileDeltaView[];
   error: string | null;
   file: RuntimeFilePreview | null;
-  fileDelta?: FileDeltaView;
   loading: boolean;
 }) {
   const parts = file ? fileBreadcrumbs(file) : [];
-  const lines = file?.content.split("\n") ?? [];
-  if (fileDelta?.patch) {
-    return <ReviewSurface changedFiles={changedFiles} file={file} fileDelta={fileDelta} notice={error} />;
-  }
   if (loading) return <div className="surface-state">正在读取文件...</div>;
   if (error) return <div className="surface-state is-error">{error}</div>;
   if (!file) return <div className="surface-state">选择一个文件查看内容。</div>;
@@ -48,71 +43,63 @@ function FileSurface({
           <Copy size={13} />
         </button>
       </div>
-      <pre className="surface-code">
-        {lines.map((line, index) => (
-          <code key={`${index}-${line.slice(0, 16)}`}>
-            <span>{index + 1}</span>
-            <b>{line || " "}</b>
-          </code>
-        ))}
-      </pre>
+      <CodeFileViewer content={file.content} modelPath={`${file.projectRoot}/${file.path}`} path={file.path} />
     </>
   );
 }
 
-function diffLineClass(line: string): string {
-  if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff --git") || line.startsWith("index ")) return "is-meta";
-  if (line.startsWith("+")) return "is-add";
-  if (line.startsWith("-")) return "is-delete";
-  if (line.startsWith("@@")) return "is-hunk";
-  return "";
-}
-
 function ReviewSurface({
-  changedFiles,
-  file,
-  fileDelta,
-  notice
+  files,
+  selectedPath
 }: {
-  changedFiles: FileDeltaView[];
-  file: RuntimeFilePreview | null;
-  fileDelta: FileDeltaView;
-  notice?: string | null;
+  files: FileDeltaView[];
+  selectedPath?: string;
 }) {
-  const files = changedFiles.length > 0 ? changedFiles : [fileDelta];
-  const lines = fileDelta.patch!.split("\n").slice(0, 520);
-  const copyText = file?.content ?? fileDelta.patch ?? "";
+  const [activePath, setActivePath] = useState(selectedPath ?? files[0]?.path ?? "");
+  useEffect(() => {
+    setActivePath(selectedPath ?? files[0]?.path ?? "");
+  }, [files, selectedPath]);
+  const activeFile = useMemo(
+    () => files.find((item) => item.path === activePath) ?? files[0],
+    [activePath, files]
+  );
+  const totals = files.reduce(
+    (sum, item) => ({ additions: sum.additions + item.additions, deletions: sum.deletions + item.deletions }),
+    { additions: 0, deletions: 0 }
+  );
   return (
     <>
       <div className="surface-review-toolbar">
         <div>
           <strong>上一轮</strong>
-          <span><b>+{files.reduce((sum, item) => sum + item.additions, 0)}</b> <i>-{files.reduce((sum, item) => sum + item.deletions, 0)}</i></span>
+          <span><b>+{totals.additions}</b> <i>-{totals.deletions}</i></span>
         </div>
         <div className="surface-review-actions">
           <button aria-label="更多审阅操作" type="button"><MoreHorizontal size={14} /></button>
           <button aria-label="审阅设置" type="button"><GitPullRequest size={14} /></button>
-          <button aria-label="复制内容" onClick={() => void navigator.clipboard?.writeText(copyText)} type="button"><Copy size={14} /></button>
+          <button aria-label="复制当前 diff" onClick={() => void navigator.clipboard?.writeText(activeFile?.patch ?? "")} type="button"><Copy size={14} /></button>
         </div>
       </div>
-      {notice && <div className="surface-inline-notice">文件读取接口未生效，当前显示本轮 diff。重启 Runtime 后可查看完整文件。</div>}
       <div className="surface-review-files">
-        {files.slice(0, 5).map((item) => (
-          <div className={`surface-review-file ${item.path === fileDelta.path ? "is-active" : ""}`} key={item.path}>
+        {files.map((item) => (
+          <button
+            className={`surface-review-file ${item.path === activeFile?.path ? "is-active" : ""}`}
+            key={item.path}
+            onClick={() => setActivePath(item.path)}
+            title={item.path}
+            type="button"
+          >
             <FileCode2 size={13} />
             <span>{item.path}</span>
             <strong><b>+{item.additions}</b> <i>-{item.deletions}</i></strong>
-          </div>
+          </button>
         ))}
       </div>
-      <pre className="surface-diff" aria-label={`${fileDelta.path} diff`}>
-        {lines.map((line, index) => (
-          <code className={diffLineClass(line)} key={`${index}-${line.slice(0, 24)}`}>
-            <span>{line.startsWith("@@") ? "" : index + 1}</span>
-            <b>{line || " "}</b>
-          </code>
-        ))}
-      </pre>
+      {activeFile?.patch ? (
+        <CodeDiffViewer patch={activeFile.patch} path={activeFile.path} />
+      ) : (
+        <div className="surface-state">这个文件没有可展示的 diff。</div>
+      )}
     </>
   );
 }
@@ -126,39 +113,67 @@ function BrowserSurface({ surface }: { surface: Extract<WorkspaceSurface, { kind
   );
 }
 
+function surfaceTitle(surface: WorkspaceSurface): string {
+  if (surface.kind === "file") return surface.path.split("/").filter(Boolean).at(-1) ?? "文件";
+  if (surface.kind === "review") return surface.title ?? "审阅";
+  return surface.title ?? surface.url;
+}
+
+function surfaceIcon(surface: WorkspaceSurface) {
+  if (surface.kind === "review") return <CheckSquare size={13} />;
+  if (surface.kind === "browser") return <Globe2 size={13} />;
+  return <FileCode2 size={13} />;
+}
+
 export function WorkspaceSurfacePanel({
+  activeSurfaceId,
   file,
   fileError,
   fileLoading,
   isClosing = false,
   onClose,
-  surface
+  onCloseSurface,
+  onSelectSurface,
+  surfaces
 }: {
+  activeSurfaceId: string | null;
   file: RuntimeFilePreview | null;
   fileError: string | null;
   fileLoading: boolean;
   isClosing?: boolean;
   onClose: () => void;
-  surface: WorkspaceSurface | null;
+  onCloseSurface: (surfaceId: string) => void;
+  onSelectSurface: (surfaceId: string) => void;
+  surfaces: WorkspaceSurface[];
 }) {
-  if (!surface) return null;
-  const title = surface.kind === "file"
-    ? surface.path.split("/").filter(Boolean).at(-1) ?? "文件"
-    : surface.title ?? "浏览器";
+  if (surfaces.length === 0) return null;
+  const surface = surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0];
   return (
     <aside className={`workspace-surface-panel ${isClosing ? "is-closing" : "is-open"}`} aria-label="工作区侧栏">
       <header className="surface-tab-strip">
         <div className="surface-tabs">
-          <button className={`surface-tab ${surface.kind === "file" && !surface.file?.patch ? "is-active" : ""}`} type="button">
-            <FileCode2 size={13} />
-            <span>{surface.kind === "file" ? title : "文件"}</span>
-            {surface.kind === "file" && !surface.file?.patch && <X size={12} />}
-          </button>
-          <button className={`surface-tab ${surface.kind === "file" && surface.file?.patch ? "is-active" : ""}`} type="button">
-            <CheckSquare size={13} />
-            <span>审阅</span>
-            {surface.kind === "file" && surface.file?.patch && <X size={12} />}
-          </button>
+          {surfaces.map((candidate) => (
+            <div className={`surface-tab ${candidate.id === surface.id ? "is-active" : ""}`} key={candidate.id}>
+              <button
+                aria-selected={candidate.id === surface.id}
+                className="surface-tab-main"
+                onClick={() => onSelectSurface(candidate.id)}
+                title={surfaceTitle(candidate)}
+                type="button"
+              >
+                {surfaceIcon(candidate)}
+                <span>{surfaceTitle(candidate)}</span>
+              </button>
+              <button
+                aria-label={`关闭 ${surfaceTitle(candidate)}`}
+                className="surface-tab-close"
+                onClick={() => onCloseSurface(candidate.id)}
+                type="button"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
         </div>
         <div className="surface-window-actions">
           <button aria-label="新建标签" type="button"><Plus size={14} /></button>
@@ -169,8 +184,10 @@ export function WorkspaceSurfacePanel({
         </div>
       </header>
       {surface.kind === "file"
-        ? <FileSurface changedFiles={surface.changedFiles ?? []} error={fileError} file={file} fileDelta={surface.file} loading={fileLoading} />
-        : <BrowserSurface surface={surface} />}
+        ? <FileSurface error={fileError} file={file} loading={fileLoading} />
+        : surface.kind === "review"
+          ? <ReviewSurface files={surface.files} selectedPath={surface.selectedPath} />
+          : <BrowserSurface surface={surface} />}
     </aside>
   );
 }

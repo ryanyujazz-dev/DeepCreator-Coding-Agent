@@ -10,13 +10,13 @@ function diffLineClass(line: string): string {
   return "";
 }
 
-function FileChangeRow({ file, onOpenFile }: { file: FileDeltaView; onOpenFile: (path: string, file?: FileDeltaView) => void }) {
+function FileChangeRow({ file, onOpenFile }: { file: FileDeltaView; onOpenFile: (path: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const hasPatch = Boolean(file.patch?.trim());
   return (
     <div className={`patch-file ${expanded ? "is-expanded" : ""}`}>
       <div className="patch-row">
-        <button className="file-reference-button" onClick={() => onOpenFile(file.path, file)} title={file.path} type="button">
+        <button className="file-reference-button" onClick={() => onOpenFile(file.path)} title={file.path} type="button">
           {file.path}
         </button>
         <strong><b>+{file.additions}</b> <i>-{file.deletions}</i></strong>
@@ -42,14 +42,28 @@ function FileChangeRow({ file, onOpenFile }: { file: FileDeltaView; onOpenFile: 
   );
 }
 
-export function ChangePanel({ delta, onOpenFile }: { delta: WorkspaceDeltaView; onOpenFile: (path: string, file?: FileDeltaView) => void }) {
+export function ChangePanel({
+  delta,
+  onOpenFile,
+  onOpenReview
+}: {
+  delta: WorkspaceDeltaView;
+  onOpenFile: (path: string) => void;
+  onOpenReview: (delta: WorkspaceDeltaView) => void;
+}) {
   const [showAll, setShowAll] = useState(false);
   if (delta.fileCount === 0 || delta.comparisonBase !== "cycle_start") return null;
   const visibleFiles = showAll ? delta.files : delta.files.slice(0, 3);
   const hiddenCount = Math.max(0, delta.files.length - visibleFiles.length);
   return (
     <section className="patch-card">
-      <header><div><FileCode2 size={17} /><strong>已更改 {delta.fileCount} 个文件</strong><span><b>+{delta.additions}</b> <i>-{delta.deletions}</i></span></div></header>
+      <header>
+        <button className="patch-card-review-trigger" onClick={() => onOpenReview(delta)} type="button">
+          <FileCode2 size={17} />
+          <strong>已更改 {delta.fileCount} 个文件</strong>
+          <span><b>+{delta.additions}</b> <i>-{delta.deletions}</i></span>
+        </button>
+      </header>
       <div className="patch-list">
         {visibleFiles.map((file) => <FileChangeRow file={file} key={file.path} onOpenFile={onOpenFile} />)}
       </div>

@@ -1,12 +1,14 @@
 import { useLayoutEffect, useRef } from "react";
-import { WorkspaceSessionView } from "../../shared/runtimeTypes";
+import { WorkspaceDeltaView, WorkspaceSessionView } from "../../shared/runtimeTypes";
 import { WorkCycleTimeline } from "./WorkCycleTimeline";
 
 export function ConversationViewport({
   onOpenFile,
+  onOpenReview,
   session
 }: {
-  onOpenFile: (path: string, file?: import("../../shared/runtimeTypes").FileDeltaView) => void;
+  onOpenFile: (path: string) => void;
+  onOpenReview: (delta: WorkspaceDeltaView) => void;
   session: WorkspaceSessionView | null;
 }) {
   const scrollRef = useRef<HTMLElement>(null);
@@ -34,7 +36,7 @@ export function ConversationViewport({
           {session.cycles.map((cycle) => (
             <div className="conversation-turn" key={cycle.cycleKey}>
               <section className="user-turn"><p>{cycle.prompt}</p></section>
-              <WorkCycleTimeline cycle={cycle} onOpenFile={onOpenFile} />
+              <WorkCycleTimeline cycle={cycle} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />
             </div>
           ))}
         </div>

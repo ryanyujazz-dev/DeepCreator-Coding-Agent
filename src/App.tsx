@@ -1,4 +1,4 @@
-import { Component, ReactNode, useCallback, useState } from "react";
+import { Component, ReactNode, useCallback, useMemo, useState } from "react";
 import { MoreHorizontal, PanelRight, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
@@ -9,7 +9,13 @@ import { WorkspaceInspector } from "./components/WorkspaceInspector";
 import { WorkspaceSurface, WorkspaceSurfacePanel } from "./components/WorkspaceSurfacePanel";
 import { RuntimeFilePreview, runtimeClient } from "./runtimeClient";
 import { useRuntimeWorkspace } from "./useRuntimeWorkspace";
-import { FileDeltaView } from "../shared/runtimeTypes";
+import { WorkspaceDeltaView } from "../shared/runtimeTypes";
+
+type SurfaceFileState = {
+  error: string | null;
+  file: RuntimeFilePreview | null;
+  loading: boolean;
+};
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
   state = { message: null };
@@ -23,10 +29,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { message: str
 }
 
 export function App() {
-  const [surface, setSurface] = useState<WorkspaceSurface | null>(null);
-  const [surfaceFile, setSurfaceFile] = useState<RuntimeFilePreview | null>(null);
-  const [surfaceFileError, setSurfaceFileError] = useState<string | null>(null);
-  const [surfaceFileLoading, setSurfaceFileLoading] = useState(false);
+  const [surfaces, setSurfaces] = useState<WorkspaceSurface[]>([]);
+  const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
+  const [surfaceFiles, setSurfaceFiles] = useState<Record<string, SurfaceFileState>>({});
   const [surfaceClosing, setSurfaceClosing] = useState(false);
   const {
     activeCycle,
@@ -58,40 +63,80 @@ export function App() {
   const currentDelta = currentCycle?.workspaceDelta.comparisonBase === "cycle_start"
     ? currentCycle.workspaceDelta
     : { additions: 0, deletions: 0, fileCount: 0 };
-  const openFileSurface = useCallback((filePath: string, fileDelta?: FileDeltaView) => {
+  const activeSurface = useMemo(
+    () => surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0] ?? null,
+    [activeSurfaceId, surfaces]
+  );
+  const activeFileState = activeSurface?.kind === "file" ? surfaceFiles[activeSurface.path] : undefined;
+  const openFileSurface = useCallback((filePath: string) => {
     if (!session?.sessionKey) return;
-    const cycleDeltas = session.cycles
-      .map((cycle) => cycle.workspaceDelta)
-      .filter((delta) => delta.comparisonBase === "cycle_start" && delta.fileCount > 0);
-    const latestDelta = [...cycleDeltas].reverse().find((delta) => delta.files.some((file) => file.path === filePath));
-    const matchedFile = fileDelta ?? latestDelta?.files.find((file) => file.path === filePath);
+    const surfaceId = `file:${filePath}`;
     setSurfaceClosing(false);
-    setSurface({ changedFiles: latestDelta?.files, file: matchedFile, kind: "file", path: filePath });
-    setSurfaceFile(null);
-    setSurfaceFileError(null);
-    setSurfaceFileLoading(true);
+    setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
+      ? current
+      : [...current, { id: surfaceId, kind: "file", path: filePath }]);
+    setActiveSurfaceId(surfaceId);
+    setSurfaceFiles((current) => ({
+      ...current,
+      [filePath]: { error: null, file: current[filePath]?.file ?? null, loading: true }
+    }));
     void runtimeClient.getFile(session.sessionKey, filePath)
       .then((file) => {
-        setSurfaceFile(file);
-        setSurfaceFileError(null);
+        setSurfaceFiles((current) => ({
+          ...current,
+          [filePath]: { error: null, file, loading: false }
+        }));
       })
       .catch((nextError) => {
         const message = nextError instanceof Error ? nextError.message : String(nextError);
-        setSurfaceFileError(/Route GET:\/api\/sessions\/.+\/files|not found/i.test(message)
-          ? "文件读取接口未生效，请重启 Runtime。"
-          : message);
+        setSurfaceFiles((current) => ({
+          ...current,
+          [filePath]: {
+            error: /Route GET:\/api\/sessions\/.+\/files|not found/i.test(message)
+              ? "文件读取接口未生效，请重启 Runtime。"
+              : message,
+            file: current[filePath]?.file ?? null,
+            loading: false
+          }
+        }));
       })
-      .finally(() => setSurfaceFileLoading(false));
   }, [session]);
-  const closeSurface = useCallback(() => {
-    setSurfaceClosing(true);
-    window.setTimeout(() => {
-      setSurface(null);
-      setSurfaceFile(null);
-      setSurfaceFileError(null);
-      setSurfaceClosing(false);
-    }, 190);
-  }, []);
+  const openReviewSurface = useCallback((delta?: WorkspaceDeltaView) => {
+    const reviewDelta = delta ?? [...(session?.cycles ?? [])]
+      .reverse()
+      .map((cycle) => cycle.workspaceDelta)
+      .find((candidate) => candidate.comparisonBase === "cycle_start" && candidate.fileCount > 0);
+    if (!reviewDelta || reviewDelta.comparisonBase !== "cycle_start" || reviewDelta.fileCount === 0) return;
+    const surfaceId = `review:${reviewDelta.files.map((file) => file.path).join("|")}:${reviewDelta.additions}:${reviewDelta.deletions}`;
+    const reviewSurface: WorkspaceSurface = { files: reviewDelta.files, id: surfaceId, kind: "review", title: "审阅" };
+    setSurfaceClosing(false);
+    setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
+      ? current.map((candidate) => candidate.id === surfaceId ? reviewSurface : candidate)
+      : [...current, reviewSurface]);
+    setActiveSurfaceId(surfaceId);
+  }, [session?.cycles]);
+  const closeSurfaceTab = useCallback((surfaceId: string) => {
+    setSurfaces((current) => {
+      const closingIndex = current.findIndex((candidate) => candidate.id === surfaceId);
+      if (closingIndex === -1) return current;
+      const next = current.filter((candidate) => candidate.id !== surfaceId);
+      if (next.length === 0) {
+        setSurfaceClosing(true);
+        window.setTimeout(() => {
+          setActiveSurfaceId(null);
+          setSurfaceClosing(false);
+        }, 190);
+        return next;
+      }
+      if (activeSurfaceId === surfaceId) {
+        setActiveSurfaceId(next[Math.min(closingIndex, next.length - 1)]?.id ?? next[0].id);
+      }
+      return next;
+    });
+  }, [activeSurfaceId]);
+  const closeActiveSurface = useCallback(() => {
+    if (activeSurfaceId) closeSurfaceTab(activeSurfaceId);
+  }, [activeSurfaceId, closeSurfaceTab]);
 
   return (
     <AppErrorBoundary>
@@ -103,15 +148,15 @@ export function App() {
           selectedSessionKey={session?.sessionKey ?? null}
           sessions={sessions}
         />
-        <main className={`workspace conversation-workspace ${surface ? "has-surface" : ""}`}>
+        <main className={`workspace conversation-workspace ${surfaces.length > 0 ? "has-surface" : ""}`}>
           <div className="conversation-main">
             <header className="thread-header">
               <div className="thread-title"><TerminalSquare size={16} /><span>{session?.title ?? "DeepSeeker CodeAgent"}</span><MoreHorizontal size={14} /></div>
               <ConnectionStatus phase={connection} />
             </header>
             <div className="window-actions"><button className="icon-button" aria-label="视图设置"><SlidersHorizontal size={14} /></button><button className="icon-button" aria-label="工作区面板"><PanelRight size={14} /></button></div>
-            <WorkspaceInspector session={session} />
-            <ConversationViewport onOpenFile={openFileSurface} session={session} />
+            <WorkspaceInspector onOpenReview={openReviewSurface} session={session} />
+            <ConversationViewport onOpenFile={openFileSurface} onOpenReview={openReviewSurface} session={session} />
             <div className="composer-dock">
               {currentCycle && (
                 <div className={`composer-hud is-${currentCycle.phase}`}>
@@ -134,12 +179,15 @@ export function App() {
             </div>
           </div>
           <WorkspaceSurfacePanel
-            file={surfaceFile}
-            fileError={surfaceFileError}
-            fileLoading={surfaceFileLoading}
+            activeSurfaceId={activeSurface?.id ?? null}
+            file={activeFileState?.file ?? null}
+            fileError={activeFileState?.error ?? null}
+            fileLoading={activeFileState?.loading ?? false}
             isClosing={surfaceClosing}
-            onClose={closeSurface}
-            surface={surface}
+            onClose={closeActiveSurface}
+            onCloseSurface={closeSurfaceTab}
+            onSelectSurface={setActiveSurfaceId}
+            surfaces={surfaces}
           />
         </main>
       </div>

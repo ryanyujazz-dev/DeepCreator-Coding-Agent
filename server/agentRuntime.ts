@@ -291,7 +291,7 @@ async function executeTool(
     });
     sealUnit(input, unitKey, {
       body: summarizeToolResult(call.name, args, result.output),
-      command: result.command ? { command: result.command, exitCode: result.exitCode } : undefined,
+      command: result.command ? { command: result.command, exitCode: result.exitCode, timedOut: result.timedOut } : undefined,
       phase: result.exitCode && result.exitCode !== 0 ? "failed" : "succeeded",
       tool: completedTool
     });

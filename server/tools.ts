@@ -34,6 +34,7 @@ export type RuntimeToolResult = {
   command?: string;
   exitCode?: number;
   mutatedWorkspace: boolean;
+  timedOut?: boolean;
 };
 
 export type RuntimeToolProgress = {
@@ -227,15 +228,16 @@ function runShell(
   signal?: AbortSignal,
   timeoutMs = 120_000,
   onOutput?: (progress: RuntimeToolProgress) => void
-): Promise<{ exitCode: number; output: string }> {
+): Promise<{ exitCode: number; output: string; timedOut?: boolean }> {
   return new Promise((resolve, reject) => {
-    const child = spawn("/bin/zsh", ["-lc", command], {
+    const child = spawn("/bin/zsh", ["-lc", `set -o pipefail\n${command}`], {
       cwd: ensureInsideRoot(projectRoot),
       detached: true,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"]
     });
     let output = "";
+    let timedOut = false;
     const append = (chunk: Buffer) => {
       const text = chunk.toString();
       output += text;
@@ -261,7 +263,11 @@ function runShell(
         }
       }, 2_000);
     };
-    const timer = setTimeout(terminate, timeoutMs);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      onOutput?.({ text: `\n命令执行超过 ${Math.ceil(timeoutMs / 1000)} 秒，正在停止。\n` });
+      terminate();
+    }, timeoutMs);
     const heartbeat = setInterval(() => onOutput?.({ text: "" }), 2_000);
     heartbeat.unref?.();
     const abort = terminate;
@@ -280,6 +286,15 @@ function runShell(
       signal?.removeEventListener("abort", abort);
       if (signal?.aborted) return reject(new DOMException("运行已取消。", "AbortError"));
       const cleanedOutput = output.trimEnd();
+      if (timedOut) {
+        const timeoutMessage = `命令执行超时（${Math.ceil(timeoutMs / 1000)} 秒），Runtime 已停止该进程。`;
+        resolve({
+          exitCode: 124,
+          output: redactSensitiveText(cleanedOutput ? `${cleanedOutput}\n\n${timeoutMessage}` : timeoutMessage),
+          timedOut: true
+        });
+        return;
+      }
       resolve({ exitCode: code ?? 1, output: redactSensitiveText(cleanedOutput || "命令执行完成，无输出。") });
     });
   });
@@ -486,8 +501,9 @@ export async function executeRuntimeTool(input: {
   args: Record<string, unknown>;
   signal?: AbortSignal;
   onOutput?: (progress: RuntimeToolProgress) => void;
+  commandTimeoutMs?: number;
 }): Promise<RuntimeToolResult> {
-  const { projectRoot, name, args, signal, onOutput } = input;
+  const { projectRoot, name, args, signal, onOutput, commandTimeoutMs } = input;
   if (name === "list_files") return { mutatedWorkspace: false, output: await listFiles(projectRoot, args) };
   if (name === "read_file") return { mutatedWorkspace: false, output: await readFile(projectRoot, args as never) };
   if (name === "git_status") {
@@ -500,7 +516,7 @@ export async function executeRuntimeTool(input: {
   if (name === "run_command") {
     const command = String(args.command ?? "").trim();
     if (!command) throw new Error("command 不能为空。");
-    const result = await runShell(projectRoot, command, signal, 120_000, onOutput);
+    const result = await runShell(projectRoot, command, signal, commandTimeoutMs ?? 120_000, onOutput);
     return { ...result, command, mutatedWorkspace: !analyzeCommand(command).readOnly };
   }
   throw new Error(`未知工具：${name}`);
@@ -719,6 +735,7 @@ function resultMetricsFor(
     exitCode: result.exitCode,
     itemCount: name === "list_files" ? lines : name === "read_file" || operationClass === "modify" ? 1 : undefined,
     matchCount: operationClass === "search" ? lines : undefined,
+    timedOut: result.timedOut,
     truncated: name === "read_file" && output.length >= Number(args.maxChars ?? 40_000)
   };
 }

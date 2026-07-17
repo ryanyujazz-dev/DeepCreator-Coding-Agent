@@ -24,13 +24,11 @@ function maxImportance(left: ToolImportance, right: ToolImportance): ToolImporta
 
 function groupCategory(unit: ActivityUnitView): ToolOperationClass | undefined {
   const tool = unit.tool;
-  if (!tool || unit.phase === "failed" || unit.phase === "cancelled") return undefined;
+  if (!tool) return undefined;
+  if (tool.operationClass === "plan") return undefined;
   if (tool.toolName === "run_command" && (tool.operationClass === "execute" || tool.operationClass === "verify")) return tool.operationClass;
-  if (tool.aggregationPolicy === "standalone") return undefined;
   if (tool.operationClass === "inspect" || tool.operationClass === "search") return "inspect";
-  if (tool.operationClass === "modify" && tool.aggregationPolicy === "workspace_delta") return "modify";
-  if (tool.operationClass === "verify" && tool.aggregationPolicy === "consecutive") return "verify";
-  return undefined;
+  return tool.operationClass;
 }
 
 function detailKind(unit: ActivityUnitView): OperationDetailKind {
@@ -87,6 +85,10 @@ function workspaceDeltaForMembers(
 
 function summarize(group: MutableGroup, workspaceDelta: WorkspaceDeltaView): string {
   const active = group.phase === "open";
+  const countUnit = group.category === "modify" ? "个文件" : group.category === "execute" ? "条" : "项";
+  const failureSuffix = group.failureCount > 0 ? ` · ${group.failureCount} ${countUnit}失败` : "";
+  const cancelledCount = group.members.filter((unit) => unit.phase === "cancelled").length;
+  const cancelledSuffix = cancelledCount > 0 ? ` · ${cancelledCount} ${countUnit}已取消` : "";
   if (group.category === "modify") {
     const delta = workspaceDeltaForMembers(group.members, workspaceDelta);
     group.workspaceDelta = delta;
@@ -95,21 +97,24 @@ function summarize(group: MutableGroup, workspaceDelta: WorkspaceDeltaView): str
     const diff = active || (delta.additions === 0 && delta.deletions === 0)
       ? ""
       : ` +${delta.additions} -${delta.deletions}`;
-    return `${prefix} ${count} 个文件${diff}`;
+    if (!active && group.totalCalls === 1 && group.failureCount === 1) return "文件修改失败";
+    return `${prefix} ${count} 个文件${diff}${failureSuffix}${cancelledSuffix}`;
   }
   if (group.category === "verify") {
-    return `${active ? "正在运行" : "已运行"} ${group.totalCalls} 项验证`;
+    if (!active && group.totalCalls === 1 && group.failureCount === 1) return "验证失败";
+    return `${active ? "正在运行" : "已运行"} ${group.totalCalls} 项验证${failureSuffix}${cancelledSuffix}`;
   }
   if (group.category === "execute") {
-    return `${active ? "正在运行" : "已运行"} ${group.totalCalls} 条命令`;
+    if (!active && group.totalCalls === 1 && group.failureCount === 1) return "命令运行失败";
+    return `${active ? "正在运行" : "已运行"} ${group.totalCalls} 条命令${failureSuffix}${cancelledSuffix}`;
   }
   const fileCount = unique(
     group.members
       .filter((unit) => unit.tool?.resourceKind === "file")
       .map((unit) => unit.tool?.normalizedTarget ?? "")
   ).length;
-  if (fileCount > 0) return `${active ? "正在检查" : "已检查"} ${fileCount} 个文件`;
-  return `${active ? "正在检查" : "已完成"} ${group.totalCalls} 项检查`;
+  if (fileCount > 0) return `${active ? "正在检查" : "已检查"} ${fileCount} 个文件${failureSuffix}${cancelledSuffix}`;
+  return `${active ? "正在检查" : "已完成"} ${group.totalCalls} 项检查${failureSuffix}${cancelledSuffix}`;
 }
 
 function rebuildGroup(group: MutableGroup, workspaceDelta: WorkspaceDeltaView): void {
@@ -179,7 +184,9 @@ function createGroup(unit: ActivityUnitView, category: ToolOperationClass, works
 }
 
 function isInvisibleCompletedUnit(unit: ActivityUnitView): boolean {
-  return unit.audience === "internal" || (unit.kind === "thinking" && unit.phase !== "open");
+  return unit.audience === "internal"
+    || unit.tool?.operationClass === "plan"
+    || (unit.kind === "thinking" && unit.phase !== "open");
 }
 
 export function projectOperationGroups(
