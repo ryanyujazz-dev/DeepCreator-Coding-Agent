@@ -159,7 +159,9 @@ export function CodeDiffViewer({ compact = false, patch, path }: { compact?: boo
           ...sharedOptions,
           domReadOnly: true,
           folding: compact ? false : sharedOptions.folding,
+          hideCursorInOverviewRuler: true,
           lineNumbers: (lineNumber) => String(displayLines[lineNumber - 1]?.lineNumber ?? ""),
+          overviewRulerLanes: 0,
           padding: compact ? { bottom: 5, top: 5 } : sharedOptions.padding,
           readOnly: true,
           renderLineHighlight: "none"
