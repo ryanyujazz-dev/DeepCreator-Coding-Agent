@@ -948,6 +948,7 @@ textarea:disabled {
 
 .operation-group-expander,
 .operation-command-expander,
+.operation-file-detail-expander,
 .operation-detail-body {
   display: grid;
   grid-template-rows: 0fr;
@@ -957,6 +958,7 @@ textarea:disabled {
 
 .operation-group-expander.is-expanded,
 .operation-command-expander.is-expanded,
+.operation-file-detail-expander.is-expanded,
 .operation-detail-body.is-expanded {
   grid-template-rows: 1fr;
   opacity: 1;
@@ -964,6 +966,7 @@ textarea:disabled {
 
 .operation-group-expander > div,
 .operation-command-expander > div,
+.operation-file-detail-expander > div,
 .operation-detail-body > div {
   min-height: 0;
   overflow: hidden;
@@ -1012,7 +1015,104 @@ textarea:disabled {
   max-height: none;
   overflow: visible;
   padding-right: 0;
-  gap: 7px;
+  gap: 2px;
+}
+
+.operation-modification-file {
+  min-width: 0;
+}
+
+.operation-file-summary {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  min-height: 20px;
+  min-width: 0;
+  padding: 0;
+  align-items: center;
+  color: var(--process-muted-color);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--process-meta-size);
+  font-weight: 500;
+  line-height: 1.5;
+  gap: 4px;
+  outline: none;
+}
+
+.operation-file-summary-icon {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #9ba2a5;
+}
+
+.operation-file-summary-action {
+  flex: 0 0 auto;
+  color: var(--process-muted-color);
+  transition: color 120ms ease;
+}
+
+.operation-file-summary-name {
+  overflow: hidden;
+  min-width: 0;
+  max-width: min(380px, 48vw);
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted #a6adaf;
+  background: transparent;
+  color: #747d80;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  transition: border-color 120ms ease, color 120ms ease;
+  white-space: nowrap;
+}
+
+.operation-file-summary-name:hover,
+.operation-file-summary-name:focus-visible {
+  border-bottom-color: #555f63;
+  color: #252d30;
+  outline: none;
+}
+
+.operation-file-summary-chevron {
+  flex: 0 0 auto;
+  color: #858e91;
+  opacity: 0;
+  transition: color 120ms ease, opacity 120ms ease, transform 180ms ease;
+}
+
+.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-file-summary-action,
+.operation-file-summary:focus-visible .operation-file-summary-action,
+.operation-file-summary[aria-expanded="true"] .operation-file-summary-action {
+  color: #252d30;
+}
+
+.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-diff-metrics b,
+.operation-file-summary:focus-visible .operation-diff-metrics b {
+  color: #159447;
+}
+
+.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-diff-metrics i,
+.operation-file-summary:focus-visible .operation-diff-metrics i {
+  color: #db4b46;
+}
+
+.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-file-summary-icon,
+.operation-file-summary:focus-visible .operation-file-summary-icon,
+.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-file-summary-chevron,
+.operation-file-summary:focus-visible .operation-file-summary-chevron,
+.operation-file-summary[aria-expanded="true"] .operation-file-summary-chevron {
+  color: #5d676b;
+  opacity: 1;
+}
+
+.operation-file-summary[aria-expanded="true"] .operation-file-summary-chevron {
+  transform: rotate(90deg);
 }
 
 .operation-call-row {

@@ -77,17 +77,29 @@ function directActionLabel(unit: ActivityUnitView): string {
 }
 
 function expandedActionLabel(group: OperationGroupView, members: ActivityUnitView[]): string {
-  const first = members[0];
-  if (group.category === "modify") {
-    if (first?.tool?.toolName === "write_file") return "已创建的文件";
-    if (first?.tool?.toolName === "delete_file") return "已删除的文件";
-    return "已编辑的文件";
-  }
+  if (group.category === "modify") return "已编辑的文件";
   if (group.category === "execute") return group.phase === "failed" ? "运行失败的命令" : "已运行的命令";
   if (group.category === "verify") return group.phase === "failed" ? "验证失败的命令" : "已验证的命令";
   if (members.every((unit) => unit.tool?.toolName === "read_file")) return "已读取的文件";
   if (members.every((unit) => unit.tool?.operationClass === "search")) return "搜索记录";
   return "检查记录";
+}
+
+function modificationAction(operation: FileDeltaView["operation"], active = false): string {
+  if (operation === "created") return active ? "正在创建" : "已创建";
+  if (operation === "deleted") return active ? "正在删除" : "已删除";
+  return active ? "正在编辑" : "已编辑";
+}
+
+function modificationGroupLabel(
+  group: OperationGroupView,
+  changedFiles: FileDeltaView[]
+): string {
+  if (group.phase === "failed" && group.failureCount === group.totalCalls) return "文件修改失败";
+  const active = group.phase === "open";
+  const action = active ? "正在编辑" : "已编辑";
+  const fileCount = group.workspaceDelta?.fileCount || changedFiles.length || group.uniqueTargets.length || group.totalCalls;
+  return `${action} ${fileCount} 个文件`;
 }
 
 function commandOutput(unit: ActivityUnitView): string {
@@ -168,30 +180,58 @@ function OperationMemberRow({
   );
 }
 
-function InlineFileDiff({
-  defaultExpanded,
+function ModificationFileRow({
   file,
   onOpenFile
 }: {
-  defaultExpanded: boolean;
   file: FileDeltaView;
   onOpenFile: (path: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(false);
   const hasPatch = Boolean(file.patch?.trim());
   return (
-    <OperationDetailPanel
-      className="operation-inline-diff"
-      collapsible={!defaultExpanded && hasPatch}
-      copyValue={file.patch ?? ""}
-      expanded={!hasPatch || expanded}
-      meta={<span className="operation-diff-metrics"><b>+{file.additions}</b> <i>-{file.deletions}</i></span>}
-      onTitleClick={() => onOpenFile(file.path)}
-      onToggle={() => setExpanded((value) => !value)}
-      title={file.path}
-    >
-      {hasPatch ? <CodeDiffViewer compact patch={file.patch!} path={file.path} /> : <div className="operation-detail-empty">暂无可展示的变更内容。</div>}
-    </OperationDetailPanel>
+    <div className={`operation-modification-file ${expanded ? "is-expanded" : ""}`}>
+      <div
+        aria-expanded={expanded}
+        className="operation-file-summary"
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest(".operation-file-summary-name")) return;
+          setExpanded((value) => !value);
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
+          setExpanded((value) => !value);
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        <span className="operation-file-summary-icon"><PencilLine size={13} /></span>
+        <span className="operation-file-summary-action">{modificationAction(file.operation)}</span>
+        <button
+          className="operation-file-summary-name"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenFile(file.path);
+          }}
+          title={file.path}
+          type="button"
+        >
+          {file.path}
+        </button>
+        <span className="operation-diff-metrics"><b>+{file.additions}</b> <i>-{file.deletions}</i></span>
+        <ChevronRight className="operation-file-summary-chevron" size={13} />
+      </div>
+      <div className={`operation-file-detail-expander ${expanded ? "is-expanded" : ""}`}>
+        <div>{expanded && (
+          <OperationDetailPanel copyValue={file.patch ?? ""} title={file.path}>
+            {hasPatch
+              ? <CodeDiffViewer compact patch={file.patch!} path={file.path} />
+              : <div className="operation-detail-empty">暂无可展示的变更内容。</div>}
+          </OperationDetailPanel>
+        )}</div>
+      </div>
+    </div>
   );
 }
 
@@ -222,7 +262,9 @@ export function OperationGroupRenderer({
       ? workspaceDelta.files.filter((file) => targets.has(file.path.replaceAll("\\", "/")))
       : [];
   }, [members, workspaceDelta]);
-  const directFile = group.totalCalls === 1 && fileTargets.length === 1 ? fileTargets[0] : undefined;
+  const directFile = group.category !== "modify" && group.totalCalls === 1 && fileTargets.length === 1
+    ? fileTargets[0]
+    : undefined;
   const directMember = directFile ? members[0] : undefined;
   const metrics = group.category === "modify" && group.workspaceDelta && group.phase !== "open"
     ? group.workspaceDelta
@@ -236,9 +278,11 @@ export function OperationGroupRenderer({
     event.preventDefault();
     toggleExpanded();
   };
-  const collapsedLabel = directMember
-    ? directActionLabel(directMember)
-    : group.summaryLabel.replace(/\s\+\d+\s-\d+(?=\s|$)/, "");
+  const collapsedLabel = group.category === "modify"
+    ? modificationGroupLabel(group, changedFiles)
+    : directMember
+      ? directActionLabel(directMember)
+      : group.summaryLabel.replace(/\s\+\d+\s-\d+(?=\s|$)/, "");
 
   return (
     <article className={`operation-group is-${group.phase} ${expanded ? "is-expanded" : ""}`}>
@@ -280,8 +324,7 @@ export function OperationGroupRenderer({
             <div className={`operation-group-details is-${group.category}`} aria-label="工具调用记录">
               {group.category === "modify" && changedFiles.length > 0
                 ? changedFiles.map((file) => (
-                    <InlineFileDiff
-                      defaultExpanded={changedFiles.length === 1}
+                    <ModificationFileRow
                       file={file}
                       key={file.path}
                       onOpenFile={onOpenFile}
