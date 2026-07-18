@@ -200,6 +200,28 @@ test("hides plan updates without splitting a surrounding inspection group", () =
   assert.equal(projection[0].type === "activity_group" && projection[0].group.summaryLabel, "已检查 2 个文件");
 });
 
+test("keeps a submitted Plan as an independent timeline projection", () => {
+  const submittedPlan = activity(2, {
+    body: "## 实施步骤\n\n1. 调整 Runtime",
+    kind: "plan",
+    title: "Runtime 实施计划",
+    tool: tool({
+      groupMode: "standalone",
+      callId: "submitted-plan",
+      displayTarget: "实施方案",
+      effect: "control_only",
+      normalizedTarget: "实施方案",
+      action: "plan",
+      targetKind: "task",
+      toolName: "submit_plan"
+    })
+  });
+  const projection = projectGroups(run([activity(1), submittedPlan]));
+  assert.equal(projection.length, 2);
+  assert.equal(projection[1].type, "activity");
+  assert.equal(projection[1].type === "activity" && projection[1].activity.activityId, submittedPlan.activityId);
+});
+
 test("uses authoritative workspace delta for modification summaries", () => {
   const modification = activity(1, {
     kind: "file_mutation",

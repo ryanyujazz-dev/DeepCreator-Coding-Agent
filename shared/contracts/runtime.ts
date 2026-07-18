@@ -9,6 +9,7 @@ export type PlanEntry = "manual" | "suggest" | "auto";
 export type ActivityKind =
   | "thinking"
   | "message"
+  | "plan"
   | "tool"
   | "command"
   | "file_mutation"

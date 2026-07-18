@@ -113,6 +113,7 @@ export class ToolPipeline {
       // validate
       if (!this.host.has(call.name)) throw new Error(`未知工具：${call.name}。可用工具：${this.host.names().join(", ")}`);
       const title = this.host.title(call.name);
+      const activityTitle = call.name === "submit_plan" ? String(args.title ?? title) : title;
       const prepared = this.host.prepare({
         args,
         argumentsPreview: argsSummary,
@@ -125,13 +126,13 @@ export class ToolPipeline {
         audience: "user",
         kind: this.host.kind(prepared),
         startedAt: new Date().toISOString(),
-        title,
+        title: activityTitle,
         tool: prepared
       });
       if (existingActivityId) {
         input.store.append({
           activityId,
-          data: { kind: this.host.kind(prepared), title, tool: prepared },
+          data: { kind: this.host.kind(prepared), title: activityTitle, tool: prepared },
           runId: input.runId,
           sessionId: input.sessionId,
           type: "activity.updated"
@@ -276,7 +277,10 @@ export class ToolPipeline {
         startedAt: new Date().toISOString(),
         title: `工具调用失败：${call.name || "未知工具"}`
       });
-      finishActivity(input, activityId, { body: message, error: message, status: "failed" });
+      const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
+      finishActivity(input, activityId, activity?.kind === "plan"
+        ? { error: message, status: "failed" }
+        : { body: message, error: message, status: "failed" });
       const text = `工具执行失败：${message}`;
       this.record(input, call, modelStepId, text, { action: "execute", target: call.name || "未知工具" }, true);
       return {
@@ -320,7 +324,7 @@ export class ToolPipeline {
   ): ToolOutcome {
     const text = `Runtime 拒绝了该操作：${reason}`;
     finishActivity(input, activityId, {
-      body: reason,
+      body: prepared.toolName === "submit_plan" ? undefined : reason,
       error: reason,
       status: "failed",
       tool: { ...prepared, resultSummary: reason }
@@ -443,7 +447,12 @@ export class ToolPipeline {
       sessionId: input.sessionId,
       type: existing ? "plan.revised" : "plan.proposed"
     });
-    finishActivity(input, activityId, { body: "方案已提交，等待用户审阅。", status: "completed", tool: { ...prepared, resultSummary: "等待用户审阅" } });
+    finishActivity(input, activityId, {
+      body: markdown,
+      status: "completed",
+      title,
+      tool: { ...prepared, resultSummary: "等待用户审阅" }
+    });
     return { contextRecords: [], mutatedWorkspace: false, protocolError: false, suspended: true, target: "实施方案" };
   }
 

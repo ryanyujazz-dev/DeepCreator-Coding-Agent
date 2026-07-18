@@ -1,6 +1,6 @@
-import { ArrowUp, ArrowUpDown, Check, ChevronDown, Lightbulb, Mic, Plus, Shield, ShieldAlert, ShieldCheck, Square } from "lucide-react";
-import { CSSProperties, FormEvent, useMemo, useState } from "react";
-import { AccessMode, Mode } from "../../shared/contracts/runtime";
+import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
+import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import { AccessMode, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 
 const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
@@ -18,7 +18,11 @@ export function Composer({
   onCancel,
   onAccessModeChange,
   onModeChange,
+  onAnswerQuestion,
+  onResolvePlan,
   onSubmit,
+  pendingPlan,
+  pendingQuestion,
   accessMode,
   mode
 }: {
@@ -30,7 +34,11 @@ export function Composer({
   onCancel: () => void;
   onAccessModeChange: (mode: AccessMode) => void;
   onModeChange: (mode: Mode) => void;
+  onAnswerQuestion: (interactionId: string, answers: Record<string, string>) => Promise<void> | void;
+  onResolvePlan: (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => Promise<void> | void;
   onSubmit: (prompt: string) => void;
+  pendingPlan?: Plan;
+  pendingQuestion?: Question;
   accessMode: AccessMode;
   mode: Mode;
 }) {
@@ -39,8 +47,19 @@ export function Composer({
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
   const [contextSortMenuOpen, setContextSortMenuOpen] = useState(false);
+  const [comments, setComments] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [interactionBusy, setInteractionBusy] = useState(false);
   const selectedAccess = accessOptions.find((option) => option.key === accessMode) ?? accessOptions[0];
   const SelectedAccessIcon = selectedAccess.icon;
+  useEffect(() => {
+    setComments("");
+  }, [pendingPlan?.planId, pendingPlan?.revision]);
+  useEffect(() => {
+    setAnswers({});
+    setQuestionIndex(0);
+  }, [pendingQuestion?.interactionId]);
   const contextSummary = useMemo(() => {
     const latest = contextObserver?.latest ?? contextConfig?.contextPreview;
     const windowTokens = latest?.providerContextWindowTokens ?? contextConfig?.contextWindowTokens ?? 1_000_000;
@@ -82,6 +101,81 @@ export function Composer({
     if (!prompt || isRunning || isWaiting) return;
     setDraft("");
     onSubmit(prompt);
+  }
+  const resolvePlan = async (decision: PlanDecision) => {
+    if (!pendingPlan || interactionBusy) return;
+    setInteractionBusy(true);
+    try {
+      await onResolvePlan(pendingPlan, decision, comments, decision === "start_work" ? accessMode : undefined);
+    } finally {
+      setInteractionBusy(false);
+    }
+  };
+  const submitAnswers = async () => {
+    if (!pendingQuestion || interactionBusy || pendingQuestion.prompts.some((prompt) => !answers[prompt.questionId]?.trim())) return;
+    setInteractionBusy(true);
+    try {
+      await onAnswerQuestion(pendingQuestion.interactionId, answers);
+    } finally {
+      setInteractionBusy(false);
+    }
+  };
+
+  if (pendingPlan) {
+    return (
+      <form className="composer interaction-composer plan-review-composer" onSubmit={(event) => event.preventDefault()}>
+        <header className="interaction-header">
+          <strong>实施此计划？</strong>
+          <button aria-label="取消计划" disabled={interactionBusy} onClick={() => void resolvePlan("cancel")} title="取消计划" type="button"><X size={14} /></button>
+        </header>
+        <button className="interaction-primary-row" disabled={interactionBusy} onClick={() => void resolvePlan("start_work")} type="button">
+          <span className="interaction-number">1</span>
+          <strong>是，实施此计划</strong>
+          <ArrowRight size={15} />
+        </button>
+        <div className="interaction-feedback-row">
+          <span className="interaction-number"><PencilLine size={13} /></span>
+          <textarea aria-label="计划调整意见" onChange={(event) => setComments(event.target.value)} placeholder="否，并告诉 Agent 应该如何调整" value={comments} />
+          <button disabled={interactionBusy} onClick={() => void resolvePlan("continue_planning")} type="button">继续规划</button>
+        </div>
+        <footer className="interaction-footer">
+          <div className="permission-selector">
+            <button className="access-button" type="button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
+              <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
+            </button>
+            {accessMenuOpen && (
+              <div className="permission-menu" role="menu">
+                {accessOptions.map((option) => {
+                  const Icon = option.icon;
+                  return <button className={option.key === accessMode ? "is-selected" : ""} key={option.key} onClick={() => { onAccessModeChange(option.key); setAccessMenuOpen(false); }} role="menuitem" type="button"><Icon size={16} /><span><strong>{option.label}</strong><small>{option.description}</small></span>{option.key === accessMode && <Check size={15} />}</button>;
+                })}
+              </div>
+            )}
+          </div>
+          <button disabled={interactionBusy} onClick={() => void resolvePlan("cancel")} type="button">取消计划</button>
+        </footer>
+      </form>
+    );
+  }
+
+  if (pendingQuestion) {
+    const prompt = pendingQuestion.prompts[questionIndex] ?? pendingQuestion.prompts[0];
+    const complete = pendingQuestion.prompts.every((item) => answers[item.questionId]?.trim());
+    return (
+      <form className="composer interaction-composer question-composer" onSubmit={(event) => { event.preventDefault(); void submitAnswers(); }}>
+        <header className="interaction-header">
+          <strong>{prompt.prompt}</strong>
+          {pendingQuestion.prompts.length > 1 && <div className="question-pagination"><button disabled={questionIndex === 0} onClick={() => setQuestionIndex((value) => Math.max(0, value - 1))} type="button"><ChevronLeft size={13} /></button><span>{questionIndex + 1} of {pendingQuestion.prompts.length}</span><button disabled={questionIndex === pendingQuestion.prompts.length - 1} onClick={() => setQuestionIndex((value) => Math.min(pendingQuestion.prompts.length - 1, value + 1))} type="button"><ChevronRight size={13} /></button></div>}
+        </header>
+        {prompt.options?.map((option, index) => (
+          <button className={`interaction-option-row ${answers[prompt.questionId] === option ? "is-selected" : ""}`} key={option} onClick={() => setAnswers((current) => ({ ...current, [prompt.questionId]: option }))} type="button">
+            <span className="interaction-number">{index + 1}</span><span>{option}</span>{answers[prompt.questionId] === option ? <Check size={14} /> : <ArrowRight size={14} />}
+          </button>
+        ))}
+        {!prompt.options?.length && <div className="interaction-feedback-row"><span className="interaction-number"><PencilLine size={13} /></span><textarea aria-label={prompt.label} onChange={(event) => setAnswers((current) => ({ ...current, [prompt.questionId]: event.target.value }))} placeholder={prompt.label} value={answers[prompt.questionId] ?? ""} /></div>}
+        <footer className="interaction-footer"><span>{pendingQuestion.prompts.length > 1 ? `已回答 ${Object.values(answers).filter((value) => value.trim()).length}/${pendingQuestion.prompts.length}` : ""}</span><button className="interaction-submit" disabled={interactionBusy || !complete} type="submit">提交回答</button></footer>
+      </form>
+    );
   }
   return (
     <form className="composer" onSubmit={submit}>

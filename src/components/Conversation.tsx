@@ -4,10 +4,12 @@ import { RunTimeline } from "./RunTimeline";
 
 export function Conversation({
   onOpenFile,
+  onOpenPlan,
   onOpenReview,
   session
 }: {
   onOpenFile: (path: string) => void;
+  onOpenPlan: (runId: string, callId: string) => void;
   onOpenReview: (delta: Changes) => void;
   session: Session | null;
 }) {
@@ -48,7 +50,9 @@ export function Conversation({
               <RunTimeline
                 run={run}
                 onOpenFile={onOpenFile}
+                onOpenPlan={onOpenPlan}
                 onOpenReview={onOpenReview}
+                plans={session.plans.filter((plan) => plan.runId === run.runId)}
                 onTextFrame={scheduleFollow}
               />
             </div>

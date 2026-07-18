@@ -21,6 +21,7 @@ import { finishRun } from "./runLifecycle";
 import { classifyInteraction } from "./interaction";
 import { ToolHost } from "./toolHost";
 import { ToolPipeline } from "./toolPipeline";
+import { PlanArgumentStream } from "./planStream";
 
 type RuntimeInput = {
   runId: string;
@@ -264,6 +265,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     const modelStepId = `model_step_${randomUUID()}`;
     const toolActivities = new Map<string, string>();
     const toolArgumentBuffers = new Map<string, string>();
+    const planArgumentStreams = new Map<string, PlanArgumentStream>();
     const pendingBuffers = new Map<string, string>();
 
     const appendBuffered = (activityId: string, text: string) => {
@@ -297,7 +299,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           audience: "user",
           kind: input.tools.kind(streamedTool),
           startedAt: new Date().toISOString(),
-          title: input.tools.title(fragment.name),
+          title: fragment.name === "submit_plan" ? "正在编写计划" : input.tools.title(fragment.name),
           tool: streamedTool
         } : {
           audience: "user",
@@ -306,10 +308,31 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           title: `未知工具：${fragment.name}`
         });
         toolActivities.set(fragment.callId, activityId);
+        if (fragment.name === "submit_plan") {
+          const planStream = planArgumentStreams.get(fragment.callId) ?? new PlanArgumentStream();
+          planArgumentStreams.set(fragment.callId, planStream);
+          const update = planStream.push(fragment.argumentsText ?? "");
+          if (update.title !== undefined) {
+            input.store.append({
+              activityId,
+              data: { title: update.title || "正在编写计划" },
+              runId: input.runId,
+              sessionId: input.sessionId,
+              type: "activity.updated"
+            });
+          }
+          if (update.markdownDelta) appendBuffered(activityId, update.markdownDelta);
+        }
         if (streamedArgs && streamedTool) {
           input.store.append({
             runId: input.runId,
-            data: { kind: input.tools.kind(streamedTool), title: input.tools.title(fragment.name), tool: streamedTool },
+            data: {
+              kind: input.tools.kind(streamedTool),
+              title: fragment.name === "submit_plan"
+                ? String(streamedArgs.title ?? "正在编写计划")
+                : input.tools.title(fragment.name),
+              tool: streamedTool
+            },
             sessionId: input.sessionId,
             type: "activity.updated",
             activityId
@@ -359,7 +382,9 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       if (answerActivity) finishActivity(input, answerActivity, { audience: "internal", error: response.protocolIssue.message, status: "failed" });
       for (const activityId of toolActivities.values()) {
         const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
-        if (activity?.status === "running") finishActivity(input, activityId, { body: response.protocolIssue.message, error: response.protocolIssue.message, status: "failed" });
+        if (activity?.status === "running") finishActivity(input, activityId, activity.kind === "plan"
+          ? { error: response.protocolIssue.message, status: "failed" }
+          : { body: response.protocolIssue.message, error: response.protocolIssue.message, status: "failed" });
       }
       messages.push(response.continuationMessage);
       if (response.protocolIssue.retryable && protocolCorrectionCount === 0) {

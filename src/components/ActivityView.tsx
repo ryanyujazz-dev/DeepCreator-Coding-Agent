@@ -1,8 +1,9 @@
 import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, TerminalSquare, Wrench } from "lucide-react";
 import { useState } from "react";
-import { Activity } from "../../shared/contracts/runtime";
+import { Activity, Plan } from "../../shared/contracts/runtime";
 import { useStreamText } from "../stream/useStreamText";
 import { MarkdownContent } from "./MarkdownContent";
+import { InlinePlanCard } from "./InlinePlanCard";
 
 function iconFor(activity: Activity) {
   if (activity.kind === "command") return <TerminalSquare size={13} />;
@@ -64,11 +65,15 @@ export function ActivityView({
   runActive,
   onOpenFile,
   onTextFrame,
+  onOpenPlan,
+  plan,
   activity
 }: {
   runActive: boolean;
   onOpenFile: (path: string) => void;
   onTextFrame?: () => void;
+  onOpenPlan: (runId: string, callId: string) => void;
+  plan?: Plan;
   activity: Activity;
 }) {
   const [commandExpanded, setCommandExpanded] = useState(false);
@@ -85,6 +90,9 @@ export function ActivityView({
   }
   if (activity.kind === "message") {
     return <MessageActivity activity={activity} onTextFrame={onTextFrame} runActive={runActive} />;
+  }
+  if (activity.kind === "plan" && activity.tool?.callId) {
+    return <InlinePlanCard activity={activity} onOpen={() => onOpenPlan(activity.runId, activity.tool!.callId)} onTextFrame={onTextFrame} plan={plan} runActive={runActive} />;
   }
   if (activity.kind === "command") {
     const status = activity.command?.timedOut

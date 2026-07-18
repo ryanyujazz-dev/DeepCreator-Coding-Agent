@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { projectGroups } from "../../shared/projections/groups";
-import { Run, Changes, isRunDone } from "../../shared/contracts/runtime";
+import { Run, Changes, Plan, isRunDone } from "../../shared/contracts/runtime";
 import { ActivityView } from "./ActivityView";
 import { ChangePanel } from "./ChangePanel";
 import { ActivityGroupRenderer } from "./ActivityGroupRenderer";
@@ -16,11 +16,15 @@ export function RunTimeline({
   run,
   onOpenFile,
   onOpenReview,
+  onOpenPlan,
+  plans,
   onTextFrame
 }: {
   run: Run;
   onOpenFile: (path: string) => void;
   onOpenReview: (delta: Changes) => void;
+  onOpenPlan: (runId: string, callId: string) => void;
+  plans: Plan[];
   onTextFrame?: () => void;
 }) {
   const active = !isRunDone(run.status);
@@ -57,7 +61,9 @@ export function RunTimeline({
                 runActive={active}
                 key={entry.entryId}
                 onOpenFile={onOpenFile}
+                onOpenPlan={onOpenPlan}
                 onTextFrame={onTextFrame}
+                plan={plans.filter((plan) => plan.callId === entry.activity.tool?.callId).sort((left, right) => right.revision - left.revision)[0]}
                 activity={entry.activity}
               />)}
         </section>

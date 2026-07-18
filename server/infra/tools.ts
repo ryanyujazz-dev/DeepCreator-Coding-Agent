@@ -843,6 +843,7 @@ function resultMetricsFor(
 }
 
 export function activityKindForTool(tool: ToolState): ActivityKind {
+  if (tool.toolName === "submit_plan") return "plan";
   if (tool.action === "modify") return "file_mutation";
   if (tool.action === "execute" || tool.action === "verify") return "command";
   return "tool";

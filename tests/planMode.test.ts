@@ -65,6 +65,36 @@ function providerFor(responses: Array<{ answer?: string; call?: ToolCall }>): Pr
   };
 }
 
+function fragmentedPlanProvider(call: ToolCall, fragmentSize = 7): Provider {
+  return {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      for (let offset = 0; offset < call.argumentsText.length; offset += fragmentSize) {
+        request.onFragment?.({
+          argumentsText: call.argumentsText.slice(offset, offset + fragmentSize),
+          callId: call.callId,
+          index: call.index,
+          kind: "tool_call",
+          name: call.name
+        });
+      }
+      return {
+        answer: "",
+        continuationMessage: { role: "assistant", text: null, toolCalls: [call] },
+        finishCause: "tool_calls" as const,
+        thinking: "",
+        toolCalls: [call]
+      };
+    }
+  };
+}
+
 test("PlanPolicy is authoritative and only permits narrowly read-only exploration", () => {
   assert.equal(analyzeCommand("git status --short").planSafe, true);
   assert.equal(analyzeCommand("sed -n '1,80p' src/App.tsx").planSafe, true);
@@ -184,6 +214,69 @@ test("submit_plan suspends durably and approval resumes the same Run with a pair
     assert.equal(restored.getRun("run_plan")?.status, "completed");
     assert.equal(restored.getRun("run_plan")?.answer, "已根据批准的方案完成当前工作。");
     restored.close();
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("fragmented submit_plan emits semantic Plan activity updates without exposing raw arguments", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-plan-stream-"));
+  try {
+    const store = new RuntimeStore(directory);
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      mode: "plan",
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_plan_stream",
+      title: "流式计划"
+    });
+    store.append({
+      data: { mode: "plan", model: "test", prompt: "制定方案", startedAt: new Date().toISOString() },
+      runId: "run_plan_stream",
+      sessionId: "session_plan_stream",
+      type: "run.started"
+    });
+    const markdown = "## 目标\n\n1. 支持中文与 \"引号\"\n2. 保留路径 `src\\\\plan.ts`";
+    const call: ToolCall = {
+      argumentsText: JSON.stringify({ markdown, title: "流式实现计划" }),
+      callId: "call_plan_stream",
+      index: 0,
+      name: "submit_plan"
+    };
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_plan_stream");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "制定方案",
+      provider: fragmentedPlanProvider(call, 5),
+      registry,
+      runId: "run_plan_stream",
+      sessionId: "session_plan_stream",
+      signal: controller.signal,
+      store,
+      tools: toolHost
+    });
+    registry.finishRun("run_plan_stream");
+
+    const session = store.getSession("session_plan_stream")!;
+    const activity = session.runs[0].activities.find((item) => item.tool?.callId === call.callId);
+    assert.ok(activity);
+    assert.equal(activity.kind, "plan");
+    assert.equal(activity.title, "流式实现计划");
+    assert.equal(activity.body, markdown);
+    assert.equal(activity.status, "completed");
+    assert.equal(session.plans[0].markdown, markdown);
+    assert.equal(session.runs[0].status, "waiting");
+
+    const updates = store.readEvents(session.sessionId).filter((event) => event.type === "activity.updated" && event.scope.activityId === activity.activityId);
+    assert.ok(updates.filter((event) => typeof event.data.bodyDelta === "string").length >= 2);
+    const serializedUpdates = JSON.stringify(updates);
+    assert.equal(serializedUpdates.includes('"markdown"'), false);
+    assert.equal(serializedUpdates.includes('"title"'), true, "semantic title updates remain observable");
+    store.close();
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }

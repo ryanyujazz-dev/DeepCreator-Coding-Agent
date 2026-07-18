@@ -188,7 +188,7 @@ function createGroup(activity: Activity, category: ActionKind, changes: Changes)
 function isHiddenActivity(activity: Activity): boolean {
   return activity.audience === "internal"
     || activity.tool?.action === "task"
-    || activity.tool?.action === "plan"
+    || (activity.tool?.action === "plan" && activity.kind !== "plan")
     || (activity.kind === "thinking" && activity.status !== "running");
 }
 

@@ -1,4 +1,4 @@
-import { Component, CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, CSSProperties, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { MoreHorizontal, PanelRight, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
@@ -69,12 +69,17 @@ export function App() {
     sessions,
     startRun
   } = useWorkspace();
-  const openedPlanRuns = useRef(new Set<string>());
   const activeTask = (currentRun?.tasks ?? []).find((task) => task.status === "running");
   const waitingRun = activeRun?.status === "waiting" ? activeRun : undefined;
+  const pendingPlan = waitingRun
+    ? [...(session?.plans ?? [])].reverse().find((plan) => plan.runId === waitingRun.runId && plan.status === "proposed")
+    : undefined;
+  const pendingQuestion = waitingRun
+    ? [...(session?.questions ?? [])].reverse().find((question) => question.runId === waitingRun.runId && question.status === "pending")
+    : undefined;
   const agentRunning = Boolean(activeRun && activeRun.status !== "waiting");
   const workLabel = waitingRun
-    ? (session?.plans ?? []).some((plan) => plan.runId === waitingRun.runId && plan.status === "proposed")
+    ? pendingPlan
       ? "等待方案审阅"
       : "等待你的回答"
     : activeRun
@@ -92,7 +97,12 @@ export function App() {
     [activeSurfaceId, surfaces]
   );
   const activeFileState = activeSurface?.kind === "file" ? surfaceFiles[activeSurface.path] : undefined;
-  const surfaceMaxWidth = Math.max(360, Math.min(960, viewportWidth - sidebarWidth - 420));
+  const compactWorkspace = viewportWidth <= 760;
+  const visibleSidebarWidth = compactWorkspace ? 0 : sidebarWidth;
+  const conversationMinimum = compactWorkspace ? 280 : 420;
+  const surfaceMinimum = compactWorkspace ? 280 : 360;
+  const surfaceWidthCap = compactWorkspace ? 420 : 960;
+  const surfaceMaxWidth = Math.max(surfaceMinimum, Math.min(surfaceWidthCap, viewportWidth - visibleSidebarWidth - conversationMinimum));
   const effectiveSurfaceWidth = Math.min(surfaceWidth, surfaceMaxWidth);
   const openFileSurface = useCallback((filePath: string) => {
     if (!session?.sessionId) return;
@@ -141,6 +151,35 @@ export function App() {
       : [...current, reviewSurface]);
     setActiveSurfaceId(surfaceId);
   }, [session?.runs]);
+  const openPlanSurface = useCallback((runId: string, callId: string) => {
+    const plan = [...(session?.plans ?? [])].reverse().find((candidate) => candidate.runId === runId && candidate.callId === callId);
+    const surface: Surface = {
+      callId,
+      id: `plan:${runId}:${callId}`,
+      kind: "plan",
+      runId,
+      title: plan?.title ?? "计划"
+    };
+    setSurfaceClosing(false);
+    setSurfaces((current) => current.some((candidate) => candidate.id === surface.id)
+      ? current.map((candidate) => candidate.id === surface.id ? { ...candidate, title: surface.title } : candidate)
+      : [...current, surface]);
+    setActiveSurfaceId(surface.id);
+  }, [session?.plans]);
+  useEffect(() => {
+    const plans = session?.plans ?? [];
+    setSurfaces((current) => {
+      let changed = false;
+      const next = current.map((surface) => {
+        if (surface.kind !== "plan") return surface;
+        const plan = [...plans].reverse().find((candidate) => candidate.runId === surface.runId && candidate.callId === surface.callId);
+        if (!plan || plan.title === surface.title) return surface;
+        changed = true;
+        return { ...surface, title: plan.title };
+      });
+      return changed ? next : current;
+    });
+  }, [session?.plans]);
   const closeSurfaceTab = useCallback((surfaceId: string) => {
     setSurfaces((current) => {
       const closingIndex = current.findIndex((candidate) => candidate.id === surfaceId);
@@ -171,22 +210,6 @@ export function App() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
-  useEffect(() => {
-    openedPlanRuns.current.clear();
-  }, [session?.sessionId]);
-  useEffect(() => {
-    if (!session) return;
-    const proposedPlan = [...session.plans].reverse().find((plan) => plan.status === "proposed");
-    const pendingQuestion = [...session.questions].reverse().find((question) => question.status === "pending");
-    const runId = pendingQuestion?.runId ?? proposedPlan?.runId;
-    if (!runId || openedPlanRuns.current.has(runId)) return;
-    openedPlanRuns.current.add(runId);
-    const surface: Surface = { id: `plan:${runId}`, kind: "plan", runId, title: proposedPlan ? "计划" : "问题" };
-    setSurfaceClosing(false);
-    setSurfaces((current) => current.some((candidate) => candidate.id === surface.id) ? current : [...current, surface]);
-    setActiveSurfaceId(surface.id);
-  }, [session]);
-
   return (
     <AppErrorBoundary>
       <div className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
@@ -211,12 +234,12 @@ export function App() {
             </header>
             <div className="window-actions"><button className="icon-button" aria-label="视图设置"><SlidersHorizontal size={14} /></button><button className="icon-button" aria-label="工作区面板"><PanelRight size={14} /></button></div>
             <Inspector onOpenReview={openReviewSurface} session={session} />
-            <Conversation onOpenFile={openFileSurface} onOpenReview={openReviewSurface} session={session} />
+            <Conversation onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} session={session} />
             <div className="composer-dock">
               {currentRun && (
                 <div
-                  aria-hidden={!activeRun}
-                  className={`composer-hud is-${currentRun.status} ${activeRun ? "is-visible" : "is-collapsed"}`}
+                  aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
+                  className={`composer-hud is-${currentRun.status} ${activeRun && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}
                 >
                   <span className={agentRunning ? "working-glow" : ""}>{waitingRun ? "等待决定" : activeRun ? "正在执行" : "最近工作"}</span>
                   <strong className={agentRunning ? "working-glow" : ""}>{workLabel}</strong>
@@ -235,7 +258,11 @@ export function App() {
                 onCancel={() => void cancelRun()}
                 onAccessModeChange={(mode) => void setAccessMode(mode)}
                 onModeChange={(nextMode) => void setMode(nextMode)}
+                onAnswerQuestion={answerQuestion}
+                onResolvePlan={resolvePlan}
                 onSubmit={(prompt) => void startRun(prompt)}
+                pendingPlan={pendingPlan}
+                pendingQuestion={pendingQuestion}
                 accessMode={accessMode}
                 mode={mode}
               />
@@ -243,15 +270,12 @@ export function App() {
           </div>
           <SurfacePane
             activeSurfaceId={activeSurface?.id ?? null}
-            accessMode={accessMode}
             file={activeFileState?.file ?? null}
             fileError={activeFileState?.error ?? null}
             fileLoading={activeFileState?.loading ?? false}
             isClosing={surfaceClosing}
             onClose={closeActiveSurface}
             onCloseSurface={closeSurfaceTab}
-            onAnswerQuestion={answerQuestion}
-            onResolvePlan={resolvePlan}
             onRevisePlan={revisePlan}
             onSelectSurface={setActiveSurfaceId}
             onWidthChange={setSurfaceWidth}
@@ -260,7 +284,7 @@ export function App() {
             panelWidth={effectiveSurfaceWidth}
             surfaces={surfaces}
             plans={session?.plans ?? []}
-            questions={session?.questions ?? []}
+            runs={session?.runs ?? []}
           />
         </main>
       </div>
