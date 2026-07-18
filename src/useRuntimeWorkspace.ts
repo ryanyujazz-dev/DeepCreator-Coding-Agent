@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { reduceSignals } from "../shared/signalReducer";
 import { ApprovalDecision, isTerminalCycle, PermissionProfileKey, SessionListEntry, WorkspaceSessionView } from "../shared/runtimeTypes";
 import { ConnectionPhase } from "./components/ConnectionStatus";
-import { parseSignalMessage, runtimeClient, RuntimeConfig, RuntimeRequestError } from "./runtimeClient";
+import { parseSignalMessage, runtimeClient, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError } from "./runtimeClient";
 
 export function useRuntimeWorkspace() {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
@@ -11,6 +11,7 @@ export function useRuntimeWorkspace() {
   const [connection, setConnection] = useState<ConnectionPhase>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [draftPermissionProfile, setDraftPermissionProfile] = useState<PermissionProfileKey>("request_approval");
+  const [contextObserver, setContextObserver] = useState<RuntimeContextObserver | null>(null);
 
   const refreshSessions = useCallback(async (query = "") => {
     const result = await runtimeClient.listSessions(query);
@@ -28,6 +29,11 @@ export function useRuntimeWorkspace() {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
   }, []);
+
+  const activeCycle = useMemo(
+    () => [...(session?.cycles ?? [])].reverse().find((cycle) => !isTerminalCycle(cycle.phase)),
+    [session]
+  );
 
   useEffect(() => {
     void Promise.all([runtimeClient.config(), refreshSessions()])
@@ -77,10 +83,24 @@ export function useRuntimeWorkspace() {
     };
   }, [refreshSessions, session?.sessionKey]);
 
-  const activeCycle = useMemo(
-    () => [...(session?.cycles ?? [])].reverse().find((cycle) => !isTerminalCycle(cycle.phase)),
-    [session]
-  );
+  useEffect(() => {
+    const sessionKey = session?.sessionKey;
+    if (!sessionKey) {
+      setContextObserver(null);
+      return;
+    }
+    let disposed = false;
+    const refresh = () => void runtimeClient.getContextObserver(sessionKey)
+      .then(({ observer }) => { if (!disposed) setContextObserver(observer); })
+      .catch(() => undefined);
+    refresh();
+    const timer = activeCycle ? window.setInterval(refresh, 2_000) : undefined;
+    return () => {
+      disposed = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [activeCycle, session?.sessionKey, session?.updatedAt]);
+
   const pendingApproval = activeCycle?.approvals.find((approval) => approval.state === "pending");
   const model = config?.hasApiKey ? config.defaultModel : "mock-agent";
 
@@ -133,6 +153,7 @@ export function useRuntimeWorkspace() {
     cancelCycle,
     config,
     connection,
+    contextObserver,
     currentCycle: session?.cycles.at(-1),
     error,
     model,

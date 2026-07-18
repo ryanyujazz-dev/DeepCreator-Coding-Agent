@@ -16,6 +16,7 @@ import { settleWorkCycle } from "./cycleLifecycle";
 import {
   ContextRecord,
   ContextTelemetry,
+  MemoryFact,
   NewContextRecord,
   createContextRecord
 } from "./contextRecords";
@@ -91,6 +92,22 @@ export class SignalStore {
       );
       CREATE INDEX IF NOT EXISTS context_telemetry_session_idx
         ON context_telemetry(session_key, created_at);
+      CREATE TABLE IF NOT EXISTS memory_facts (
+        memory_id TEXT PRIMARY KEY,
+        visibility TEXT NOT NULL,
+        project_root TEXT,
+        category TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        fact_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS memory_facts_scope_idx
+        ON memory_facts(visibility, project_root, updated_at);
+      CREATE TABLE IF NOT EXISTS token_calibration (
+        model TEXT PRIMARY KEY,
+        factor REAL NOT NULL,
+        sample_count INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
     this.ensureSessionColumn("title", "TEXT NOT NULL DEFAULT ''");
     this.ensureSessionColumn("project_root", "TEXT NOT NULL DEFAULT ''");
@@ -233,6 +250,18 @@ export class SignalStore {
     if (!row) return;
     const telemetry = { ...JSON.parse(row.telemetry_json), ...usage } as ContextTelemetry;
     this.recordContextTelemetry(telemetry);
+    const rawEstimate = telemetry.rawEstimatedInputTokens
+      ?? telemetry.estimatedInputTokens / Math.max(0.4, telemetry.tokenCalibrationFactor ?? 1);
+    if (usage.actualInputTokens && rawEstimate > 0 && telemetry.model) {
+      const observed = Math.min(2.5, Math.max(0.4, usage.actualInputTokens / rawEstimate));
+      const previous = this.database.prepare("SELECT factor, sample_count FROM token_calibration WHERE model = ?").get(telemetry.model) as { factor: number; sample_count: number } | undefined;
+      const weight = Math.min(19, previous?.sample_count ?? 0);
+      const factor = previous ? (previous.factor * weight + observed) / (weight + 1) : observed;
+      this.database.prepare(`INSERT INTO token_calibration (model, factor, sample_count, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(model) DO UPDATE SET factor = excluded.factor, sample_count = excluded.sample_count, updated_at = excluded.updated_at`)
+        .run(telemetry.model, factor, (previous?.sample_count ?? 0) + 1, new Date().toISOString());
+    }
   }
 
   readContextTelemetry(sessionKey: string): ContextTelemetry[] {
@@ -240,6 +269,70 @@ export class SignalStore {
       .prepare("SELECT telemetry_json FROM context_telemetry WHERE session_key = ? ORDER BY created_at")
       .all(sessionKey) as Array<{ telemetry_json: string }>)
       .map((row) => JSON.parse(row.telemetry_json) as ContextTelemetry);
+  }
+
+  readTokenCalibrationFactor(model: string): number {
+    const row = this.database.prepare("SELECT factor FROM token_calibration WHERE model = ?").get(model) as { factor: number } | undefined;
+    return row?.factor ?? 1;
+  }
+
+  upsertMemoryFact(input: Omit<MemoryFact, "createdAt" | "lastConfirmedAt" | "memoryId"> & Partial<Pick<MemoryFact, "createdAt" | "lastConfirmedAt" | "memoryId">>): MemoryFact {
+    const statement = input.statement.trim();
+    if (!statement) throw new Error("memory statement is required");
+    if (/\bsk-[a-zA-Z0-9_-]{12,}\b|(?:api[_ -]?key|token|password|secret)\s*[:=]/i.test(statement)) {
+      throw new Error("Memory 不允许保存密钥或凭据。");
+    }
+    const now = new Date().toISOString();
+    const memoryId = input.memoryId ?? `memory_${crypto.randomUUID()}`;
+    const existing = this.database.prepare("SELECT fact_json FROM memory_facts WHERE memory_id = ?").get(memoryId) as { fact_json: string } | undefined;
+    const previous = existing ? JSON.parse(existing.fact_json) as MemoryFact : undefined;
+    const fact: MemoryFact = {
+      category: input.category,
+      confidence: Math.min(1, Math.max(0, input.confidence)),
+      createdAt: previous?.createdAt ?? input.createdAt ?? now,
+      expiresAt: input.expiresAt,
+      lastConfirmedAt: input.lastConfirmedAt ?? now,
+      memoryId,
+      projectRoot: input.visibility === "project" ? input.projectRoot : undefined,
+      provenance: input.provenance.trim(),
+      statement,
+      visibility: input.visibility
+    };
+    if (fact.visibility === "project" && !fact.projectRoot) throw new Error("project memory requires projectRoot");
+    this.database.prepare(`INSERT INTO memory_facts
+      (memory_id, visibility, project_root, category, updated_at, fact_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(memory_id) DO UPDATE SET
+        visibility = excluded.visibility,
+        project_root = excluded.project_root,
+        category = excluded.category,
+        updated_at = excluded.updated_at,
+        fact_json = excluded.fact_json`)
+      .run(fact.memoryId, fact.visibility, fact.projectRoot ?? null, fact.category, fact.lastConfirmedAt, JSON.stringify(fact));
+    return clone(fact);
+  }
+
+  readMemoryFacts(projectRoot?: string): MemoryFact[] {
+    const now = new Date().toISOString();
+    const rows = projectRoot
+      ? this.database.prepare(`SELECT fact_json FROM memory_facts
+          WHERE (visibility = 'personal' OR (visibility = 'project' AND project_root = ?))
+          ORDER BY updated_at DESC`).all(projectRoot)
+      : this.database.prepare("SELECT fact_json FROM memory_facts WHERE visibility = 'personal' ORDER BY updated_at DESC").all();
+    return (rows as Array<{ fact_json: string }>)
+      .map((row) => JSON.parse(row.fact_json) as MemoryFact)
+      .filter((fact) => !fact.expiresAt || fact.expiresAt > now)
+      .map(clone);
+  }
+
+  memoryDigest(projectRoot: string, limit = 12): string {
+    const facts = this.readMemoryFacts(projectRoot).slice(0, Math.min(30, Math.max(1, limit)));
+    if (facts.length === 0) return "No curated memory facts are active.";
+    return facts.map((fact) => `${fact.memoryId}\t${fact.category}\t${fact.visibility}\t${fact.confidence.toFixed(2)}\t${fact.statement.slice(0, 220)}`).join("\n");
+  }
+
+  deleteMemoryFact(memoryId: string): boolean {
+    return Number(this.database.prepare("DELETE FROM memory_facts WHERE memory_id = ?").run(memoryId).changes) > 0;
   }
 
   writeContextDebugSnapshot(sessionKey: string, cycleKey: string, value: unknown): void {

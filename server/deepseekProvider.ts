@@ -1,5 +1,7 @@
 import {
   ProviderAdapter,
+  ProviderContextSummary,
+  ProviderContextSummaryRequest,
   ProviderFinishCause,
   ProviderMessage,
   ProviderProtocolIssue,
@@ -105,11 +107,40 @@ export class DeepSeekProvider implements ProviderAdapter {
     private readonly apiUrl = process.env.DEEPSEEK_API_URL ?? DEFAULT_API_URL
   ) {}
 
+  async summarizeContext(request: ProviderContextSummaryRequest): Promise<ProviderContextSummary> {
+    const response = await this.stream({
+      maxOutputTokens: 2_048,
+      messages: [
+        {
+          role: "system",
+          text: "你是上下文压缩器。只从给定对话中提取语义信息，不推断文件变更、命令状态、测试结果、审批或工具事实。只输出 JSON 对象，字段为 objective、constraints、decisions、unresolvedQuestions。数组最多 20 项，每项简短。"
+        },
+        { role: "user", text: request.transcript }
+      ],
+      model: request.model,
+      signal: request.signal,
+      tools: []
+    });
+    const match = response.answer.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("DeepSeek 语义压缩未返回 JSON。");
+    const raw = JSON.parse(match[0]) as Record<string, unknown>;
+    const list = (value: unknown) => Array.isArray(value)
+      ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 20).map((item) => item.slice(0, 500))
+      : [];
+    return {
+      constraints: list(raw.constraints),
+      decisions: list(raw.decisions),
+      objective: typeof raw.objective === "string" ? raw.objective.trim().slice(0, 1_200) : undefined,
+      unresolvedQuestions: list(raw.unresolvedQuestions)
+    };
+  }
+
   async stream(request: ProviderRequest): Promise<ProviderResponse> {
     if (!this.apiKey) throw new Error("缺少 DEEPSEEK_API_KEY。请在 .env.local 中配置后重启 Runtime。");
     const response = await fetch(this.apiUrl, {
       body: JSON.stringify({
         messages: request.messages.map(toDeepSeekMessage),
+        ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {}),
         model: request.model,
         stream: true,
         stream_options: { include_usage: true },

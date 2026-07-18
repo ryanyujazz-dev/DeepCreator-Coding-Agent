@@ -112,7 +112,7 @@ export function settleWorkCycle(input: {
       createdAt: settledAt,
       cycleKey: input.cycleKey,
       isError: true,
-      kind: "runtime_fact",
+      kind: "recovery_capsule",
       metadata: { factKind: "recovery" },
       sessionKey: input.sessionKey,
       source: "runtime",

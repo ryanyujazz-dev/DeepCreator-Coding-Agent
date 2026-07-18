@@ -61,8 +61,22 @@ export type ProviderRequest = {
   model: string;
   messages: ProviderMessage[];
   tools: ToolDefinition[];
+  maxOutputTokens?: number;
   signal?: AbortSignal;
   onFragment?: (fragment: ProviderFragment) => void;
+};
+
+export type ProviderContextSummaryRequest = {
+  model: string;
+  transcript: string;
+  signal?: AbortSignal;
+};
+
+export type ProviderContextSummary = {
+  objective?: string;
+  constraints: string[];
+  decisions: string[];
+  unresolvedQuestions: string[];
 };
 
 export type ProviderCapabilities = {
@@ -75,5 +89,6 @@ export type ProviderCapabilities = {
 
 export interface ProviderAdapter {
   readonly capabilities: ProviderCapabilities;
+  summarizeContext?(request: ProviderContextSummaryRequest): Promise<ProviderContextSummary>;
   stream(request: ProviderRequest): Promise<ProviderResponse>;
 }

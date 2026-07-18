@@ -38,6 +38,7 @@ export function App() {
     cancelCycle,
     config,
     connection,
+    contextObserver,
     currentCycle,
     error,
     model,
@@ -169,6 +170,8 @@ export function App() {
               {error && <div className="composer-error">{error}</div>}
               <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
               <Composer
+                contextConfig={config}
+                contextObserver={contextObserver}
                 isRunning={Boolean(activeCycle)}
                 model={model}
                 onCancel={() => void cancelCycle()}

@@ -17,6 +17,7 @@ import {
 } from "../shared/runtimeTypes";
 import { analyzeCommand } from "./permissionPolicy";
 import { ToolDefinition } from "./providerTypes";
+import { invokeCapability, searchCapabilities } from "./capabilityIndex";
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -35,6 +36,10 @@ export type RuntimeToolResult = {
   exitCode?: number;
   mutatedWorkspace: boolean;
   timedOut?: boolean;
+  contextUpdate?: {
+    text: string;
+    metadata: Record<string, unknown>;
+  };
 };
 
 export type RuntimeToolProgress = {
@@ -510,6 +515,32 @@ export async function executeRuntimeTool(input: {
     const result = await runShell(projectRoot, "git status --short && git diff --stat", signal);
     return { ...result, mutatedWorkspace: false };
   }
+  if (name === "search_capabilities") {
+    const matches = searchCapabilities(projectRoot, String(args.query ?? ""), Number(args.limit ?? 10));
+    return { mutatedWorkspace: false, output: JSON.stringify({ capabilities: matches }) };
+  }
+  if (name === "invoke_capability") {
+    const loaded = await invokeCapability(
+      projectRoot,
+      String(args.capabilityId ?? ""),
+      args.arguments && typeof args.arguments === "object" && !Array.isArray(args.arguments) ? args.arguments as Record<string, unknown> : {},
+      signal
+    );
+    return {
+      contextUpdate: loaded.contextUpdate ? {
+        metadata: {
+          capabilityId: loaded.capability.capabilityId,
+          label: loaded.capability.name,
+          revisionHash: loaded.capability.revisionHash,
+          sourceFile: loaded.capability.source,
+          updateKind: loaded.capability.kind === "skill" ? "skill" : "capability"
+        },
+        text: loaded.contextUpdate
+      } : undefined,
+      mutatedWorkspace: false,
+      output: loaded.output ?? JSON.stringify({ activated: Boolean(loaded.contextUpdate), capability: loaded.capability })
+    };
+  }
   if (name === "write_file") return { mutatedWorkspace: true, output: await writeFile(projectRoot, args as never) };
   if (name === "edit_file") return { mutatedWorkspace: true, output: await editFile(projectRoot, args as never) };
   if (name === "delete_file") return { mutatedWorkspace: true, output: await deleteFile(projectRoot, args as never) };
@@ -530,6 +561,48 @@ const objectSchema = (properties: Record<string, unknown>, required: string[] = 
 });
 
 const runtimeToolRegistry: RuntimeToolRegistration[] = [
+  {
+    name: "search_capabilities",
+    description: "搜索未前置加载的项目 Skill、MCP 或长尾能力。返回简短元数据，不加载完整说明。",
+    inputSchema: objectSchema({ query: { type: "string" }, limit: { type: "number" } }, ["query"]),
+    presentation: {
+      aggregationPolicy: "standalone",
+      detailPolicy: COLLAPSED_RAW_DETAIL,
+      effectKind: "read_only",
+      importance: "routine",
+      operationClass: "search",
+      resourceKind: "workspace",
+      resolveTarget: (args) => String(args.query ?? "能力目录")
+    }
+  },
+  {
+    name: "invoke_capability",
+    description: "按 capabilityId 启用一个已发现的长尾能力。Skill 正文会作为独立 ContextUpdate 注入。",
+    inputSchema: objectSchema({ capabilityId: { type: "string" }, arguments: { additionalProperties: true, type: "object" } }, ["capabilityId"]),
+    presentation: {
+      aggregationPolicy: "standalone",
+      detailPolicy: COLLAPSED_RAW_DETAIL,
+      effectKind: "control_only",
+      importance: "notable",
+      operationClass: "inspect",
+      resourceKind: "workspace",
+      resolveTarget: (args) => String(args.capabilityId ?? "能力")
+    }
+  },
+  {
+    name: "search_memory",
+    description: "按关键词读取经过用户确认的结构化 MemoryFact。只读，不会自动创建记忆。",
+    inputSchema: objectSchema({ query: { type: "string" }, limit: { type: "number" } }, ["query"]),
+    presentation: {
+      aggregationPolicy: "standalone",
+      detailPolicy: COLLAPSED_RAW_DETAIL,
+      effectKind: "read_only",
+      importance: "routine",
+      operationClass: "search",
+      resourceKind: "workspace",
+      resolveTarget: (args) => String(args.query ?? "Memory")
+    }
+  },
   {
     name: "list_files",
     description: "列出项目文件，忽略依赖、Git 和构建目录。",
@@ -748,11 +821,14 @@ export function activityKindForTool(tool: ToolExecutionView): ActivityKind {
 
 export function toolTitle(name: string): string {
   return ({
+    invoke_capability: "启用能力",
     delete_file: "删除文件",
     edit_file: "编辑文件",
     git_status: "检查 Git 状态",
     list_files: "列出项目文件",
     read_file: "读取文件",
+    search_capabilities: "搜索能力",
+    search_memory: "检索记忆",
     run_command: "运行命令",
     update_plan: "更新计划",
     write_file: "写入文件"

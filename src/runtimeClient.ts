@@ -28,9 +28,53 @@ async function json<T>(response: Response): Promise<T> {
 export type RuntimeConfig = {
   compactThresholdTokens: number;
   contextWindowTokens: number;
+  effectiveInputBudgetTokens: number;
+  requestedMaxOutputTokens: number;
+  contextPreview?: RuntimeContextTelemetry;
   defaultModel: string;
   hasApiKey: boolean;
   signalContract: string;
+};
+
+export type RuntimeContextSection = {
+  section: string;
+  source: string;
+  estimatedTokens: number;
+  cacheClass: string;
+  role?: string;
+  survivesCompaction?: boolean;
+};
+
+export type RuntimeContextTelemetry = {
+  telemetryKey: string;
+  estimatedInputTokens: number;
+  actualInputTokens?: number;
+  outputTokens?: number;
+  cacheHitTokens?: number;
+  cacheMissTokens?: number;
+  prefixHash: string;
+  compacted: boolean;
+  compactThresholdTokens?: number;
+  effectiveInputBudgetTokens?: number;
+  providerContextWindowTokens?: number;
+  requestedMaxOutputTokens?: number;
+  sections: RuntimeContextSection[];
+  truncationEvents?: Array<{ recordKey: string; toolName?: string }>;
+  events?: Array<{ kind: string; label: string; source?: string }>;
+};
+
+export type RuntimeContextObserver = {
+  latest?: RuntimeContextTelemetry;
+  memoryFactCount: number;
+  recent: RuntimeContextTelemetry[];
+  sessionKey: string;
+  updates: Array<{
+    createdAt: string;
+    kind: string;
+    label: string;
+    loadingReason?: string;
+    source?: string;
+  }>;
 };
 
 export type RuntimeFilePreview = {
@@ -49,6 +93,10 @@ export const runtimeClient = {
   getSession: (sessionKey: string) =>
     fetch(`/api/sessions/${encodeURIComponent(sessionKey)}`).then((response) =>
       json<{ session: WorkspaceSessionView }>(response)
+    ),
+  getContextObserver: (sessionKey: string) =>
+    fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/context-observer`).then((response) =>
+      json<{ observer: RuntimeContextObserver }>(response)
     ),
   getFile: (sessionKey: string, path: string) =>
     fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/files?path=${encodeURIComponent(path)}`).then((response) =>

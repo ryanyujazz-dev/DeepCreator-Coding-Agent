@@ -331,7 +331,7 @@ textarea:disabled {
 
 .composer {
   width: min(890px, 100%);
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(52, 64, 68, 0.08);
   border-radius: 22px;
   background: #ffffff;
@@ -2624,6 +2624,199 @@ textarea:disabled {
 .send-button {
   width: 30px;
   height: 30px;
+}
+
+.context-meter {
+  position: relative;
+  display: grid;
+  width: 22px;
+  height: 28px;
+  place-items: center;
+  outline: none;
+  cursor: default;
+}
+
+.context-meter-ring {
+  --context-progress: 2%;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: conic-gradient(#8f999e var(--context-progress), #e5e8e9 0);
+  box-shadow: inset 0 0 0 1px rgba(65, 75, 79, 0.04);
+}
+
+.context-meter-ring::after {
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+}
+
+.context-inspector-popover {
+  position: absolute;
+  z-index: 40;
+  right: -72px;
+  bottom: calc(100% + 9px);
+  width: 294px;
+  padding: 12px 12px 10px;
+  border: 1px solid rgba(44, 54, 58, 0.12);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 14px 38px rgba(34, 43, 47, 0.13), 0 2px 7px rgba(34, 43, 47, 0.06);
+  color: #687278;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 130ms ease, transform 130ms ease;
+}
+
+.context-inspector-popover::after {
+  position: absolute;
+  top: 100%;
+  right: 60px;
+  width: 48px;
+  height: 10px;
+  content: "";
+}
+
+.context-meter:hover .context-inspector-popover,
+.context-meter:focus-visible .context-inspector-popover,
+.context-meter:focus-within .context-inspector-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.context-inspector-popover header,
+.context-inspector-popover footer,
+.context-category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.context-inspector-popover header strong {
+  color: #343d41;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.context-inspector-popover header span,
+.context-category-row strong,
+.context-inspector-popover footer strong {
+  color: #596268;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.context-header-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.context-header-actions > button {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 4px;
+  color: #9aa2a6;
+  cursor: pointer;
+}
+
+.context-header-actions > button:hover {
+  background: #f2f4f4;
+  color: #3f484c;
+}
+
+.context-sort-menu {
+  position: absolute;
+  z-index: 2;
+  top: 24px;
+  right: 0;
+  display: grid;
+  width: 126px;
+  padding: 4px;
+  border: 1px solid rgba(44, 54, 58, 0.12);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(34, 43, 47, 0.13);
+}
+
+.context-sort-menu button {
+  padding: 6px 7px;
+  border-radius: 4px;
+  color: #667176;
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+}
+
+.context-sort-menu button:hover,
+.context-sort-menu button.is-selected {
+  background: #f2f4f4;
+  color: #30393d;
+}
+
+.context-capacity-track {
+  height: 6px;
+  margin: 10px 0 9px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #f1f3f4;
+}
+
+.context-capacity-track span {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+  border-radius: inherit;
+  background: #2378ec;
+}
+
+.context-category-list {
+  display: grid;
+  gap: 7px;
+}
+
+.context-category-row {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.context-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.context-inspector-popover footer {
+  margin-top: 11px;
+  padding-top: 9px;
+  border-top: 1px solid #eceeef;
+}
+
+.context-runtime-details {
+  display: grid;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eceeef;
+  color: #8a9398;
+  font-size: 10px;
+  gap: 4px;
+}
+
+.context-runtime-details b {
+  color: #5e686d;
+  font-weight: 650;
 }
 
 .composer-hud,

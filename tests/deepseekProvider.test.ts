@@ -61,3 +61,35 @@ test("normalizes thinking, answer, usage, and interleaved tool-call chunks", asy
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
+
+test("constrains provider compaction summaries to semantic fields", async () => {
+  let requestBody = "";
+  const server = createServer((request, response) => {
+    request.on("data", (chunk) => (requestBody += chunk.toString()));
+    request.on("end", () => {
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "extract" }, finish_reason: null }] })}\n\n`);
+      response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"objective":"修复登录","constraints":["保持 API"],"decisions":["使用锁"],"unresolvedQuestions":["锁粒度？"],"changedFiles":["fake.ts"]}' }, finish_reason: "stop" }] })}\n\n`);
+      response.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}`);
+    const summary = await provider.summarizeContext({ model: "deepseek-chat", transcript: "USER: 修复登录" });
+    assert.deepEqual(summary, {
+      constraints: ["保持 API"],
+      decisions: ["使用锁"],
+      objective: "修复登录",
+      unresolvedQuestions: ["锁粒度？"]
+    });
+    const parsedRequest = JSON.parse(requestBody) as { max_tokens: number; messages: Array<{ role: string }>; tools?: unknown };
+    assert.equal(parsedRequest.max_tokens, 2_048);
+    assert.deepEqual(parsedRequest.messages.map((message) => message.role), ["system", "user"]);
+    assert.equal(parsedRequest.tools, undefined);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});

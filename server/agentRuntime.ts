@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { PlanStepView } from "../shared/runtimeTypes";
+import { capabilityDigest } from "./capabilityIndex";
 import {
+  contextUpdateRecord,
   estimateProviderRequestTokens,
   findNewPathInstructions,
   prepareSessionContext,
-  renderAdditionalInstructions,
+  PrepareContextInput,
   PreparedContext
 } from "./contextManager";
-import { ContextRecord } from "./contextRecords";
+import { ContextRecord, NewContextRecord } from "./contextRecords";
 import { reduceToolEvidence } from "./evidenceReducer";
 import { LiveRegistry } from "./liveRegistry";
 import { promptBlueprintRegistry } from "./promptBlueprintRegistry";
@@ -153,8 +155,9 @@ async function executeTool(
   input: RuntimeInput,
   call: ProviderToolCall,
   modelStepKey: string,
+  knownInstructionKeys: Set<string>,
   existingUnitKey?: string
-): Promise<{ message: ProviderMessage; mutatedWorkspace: boolean; protocolError: boolean; target?: string }> {
+): Promise<{ message: ProviderMessage; contextRecords: NewContextRecord[]; mutatedWorkspace: boolean; protocolError: boolean; target?: string }> {
   let unitKey = existingUnitKey;
   try {
     const args = parseArguments(call.argumentsText);
@@ -214,7 +217,56 @@ async function executeTool(
         toolCallKey: call.callKey,
         toolName: call.name
       });
-      return { message: { role: "tool", text, toolCallKey: call.callKey }, mutatedWorkspace: false, protocolError: false, target: "当前计划" };
+      return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callKey }, mutatedWorkspace: false, protocolError: false, target: "当前计划" };
+    }
+
+    if (call.name === "search_memory") {
+      const query = String(args.query ?? "").trim().toLowerCase();
+      const limit = Math.min(20, Math.max(1, Number(args.limit ?? 10)));
+      const facts = input.store.readMemoryFacts(input.projectRoot)
+        .filter((fact) => !query || `${fact.category} ${fact.statement} ${fact.provenance}`.toLowerCase().includes(query))
+        .slice(0, limit);
+      const text = JSON.stringify({ facts });
+      sealUnit(input, unitKey, { body: `已读取 ${facts.length} 条受控记忆。`, phase: "succeeded", tool: { ...preparedTool, resultSummary: `已读取 ${facts.length} 条受控记忆。` } });
+      input.store.appendContextRecord({
+        cycleKey: input.cycleKey,
+        kind: "tool_result",
+        metadata: { modelStepKey, operationClass: "search", target: "Memory" },
+        sessionKey: input.sessionKey,
+        source: "tool",
+        text,
+        toolCallKey: call.callKey,
+        toolName: call.name
+      });
+      return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callKey }, mutatedWorkspace: false, protocolError: false, target: "Memory" };
+    }
+
+    const target = preparedTool.normalizedTarget;
+    if (["write_file", "edit_file", "delete_file"].includes(call.name) && target) {
+      const additions = findNewPathInstructions(input.projectRoot, [target], knownInstructionKeys);
+      if (additions.length > 0) {
+        const text = `操作尚未执行：目标 ${target} 首次命中 ${additions.length} 项路径规范。Runtime 已加载规范，请在读取后重新发起操作。`;
+        sealUnit(input, unitKey, { body: text, phase: "succeeded", tool: { ...preparedTool, resultSummary: text } });
+        input.store.appendContextRecord({
+          cycleKey: input.cycleKey,
+          kind: "tool_result",
+          metadata: { guidancePreflight: true, modelStepKey, operationClass: preparedTool.operationClass, target },
+          sessionKey: input.sessionKey,
+          source: "tool",
+          text,
+          toolCallKey: call.callKey,
+          toolName: call.name
+        });
+        const update = contextUpdateRecord(input.sessionKey, input.cycleKey, additions, "mutation_preflight");
+        for (const guidance of additions) knownInstructionKeys.add(guidance.instructionKey);
+        return {
+          contextRecords: update ? [update] : [],
+          message: { role: "tool", text, toolCallKey: call.callKey },
+          mutatedWorkspace: false,
+          protocolError: false,
+          target
+        };
+      }
     }
 
     const session = input.store.getSession(input.sessionKey)!;
@@ -254,6 +306,7 @@ async function executeTool(
           toolName: call.name
         });
         return {
+          contextRecords: [],
           message: { role: "tool", text, toolCallKey: call.callKey },
           mutatedWorkspace: false,
           protocolError: false,
@@ -322,7 +375,21 @@ async function executeTool(
       toolName: call.name,
       wasTruncated: evidence.wasTruncated
     });
+    const capabilityUpdateRecord: NewContextRecord | undefined = result.contextUpdate ? {
+      cycleKey: input.cycleKey,
+      kind: "context_update",
+      metadata: result.contextUpdate.metadata,
+      sessionKey: input.sessionKey,
+      source: "runtime",
+      text: result.contextUpdate.text
+    } : undefined;
+    const additions = target && completedTool.resourceKind === "file"
+      ? findNewPathInstructions(input.projectRoot, [target], knownInstructionKeys)
+      : [];
+    const update = additions.length > 0 ? contextUpdateRecord(input.sessionKey, input.cycleKey, additions, "read_result") : undefined;
+    for (const guidance of additions) knownInstructionKeys.add(guidance.instructionKey);
     return {
+      contextRecords: [capabilityUpdateRecord, update].filter((record): record is NewContextRecord => Boolean(record)),
       message: { role: "tool", text: evidence.modelText, toolCallKey: call.callKey },
       mutatedWorkspace: result.mutatedWorkspace,
       protocolError: false,
@@ -355,6 +422,7 @@ async function executeTool(
       toolName: call.name
     });
     return {
+      contextRecords: [],
       message: { role: "tool", text, toolCallKey: call.callKey },
       mutatedWorkspace: false,
       protocolError: /未知工具|有效的 JSON|格式无效|参数/.test(message),
@@ -377,6 +445,10 @@ function persistAssistantRecord(input: RuntimeInput, message: ProviderMessage): 
 }
 
 function persistPreparedContext(input: RuntimeInput, previousTokens: number, prepared: PreparedContext): void {
+  if (prepared.sessionEnvelopeRecord) input.store.appendContextRecord(prepared.sessionEnvelopeRecord);
+  if (prepared.recoveryRecord && !input.store.readContextRecords(input.sessionKey).some((record) =>
+    record.kind === "recovery_capsule" && record.cycleKey === input.cycleKey
+  )) input.store.appendContextRecord(prepared.recoveryRecord);
   if (prepared.compacted) {
     const unitKey = openUnit(input, { audience: "user", kind: "compaction", openedAt: new Date().toISOString(), title: "正在压缩上下文" });
     input.store.append({ cycleKey: input.cycleKey, payload: { previousTokens }, sessionKey: input.sessionKey, topic: "context.compaction.started", unitKey });
@@ -404,22 +476,60 @@ function persistPreparedContext(input: RuntimeInput, previousTokens: number, pre
   input.store.writeContextDebugSnapshot(input.sessionKey, input.cycleKey, prepared.debugSnapshot);
 }
 
-async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
-  const session = input.store.getSession(input.sessionKey);
-  if (!session) throw new Error("WorkspaceSession 不存在。");
-  input.store.append({ cycleKey: input.cycleKey, payload: {}, sessionKey: input.sessionKey, topic: "cycle.executing" });
-  const mode = classifyInteraction(input.prompt, session);
-  const tools = mode === "direct" ? [] : runtimeToolDefinitions;
-  let prepared = prepareSessionContext({
+function semanticTranscript(records: ContextRecord[]): string {
+  const text = records
+    .filter((record) => record.kind === "human_text" || record.kind === "agent_text")
+    .map((record) => `${record.kind === "human_text" ? "USER" : "ASSISTANT"}: ${record.text ?? ""}`)
+    .join("\n\n");
+  const maxChars = Number(process.env.DEEPSEEK_COMPACTION_SUMMARY_MAX_CHARS ?? 80_000);
+  if (text.length <= maxChars) return text;
+  const head = Math.floor(maxChars * 0.65);
+  const tail = maxChars - head;
+  return `${text.slice(0, head)}\n\n[older dialogue omitted by Runtime]\n\n${text.slice(-tail)}`;
+}
+
+async function prepareRuntimeContext(
+  input: RuntimeInput,
+  session: NonNullable<ReturnType<SignalStore["getSession"]>>,
+  tools: typeof runtimeToolDefinitions,
+  latestUserInRecords = false
+): Promise<PreparedContext> {
+  const contextInput: PrepareContextInput = {
+    capabilityIndex: capabilityDigest(input.projectRoot),
     currentCycleKey: input.cycleKey,
+    latestUserInRecords,
+    memoryIndex: input.store.memoryDigest(input.projectRoot),
     model: input.model,
     projectRoot: input.projectRoot,
     prompt: input.prompt,
     providerContextWindowTokens: input.provider.capabilities.contextWindowTokens,
     records: input.store.readContextRecords(input.sessionKey),
     session,
+    tokenCalibrationFactor: input.store.readTokenCalibrationFactor(input.model),
     tools
-  });
+  };
+  const prepared = prepareSessionContext(contextInput);
+  if (!prepared.compacted || prepared.droppedRecords.length === 0 || !input.provider.summarizeContext) return prepared;
+  try {
+    const semanticSummary = await input.provider.summarizeContext({
+      model: input.model,
+      signal: input.signal,
+      transcript: semanticTranscript(prepared.droppedRecords)
+    });
+    return prepareSessionContext({ ...contextInput, semanticSummary });
+  } catch {
+    // Deterministic checkpoint facts remain sufficient when semantic compression is unavailable.
+    return prepared;
+  }
+}
+
+async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
+  const session = input.store.getSession(input.sessionKey);
+  if (!session) throw new Error("WorkspaceSession 不存在。");
+  input.store.append({ cycleKey: input.cycleKey, payload: {}, sessionKey: input.sessionKey, topic: "cycle.executing" });
+  const mode = classifyInteraction(input.prompt, session);
+  const tools = mode === "direct" ? [] : runtimeToolDefinitions;
+  let prepared = await prepareRuntimeContext(input, session, tools);
 
   persistPreparedContext(input, session.contextTokenEstimate, prepared);
   input.store.appendContextRecord({
@@ -430,10 +540,12 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
     text: input.prompt
   });
   let messages = [...prepared.messages];
-  const knownInstructionKeys = new Set(prepared.instructions.map((instruction) => instruction.instructionKey));
-  const activePaths = prepared.retainedRecords
-    .map((record) => String(record.metadata?.target ?? ""))
-    .filter(Boolean);
+  const knownInstructionKeys = new Set([
+    ...prepared.instructions.map((instruction) => instruction.instructionKey),
+    ...input.store.readContextRecords(input.sessionKey).flatMap((record) =>
+      Array.isArray(record.metadata?.guidanceKeys) ? record.metadata.guidanceKeys.map(String) : []
+    )
+  ]);
   let finalResponse = "";
   let protocolCorrectionCount = 0;
   let consecutiveToolProtocolErrors = 0;
@@ -444,17 +556,7 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
     if (providerRequestCount > 0 && estimateProviderRequestTokens(messages, tools) >= prepared.thresholdTokens) {
       const refreshedSession = input.store.getSession(input.sessionKey)!;
-      const refreshed = prepareSessionContext({
-        currentCycleKey: input.cycleKey,
-        latestUserInRecords: true,
-        model: input.model,
-        projectRoot: input.projectRoot,
-        prompt: input.prompt,
-        providerContextWindowTokens: input.provider.capabilities.contextWindowTokens,
-        records: input.store.readContextRecords(input.sessionKey),
-        session: refreshedSession,
-        tools
-      });
+      const refreshed = await prepareRuntimeContext(input, refreshedSession, tools, true);
       if (refreshed.compacted) {
         prepared = refreshed;
         messages = [...refreshed.messages];
@@ -531,6 +633,7 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
       updatedAt: new Date().toISOString()
     });
     const response = await streamWithRecovery(input, {
+      maxOutputTokens: prepared.requestedMaxOutputTokens,
       messages,
       model: input.model,
       onFragment,
@@ -615,19 +718,18 @@ async function runAgentCycleWithBaseline(input: RuntimeInput): Promise<void> {
     }
     let mutatedWorkspace = false;
     let protocolErrors = 0;
-    const nextPaths: string[] = [];
+    const deferredContextRecords: NewContextRecord[] = [];
     for (const call of response.toolCalls) {
-      const outcome = await executeTool(input, call, modelStepKey, toolUnits.get(call.callKey));
+      const outcome = await executeTool(input, call, modelStepKey, knownInstructionKeys, toolUnits.get(call.callKey));
       messages.push(outcome.message);
+      deferredContextRecords.push(...outcome.contextRecords);
       mutatedWorkspace ||= outcome.mutatedWorkspace;
       if (outcome.protocolError) protocolErrors += 1;
-      if (outcome.target) nextPaths.push(outcome.target);
     }
-    activePaths.push(...nextPaths);
-    const additionalInstructions = findNewPathInstructions(input.projectRoot, activePaths, knownInstructionKeys);
-    const instructionMessage = renderAdditionalInstructions(additionalInstructions);
-    if (instructionMessage) messages.push(instructionMessage);
-    for (const instruction of additionalInstructions) knownInstructionKeys.add(instruction.instructionKey);
+    for (const record of deferredContextRecords) {
+      const persisted = input.store.appendContextRecord(record);
+      messages.push({ role: "user", text: persisted.text ?? "" });
+    }
     if (mutatedWorkspace) {
       input.store.append({
         cycleKey: input.cycleKey,

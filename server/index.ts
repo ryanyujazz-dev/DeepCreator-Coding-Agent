@@ -5,15 +5,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import Fastify from "fastify";
-import { ApprovalDecision, PermissionProfileKey, SignalStreamMessage } from "../shared/runtimeTypes";
+import { ApprovalDecision, PermissionProfileKey, SignalStreamMessage, WorkspaceSessionView } from "../shared/runtimeTypes";
+import { MemoryFact } from "./contextRecords";
 import { runAgentCycle } from "./agentRuntime";
+import { capabilityDigest } from "./capabilityIndex";
 import { settleWorkCycle } from "./cycleLifecycle";
-import { getCompactThresholdTokens, getContextWindowTokens, getEffectiveInputBudgetTokens } from "./contextManager";
+import { getCompactThresholdTokens, getContextWindowTokens, getEffectiveInputBudgetTokens, getRequestedMaxOutputTokens, prepareSessionContext } from "./contextManager";
 import { DeepSeekProvider } from "./deepseekProvider";
 import { LiveRegistry } from "./liveRegistry";
 import { MockProvider } from "./mockProvider";
 import { resolveInitialProjectRoot } from "./projectRootResolver";
 import { SignalStore } from "./signalStore";
+import { runtimeToolDefinitions } from "./tools";
 
 dotenv.config({ path: ".env.local" });
 
@@ -26,6 +29,38 @@ const defaultModel = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 const store = new SignalStore(dataDirectory);
 const registry = new LiveRegistry();
 const app = Fastify({ logger: false });
+
+function createContextPreview(): ReturnType<typeof prepareSessionContext>["telemetry"] {
+  const now = new Date().toISOString();
+  const session: WorkspaceSessionView = {
+    compactThresholdTokens: getCompactThresholdTokens(),
+    contextTokenEstimate: 0,
+    contextWindowTokens: getContextWindowTokens(),
+    createdAt: now,
+    cycleKeys: [],
+    cycles: [],
+    lastOffset: 0,
+    model: defaultModel,
+    permissionGrants: [],
+    permissionProfile: "request_approval",
+    projectRoot: workspaceRoot,
+    sessionKey: "context_preview",
+    title: "Context preview",
+    updatedAt: now
+  };
+  return prepareSessionContext({
+    capabilityIndex: capabilityDigest(workspaceRoot),
+    currentCycleKey: "context_preview",
+    memoryIndex: store.memoryDigest(workspaceRoot),
+    model: defaultModel,
+    projectRoot: workspaceRoot,
+    prompt: "",
+    records: [],
+    session,
+    tokenCalibrationFactor: store.readTokenCalibrationFactor(defaultModel),
+    tools: runtimeToolDefinitions
+  }).telemetry;
+}
 
 function ensureInsideRoot(projectRoot: string, targetPath: string): string {
   const root = path.resolve(projectRoot);
@@ -60,6 +95,8 @@ app.get("/api/config", async () => ({
   compactThresholdTokens: getCompactThresholdTokens(),
   contextWindowTokens: getContextWindowTokens(),
   effectiveInputBudgetTokens: getEffectiveInputBudgetTokens(),
+  requestedMaxOutputTokens: getRequestedMaxOutputTokens(),
+  contextPreview: createContextPreview(),
   defaultModel,
   hasApiKey: Boolean(process.env.DEEPSEEK_API_KEY),
   signalContract: "deepseeker.flow/v1"
@@ -134,9 +171,67 @@ app.get<{ Params: { sessionKey: string } }>("/api/sessions/:sessionKey", { schem
 });
 
 app.get<{ Params: { sessionKey: string } }>("/api/sessions/:sessionKey/context-telemetry", { schema: sessionParamsSchema }, async (request, reply) => {
-  if (process.env.NODE_ENV === "production") return reply.code(404).send({ error: "not found" });
   if (!store.getSession(request.params.sessionKey)) return reply.code(404).send({ error: "session not found" });
   return { telemetry: store.readContextTelemetry(request.params.sessionKey) };
+});
+
+app.get<{ Params: { sessionKey: string } }>("/api/sessions/:sessionKey/context-observer", { schema: sessionParamsSchema }, async (request, reply) => {
+  const session = store.getSession(request.params.sessionKey);
+  if (!session) return reply.code(404).send({ error: "session not found" });
+  const telemetry = store.readContextTelemetry(request.params.sessionKey);
+  const records = store.readContextRecords(request.params.sessionKey);
+  const preview = telemetry.length === 0 ? prepareSessionContext({
+    capabilityIndex: capabilityDigest(session.projectRoot),
+    currentCycleKey: "context_preview",
+    memoryIndex: store.memoryDigest(session.projectRoot),
+    model: session.model,
+    projectRoot: session.projectRoot,
+    prompt: "",
+    providerContextWindowTokens: getContextWindowTokens(),
+    records,
+    session,
+    tokenCalibrationFactor: store.readTokenCalibrationFactor(session.model),
+    tools: runtimeToolDefinitions
+  }).telemetry : undefined;
+  return {
+    observer: {
+      latest: telemetry.at(-1) ?? preview,
+      memoryFactCount: store.readMemoryFacts(session.projectRoot).length,
+      recent: telemetry.slice(-20),
+      sessionKey: session.sessionKey,
+      updates: records.filter((record) => record.kind === "context_update").slice(-50).map((record) => ({
+        createdAt: record.createdAt,
+        kind: record.metadata?.updateKind ?? "context_update",
+        label: record.metadata?.label ?? "Context update",
+        loadingReason: record.metadata?.activationReason,
+        recordKey: record.recordKey,
+        revisionHash: record.metadata?.revisionHash,
+        source: record.metadata?.sourceFile,
+        survivesCompaction: false,
+        trust: record.metadata?.trust
+      }))
+    }
+  };
+});
+
+app.get<{ Params: { sessionKey: string } }>("/api/sessions/:sessionKey/memory", { schema: sessionParamsSchema }, async (request, reply) => {
+  const session = store.getSession(request.params.sessionKey);
+  if (!session) return reply.code(404).send({ error: "session not found" });
+  return { facts: store.readMemoryFacts(session.projectRoot) };
+});
+
+app.post<{
+  Body: Partial<MemoryFact> & Pick<MemoryFact, "category" | "confidence" | "provenance" | "statement" | "visibility">;
+}>("/api/memory", async (request, reply) => {
+  try {
+    return { fact: store.upsertMemoryFact(request.body) };
+  } catch (error) {
+    return reply.code(400).send({ error: error instanceof Error ? error.message : "invalid memory fact" });
+  }
+});
+
+app.delete<{ Params: { memoryId: string } }>("/api/memory/:memoryId", async (request, reply) => {
+  return reply.code(store.deleteMemoryFact(request.params.memoryId) ? 200 : 404).send({ ok: true });
 });
 
 app.get<{

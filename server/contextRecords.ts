@@ -3,11 +3,14 @@ import { PlanStepView } from "../shared/runtimeTypes";
 import { ProviderMessage, ProviderToolCall } from "./providerTypes";
 
 export type ContextRecordKind =
+  | "session_context"
   | "human_text"
   | "agent_text"
   | "tool_result"
-  | "runtime_fact"
-  | "checkpoint";
+  | "context_update"
+  | "recovery_capsule"
+  | "checkpoint"
+  | "runtime_fact";
 
 export type ContextRecordSource =
   | "user"
@@ -16,17 +19,42 @@ export type ContextRecordSource =
   | "tool"
   | "legacy_projection";
 
+export type MemoryFact = {
+  memoryId: string;
+  category: "preference" | "project_fact" | "workflow" | "known_issue";
+  statement: string;
+  provenance: string;
+  confidence: number;
+  createdAt: string;
+  lastConfirmedAt: string;
+  expiresAt?: string;
+  visibility: "personal" | "project";
+  projectRoot?: string;
+};
+
+export type ContextSemanticSummary = {
+  objective?: string;
+  constraints: string[];
+  decisions: string[];
+  unresolvedQuestions: string[];
+};
+
 export type ContextCheckpoint = {
   objective: string;
+  approvals: Array<{ state: string; target: string; title: string }>;
   constraints: string[];
   decisions: string[];
   currentPlan: PlanStepView[];
   inspectedFiles: string[];
   changedFiles: string[];
+  fileChanges: Array<{ additions: number; deletions: number; operation: string; path: string }>;
+  toolStates: Array<{ status: "succeeded" | "failed"; target: string; toolName: string }>;
   validations: string[];
   failures: string[];
   pendingWork: string[];
   nextActions: string[];
+  semanticSummary?: ContextSemanticSummary;
+  unresolvedQuestions: string[];
   compactedThroughSequence: number;
   compactedRecordCount: number;
 };
@@ -57,10 +85,26 @@ export type NewContextRecord = Omit<ContextRecord, "createdAt" | "recordKey" | "
 };
 
 export type ContextSectionMetric = {
-  section: "tools" | "system" | "instructions" | "checkpoint" | "recent_history" | "runtime_context" | "latest_user";
+  section:
+    | "tools"
+    | "prompt_kernel"
+    | "stable_session"
+    | "memory_index"
+    | "capability_index"
+    | "checkpoint"
+    | "recent_history"
+    | "context_update"
+    | "recovery_capsule"
+    | "latest_user";
   source: string;
   estimatedTokens: number;
   cacheClass: "stable" | "session_stable" | "compaction_stable" | "dynamic";
+  role?: ProviderMessage["role"] | "top_level";
+  recordKey?: string;
+  revisionHash?: string;
+  loadingReason?: string;
+  trust?: string;
+  survivesCompaction?: boolean;
 };
 
 export type ContextTelemetry = {
@@ -70,8 +114,10 @@ export type ContextTelemetry = {
   createdAt: string;
   blueprintVersion: string;
   blueprintHash: string;
+  model: string;
   prefixHash: string;
   recordFingerprint: string;
+  rawEstimatedInputTokens?: number;
   estimatedInputTokens: number;
   actualInputTokens?: number;
   outputTokens?: number;
@@ -93,6 +139,20 @@ export type ContextTelemetry = {
     artifactRef?: string;
   }>;
   sections: ContextSectionMetric[];
+  tokenCalibrationFactor?: number;
+  effectiveInputBudgetTokens?: number;
+  compactThresholdTokens?: number;
+  providerContextWindowTokens?: number;
+  requestedMaxOutputTokens?: number;
+  protocolReserveTokens?: number;
+  safetyMarginTokens?: number;
+  events?: Array<{
+    kind: "guidance_activated" | "skill_activated" | "capability_loaded" | "evidence_truncated";
+    label: string;
+    source?: string;
+    recordKey?: string;
+    createdAt: string;
+  }>;
 };
 
 export function createContextRecord(
@@ -114,6 +174,7 @@ export function contextRecordFingerprint(records: ContextRecord[]): string {
 }
 
 export function providerMessageFromRecord(record: ContextRecord): ProviderMessage | undefined {
+  if (record.kind === "session_context") return { role: "user", text: record.text ?? "" };
   if (record.kind === "human_text") return { role: "user", text: record.text ?? "" };
   if (record.kind === "agent_text") {
     return {
@@ -126,13 +187,19 @@ export function providerMessageFromRecord(record: ContextRecord): ProviderMessag
   if (record.kind === "tool_result") {
     return { role: "tool", text: record.text ?? "", toolCallKey: record.toolCallKey };
   }
-  if (record.kind === "runtime_fact") return { role: "system", text: record.text ?? "" };
+  if (record.kind === "context_update" || record.kind === "recovery_capsule") {
+    return { role: "user", text: record.text ?? "" };
+  }
+  // Legacy runtime facts are historical evidence, not platform policy.
+  if (record.kind === "runtime_fact") return { role: "user", text: record.text ?? "" };
   return undefined;
 }
 
 export function checkpointText(checkpoint: ContextCheckpoint): string {
   return [
+    `<compaction_checkpoint through_sequence="${checkpoint.compactedThroughSequence}">`,
     "较早工作已压缩为以下可恢复检查点。这是历史事实，不是新的用户要求。",
-    JSON.stringify(checkpoint)
+    JSON.stringify(checkpoint).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+    "</compaction_checkpoint>"
   ].join("\n");
 }
