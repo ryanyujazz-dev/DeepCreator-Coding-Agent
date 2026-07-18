@@ -3,13 +3,13 @@ import { MoreHorizontal, PanelRight, SlidersHorizontal, TerminalSquare } from "l
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
 import { ConnectionStatus } from "./components/ConnectionStatus";
-import { ConversationViewport } from "./components/ConversationViewport";
+import { Conversation } from "./components/Conversation";
 import { SessionSidebar } from "./components/SessionSidebar";
-import { WorkspaceInspector } from "./components/WorkspaceInspector";
-import { WorkspaceSurface, WorkspaceSurfacePanel } from "./components/WorkspaceSurfacePanel";
-import { RuntimeFilePreview, runtimeClient } from "./runtimeClient";
-import { useRuntimeWorkspace } from "./useRuntimeWorkspace";
-import { WorkspaceDeltaView } from "../shared/runtimeTypes";
+import { Inspector } from "./components/Inspector";
+import { Surface, SurfacePane } from "./components/SurfacePane";
+import { RuntimeFilePreview, runtimeApi } from "./runtimeApi";
+import { useWorkspace } from "./useWorkspace";
+import { Changes } from "../shared/contracts/runtime";
 
 type SurfaceFileState = {
   error: string | null;
@@ -40,40 +40,40 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(() => storedPanelWidth("deepseeker.sidebarWidth", DEFAULT_SIDEBAR_WIDTH));
   const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepseeker.surfaceWidth", DEFAULT_SURFACE_WIDTH));
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  const [surfaces, setSurfaces] = useState<WorkspaceSurface[]>([]);
+  const [surfaces, setSurfaces] = useState<Surface[]>([]);
   const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [surfaceFiles, setSurfaceFiles] = useState<Record<string, SurfaceFileState>>({});
   const [surfaceClosing, setSurfaceClosing] = useState(false);
   const {
-    activeCycle,
-    cancelCycle,
+    activeRun,
+    cancelRun,
     config,
     connection,
     contextObserver,
-    currentCycle,
+    currentRun,
     error,
     model,
     newSession,
     pendingApproval,
-    permissionProfile,
+    accessMode,
     resolveApproval,
     searchSessions,
     selectSession,
-    setPermissionProfile,
+    setAccessMode,
     session,
     sessions,
-    startCycle
-  } = useRuntimeWorkspace();
-  const activeStep = currentCycle?.plan.find((step) => step.state === "in_progress");
-  const workLabel = activeCycle
+    startRun
+  } = useWorkspace();
+  const activeStep = currentRun?.plan.find((step) => step.status === "running");
+  const workLabel = activeRun
     ? activeStep?.label ?? "Agent 正在处理"
-    : currentCycle?.phase === "failed"
+    : currentRun?.status === "failed"
       ? "工作已中断"
-      : currentCycle?.phase === "cancelled"
+      : currentRun?.status === "cancelled"
         ? "工作已取消"
         : "工作已结束";
-  const currentDelta = currentCycle?.workspaceDelta.comparisonBase === "cycle_start"
-    ? currentCycle.workspaceDelta
+  const currentDelta = currentRun?.changes.comparisonBase === "run_start"
+    ? currentRun.changes
     : { additions: 0, deletions: 0, fileCount: 0 };
   const activeSurface = useMemo(
     () => surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0] ?? null,
@@ -83,7 +83,7 @@ export function App() {
   const surfaceMaxWidth = Math.max(360, Math.min(960, viewportWidth - sidebarWidth - 420));
   const effectiveSurfaceWidth = Math.min(surfaceWidth, surfaceMaxWidth);
   const openFileSurface = useCallback((filePath: string) => {
-    if (!session?.sessionKey) return;
+    if (!session?.sessionId) return;
     const surfaceId = `file:${filePath}`;
     setSurfaceClosing(false);
     setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
@@ -94,7 +94,7 @@ export function App() {
       ...current,
       [filePath]: { error: null, file: current[filePath]?.file ?? null, loading: true }
     }));
-    void runtimeClient.getFile(session.sessionKey, filePath)
+    void runtimeApi.getFile(session.sessionId, filePath)
       .then((file) => {
         setSurfaceFiles((current) => ({
           ...current,
@@ -115,20 +115,20 @@ export function App() {
         }));
       })
   }, [session]);
-  const openReviewSurface = useCallback((delta?: WorkspaceDeltaView) => {
-    const reviewDelta = delta ?? [...(session?.cycles ?? [])]
+  const openReviewSurface = useCallback((delta?: Changes) => {
+    const reviewDelta = delta ?? [...(session?.runs ?? [])]
       .reverse()
-      .map((cycle) => cycle.workspaceDelta)
-      .find((candidate) => candidate.comparisonBase === "cycle_start" && candidate.fileCount > 0);
-    if (!reviewDelta || reviewDelta.comparisonBase !== "cycle_start" || reviewDelta.fileCount === 0) return;
+      .map((run) => run.changes)
+      .find((candidate) => candidate.comparisonBase === "run_start" && candidate.fileCount > 0);
+    if (!reviewDelta || reviewDelta.comparisonBase !== "run_start" || reviewDelta.fileCount === 0) return;
     const surfaceId = `review:${reviewDelta.files.map((file) => file.path).join("|")}:${reviewDelta.additions}:${reviewDelta.deletions}`;
-    const reviewSurface: WorkspaceSurface = { files: reviewDelta.files, id: surfaceId, kind: "review", title: "审阅" };
+    const reviewSurface: Surface = { files: reviewDelta.files, id: surfaceId, kind: "review", title: "审阅" };
     setSurfaceClosing(false);
     setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
       ? current.map((candidate) => candidate.id === surfaceId ? reviewSurface : candidate)
       : [...current, reviewSurface]);
     setActiveSurfaceId(surfaceId);
-  }, [session?.cycles]);
+  }, [session?.runs]);
   const closeSurfaceTab = useCallback((surfaceId: string) => {
     setSurfaces((current) => {
       const closingIndex = current.findIndex((candidate) => candidate.id === surfaceId);
@@ -166,10 +166,10 @@ export function App() {
         <SessionSidebar
           onNewSession={newSession}
           onSearch={searchSessions}
-          onSelectSession={(sessionKey) => void selectSession(sessionKey)}
+          onSelectSession={(sessionId) => void selectSession(sessionId)}
           onWidthChange={setSidebarWidth}
           onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
-          selectedSessionKey={session?.sessionKey ?? null}
+          selectedSessionKey={session?.sessionId ?? null}
           sidebarWidth={sidebarWidth}
           sessions={sessions}
         />
@@ -183,16 +183,16 @@ export function App() {
               <ConnectionStatus phase={connection} />
             </header>
             <div className="window-actions"><button className="icon-button" aria-label="视图设置"><SlidersHorizontal size={14} /></button><button className="icon-button" aria-label="工作区面板"><PanelRight size={14} /></button></div>
-            <WorkspaceInspector onOpenReview={openReviewSurface} session={session} />
-            <ConversationViewport onOpenFile={openFileSurface} onOpenReview={openReviewSurface} session={session} />
+            <Inspector onOpenReview={openReviewSurface} session={session} />
+            <Conversation onOpenFile={openFileSurface} onOpenReview={openReviewSurface} session={session} />
             <div className="composer-dock">
-              {currentCycle && (
+              {currentRun && (
                 <div
-                  aria-hidden={!activeCycle}
-                  className={`composer-hud is-${currentCycle.phase} ${activeCycle ? "is-visible" : "is-collapsed"}`}
+                  aria-hidden={!activeRun}
+                  className={`composer-hud is-${currentRun.status} ${activeRun ? "is-visible" : "is-collapsed"}`}
                 >
-                  <span className={activeCycle ? "working-glow" : ""}>{activeCycle ? "正在执行" : "最近工作"}</span>
-                  <strong className={activeCycle ? "working-glow" : ""}>{workLabel}</strong>
+                  <span className={activeRun ? "working-glow" : ""}>{activeRun ? "正在执行" : "最近工作"}</span>
+                  <strong className={activeRun ? "working-glow" : ""}>{workLabel}</strong>
                   <span>{currentDelta.fileCount} 个文件已更改 <b>+{currentDelta.additions}</b> <i>-{currentDelta.deletions}</i></span>
                 </div>
               )}
@@ -202,16 +202,16 @@ export function App() {
               <Composer
                 contextConfig={config}
                 contextObserver={contextObserver}
-                isRunning={Boolean(activeCycle)}
+                isRunning={Boolean(activeRun)}
                 model={model}
-                onCancel={() => void cancelCycle()}
-                onPermissionProfileChange={(profile) => void setPermissionProfile(profile)}
-                onSubmit={(prompt) => void startCycle(prompt)}
-                permissionProfile={permissionProfile}
+                onCancel={() => void cancelRun()}
+                onAccessModeChange={(mode) => void setAccessMode(mode)}
+                onSubmit={(prompt) => void startRun(prompt)}
+                accessMode={accessMode}
               />
             </div>
           </div>
-          <WorkspaceSurfacePanel
+          <SurfacePane
             activeSurfaceId={activeSurface?.id ?? null}
             file={activeFileState?.file ?? null}
             fileError={activeFileState?.error ?? null}

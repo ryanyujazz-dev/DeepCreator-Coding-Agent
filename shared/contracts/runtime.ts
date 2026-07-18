@@ -1,0 +1,281 @@
+export const EVENT_VERSION = "deepseeker.events/v2" as const;
+
+export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+export type ActivityStatus = "running" | "completed" | "failed" | "cancelled";
+export type Audience = "user" | "debug" | "internal";
+
+export type ActivityKind =
+  | "thinking"
+  | "message"
+  | "tool"
+  | "command"
+  | "file_mutation"
+  | "compaction"
+  | "error";
+
+export type ActionKind = "inspect" | "search" | "modify" | "execute" | "verify" | "plan" | "external";
+export type TargetKind = "file" | "directory" | "workspace" | "process" | "network" | "plan";
+export type Effect = "read_only" | "workspace_write" | "process_side_effect" | "external_side_effect" | "control_only";
+export type GroupMode = "consecutive" | "same_model_step" | "standalone" | "workspace_delta";
+export type ToolImportance = "routine" | "notable" | "critical";
+
+export type DetailMode = {
+  defaultCollapsed: boolean;
+  pathStyle: "workspace_relative" | "raw";
+  previewLimit: number;
+};
+
+export type ToolMetrics = {
+  byteCount?: number;
+  exitCode?: number;
+  itemCount?: number;
+  matchCount?: number;
+  timedOut?: boolean;
+  truncated?: boolean;
+};
+
+export type ToolState = {
+  callId: string;
+  modelStepId: string;
+  toolName: string;
+  action: ActionKind;
+  targetKind: TargetKind;
+  effect: Effect;
+  groupMode: GroupMode;
+  importance: ToolImportance;
+  normalizedTarget: string;
+  displayTarget: string;
+  argumentsPreview: string;
+  detail: DetailMode;
+  resultSummary?: string;
+  resultMetrics?: ToolMetrics;
+};
+
+export type EventType =
+  | "session.created"
+  | "session.updated"
+  | "run.started"
+  | "plan.changed"
+  | "changes.changed"
+  | "usage.changed"
+  | "activity.started"
+  | "activity.updated"
+  | "activity.finished"
+  | "approval.requested"
+  | "approval.resolved"
+  | "run.finished";
+
+export type EventScope = {
+  sessionId: string;
+  runId?: string;
+  activityId?: string;
+};
+
+export type Event<T = unknown> = {
+  version: typeof EVENT_VERSION;
+  eventId: string;
+  offset: number;
+  type: EventType;
+  scope: EventScope;
+  at: string;
+  data: T;
+};
+
+export type PlanStatus = "pending" | "running" | "completed" | "blocked";
+
+export type PlanItem = {
+  stepId: string;
+  label: string;
+  status: PlanStatus;
+};
+
+export type AccessMode = "request_approval" | "smart_approval" | "full_access";
+export type ApprovalChoice = "allow_once" | "allow_run" | "allow_session" | "deny";
+export type AccessScope = "workspace_write" | "workspace_delete" | "shell_execute" | "network_access" | "external_access";
+export type AccessRisk = "low" | "medium" | "high" | "critical";
+
+export type Grant = {
+  grantId: string;
+  toolName: string;
+  capability: AccessScope;
+  targetPattern: string;
+  scope: "run" | "session";
+  runId?: string;
+  createdAt: string;
+};
+
+export type FileChange = {
+  path: string;
+  additions: number;
+  deletions: number;
+  operation: "created" | "edited" | "deleted" | "renamed" | "unknown";
+  patch?: string;
+};
+
+export type Changes = {
+  fileCount: number;
+  additions: number;
+  deletions: number;
+  files: FileChange[];
+  capturedAt?: string;
+  comparisonBase?: "run_start" | "git_head";
+};
+
+export type Usage = {
+  contextTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheHitTokens?: number;
+  cacheMissTokens?: number;
+  source: "provider" | "estimated";
+};
+
+export type Approval = {
+  approvalId: string;
+  callId: string;
+  capability: AccessScope;
+  target: string;
+  risk: AccessRisk;
+  title: string;
+  detail: string;
+  choices: ApprovalChoice[];
+  state: "pending" | "allowed" | "denied" | "dismissed";
+};
+
+export type ResumeState = {
+  capturedAt: string;
+  projectRoot: string;
+  failureType: "runtime_error" | "provider_protocol_error" | "interrupted" | "cancelled";
+  failureMessage: string;
+  plan: PlanItem[];
+  completedOperations: string[];
+  interruptedOperations: string[];
+  changedFiles: string[];
+  lastProgress?: string;
+};
+
+export type Activity = {
+  activityId: string;
+  runId: string;
+  kind: ActivityKind;
+  status: ActivityStatus;
+  audience: Audience;
+  title: string;
+  body: string;
+  startedAt: string;
+  finishedAt?: string;
+  tool?: ToolState;
+  command?: {
+    command: string;
+    exitCode?: number;
+    timedOut?: boolean;
+  };
+  files?: FileChange[];
+  error?: string;
+};
+
+export type DetailKind = "read" | "search" | "list" | "modify" | "verify" | "execute" | "plan" | "external";
+
+export type DetailRow = {
+  detailId: string;
+  kind: DetailKind;
+  label: string;
+  targets: string[];
+  totalCalls: number;
+};
+
+export type ActivityGroup = {
+  groupId: string;
+  runId: string;
+  category: ActionKind;
+  status: ActivityStatus;
+  memberActivityIds: string[];
+  totalCalls: number;
+  successCount: number;
+  failureCount: number;
+  uniqueTargets: string[];
+  currentTarget?: string;
+  startedAt: string;
+  finishedAt?: string;
+  summaryLabel: string;
+  detailRows: DetailRow[];
+  importance: ToolImportance;
+  defaultExpanded: boolean;
+  changes?: Pick<Changes, "additions" | "deletions" | "fileCount">;
+};
+
+export type TimelineEntry =
+  | { entryId: string; type: "activity_group"; group: ActivityGroup }
+  | { entryId: string; type: "activity"; activity: Activity };
+
+export type Run = {
+  runId: string;
+  sessionId: string;
+  prompt: string;
+  model: string;
+  status: RunStatus;
+  startedAt: string;
+  finishedAt?: string;
+  activities: Activity[];
+  plan: PlanItem[];
+  changes: Changes;
+  approvals: Approval[];
+  usage?: Usage;
+  answer: string;
+  error?: string;
+  resume?: ResumeState;
+  lastOffset: number;
+};
+
+export type Session = {
+  sessionId: string;
+  title: string;
+  model: string;
+  projectRoot: string;
+  createdAt: string;
+  updatedAt: string;
+  runIds: string[];
+  runs: Run[];
+  contextTokens: number;
+  contextWindowTokens: number;
+  compactThresholdTokens: number;
+  compactSummary?: string;
+  accessMode: AccessMode;
+  grants: Grant[];
+  lastOffset: number;
+};
+
+export type SessionInput = Pick<
+  Session,
+  "sessionId" | "title" | "model" | "projectRoot" | "createdAt" | "contextWindowTokens" | "compactThresholdTokens"
+> & { accessMode?: AccessMode };
+
+export type SessionSummary = Pick<
+  Session,
+  "sessionId" | "title" | "model" | "projectRoot" | "createdAt" | "updatedAt"
+> & {
+  runCount: number;
+  active: boolean;
+};
+
+export type EventBatch = {
+  kind: "events";
+  sessionId: string;
+  events: Event[];
+};
+
+export type HeartbeatMessage = {
+  kind: "heartbeat";
+  sessionId: string;
+  offset: number;
+};
+
+export type EventStream = EventBatch | HeartbeatMessage;
+
+export function emptyChanges(): Changes {
+  return { additions: 0, comparisonBase: "run_start", deletions: 0, fileCount: 0, files: [] };
+}
+
+export function isRunDone(status: RunStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}

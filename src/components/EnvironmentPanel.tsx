@@ -1,15 +1,15 @@
 import { FileCode2, FolderGit2, GitBranch, HardDrive } from "lucide-react";
-import { WorkspaceDeltaView, WorkspaceSessionView } from "../../shared/runtimeTypes";
+import { Changes, Session } from "../../shared/contracts/runtime";
 
 export function EnvironmentPanel({
   onOpenReview,
   session
 }: {
-  onOpenReview: (delta?: WorkspaceDeltaView) => void;
-  session: WorkspaceSessionView | null;
+  onOpenReview: (delta?: Changes) => void;
+  session: Session | null;
 }) {
-  const cycle = session?.cycles.at(-1);
-  const delta = cycle?.workspaceDelta.comparisonBase === "cycle_start" ? cycle.workspaceDelta : undefined;
+  const run = session?.runs.at(-1);
+  const delta = run?.changes.comparisonBase === "run_start" ? run.changes : undefined;
   const fileCount = delta?.fileCount ?? 0;
   return (
     <section className="environment-section">

@@ -1,7 +1,7 @@
 import { ShieldAlert } from "lucide-react";
-import { ApprovalDecision, ApprovalView } from "../../shared/runtimeTypes";
+import { ApprovalChoice, Approval } from "../../shared/contracts/runtime";
 
-export function ApprovalDialog({ approval, onResolve }: { approval?: ApprovalView; onResolve: (decision: ApprovalDecision) => void }) {
+export function ApprovalDialog({ approval, onResolve }: { approval?: Approval; onResolve: (decision: ApprovalChoice) => void }) {
   if (!approval) return null;
   return (
     <section aria-live="polite" className="approval-dialog" role="group">
@@ -10,7 +10,7 @@ export function ApprovalDialog({ approval, onResolve }: { approval?: ApprovalVie
       <footer>
         <button onClick={() => onResolve("deny")} type="button">拒绝</button>
         <button onClick={() => onResolve("allow_session")} type="button">本会话允许</button>
-        <button onClick={() => onResolve("allow_cycle")} type="button">本轮允许</button>
+        <button onClick={() => onResolve("allow_run")} type="button">本轮允许</button>
         <button className="primary" onClick={() => onResolve("allow_once")} type="button">允许一次</button>
       </footer>
     </section>

@@ -1,0 +1,112 @@
+import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, TerminalSquare, Wrench } from "lucide-react";
+import { useState } from "react";
+import { Activity } from "../../shared/contracts/runtime";
+
+function iconFor(activity: Activity) {
+  if (activity.kind === "command") return <TerminalSquare size={13} />;
+  if (activity.kind === "file_mutation") return <FileCode2 size={13} />;
+  if (activity.kind === "error" || activity.status === "failed") return <CircleAlert size={13} />;
+  if (activity.kind === "tool") return <Wrench size={13} />;
+  return <CheckCircle2 size={13} />;
+}
+
+function completedTitle(activity: Activity): string {
+  if (activity.command?.timedOut) return "命令运行超时";
+  if (activity.kind === "command" && activity.status === "failed") return "命令运行失败";
+  if (activity.kind === "command" && activity.status === "cancelled") return "命令已取消";
+  if (activity.status !== "completed") return activity.title;
+  if (activity.kind === "command") {
+    return activity.command?.command ? `已运行 ${activity.command.command}` : "命令执行完成";
+  }
+  if (activity.tool?.displayTarget) {
+    if (activity.tool.action === "plan") return "已更新计划";
+    if (activity.tool.action === "modify") return `已修改 ${activity.tool.displayTarget}`;
+    if (activity.tool.action === "inspect" || activity.tool.action === "search") return `已检查 ${activity.tool.displayTarget}`;
+  }
+  const firstLine = activity.body.split("\n", 1)[0]?.trim();
+  if (firstLine?.startsWith("已") && firstLine.length <= 120) return firstLine;
+  return activity.title;
+}
+
+function fileActionLabel(activity: Activity): string {
+  if (activity.status === "failed") return "失败";
+  if (activity.status === "cancelled") return "已取消";
+  if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
+  if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
+  if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
+  return activity.status === "running" ? "正在处理" : "已处理";
+}
+
+export function ActivityView({
+  runActive,
+  onOpenFile,
+  activity
+}: {
+  runActive: boolean;
+  onOpenFile: (path: string) => void;
+  activity: Activity;
+}) {
+  const [commandExpanded, setCommandExpanded] = useState(false);
+  if (activity.audience === "internal") return null;
+  if (activity.kind === "thinking") {
+    if (!runActive || activity.status !== "running") return null;
+    return (
+      <article className="work-step thinking-step is-expanded">
+        <div className="work-body">
+          <strong className="working-glow">正在思考</strong>
+        </div>
+      </article>
+    );
+  }
+  if (activity.kind === "message") {
+    return (
+      <article className="work-step content-step">
+        <div className="work-body"><p>{activity.body}<span className={activity.status === "running" ? "streaming-caret" : ""} /></p></div>
+      </article>
+    );
+  }
+  if (activity.kind === "command") {
+    const status = activity.command?.timedOut
+      ? "执行超时"
+      : activity.command?.exitCode === undefined ? "" : `退出码 ${activity.command.exitCode}`;
+    const output = [status, activity.body].filter(Boolean).join("\n\n") || "命令执行完成，无输出。";
+    return (
+      <article className={`work-step tool-step command-step is-${activity.status}`}>
+        <div className="work-dot">{iconFor(activity)}</div>
+        <div className="work-body">
+          <button
+            aria-expanded={commandExpanded}
+            className="command-step-toggle"
+            onClick={() => setCommandExpanded((value) => !value)}
+            type="button"
+          >
+            <strong>{completedTitle(activity)}</strong>
+            <ChevronDown size={12} />
+          </button>
+          {activity.status === "running" && <p className="muted-line working-glow">正在执行</p>}
+          {commandExpanded && <pre className="activity-output">{output}</pre>}
+        </div>
+      </article>
+    );
+  }
+  const fileTarget = activity.tool?.targetKind === "file" ? activity.tool : undefined;
+  return (
+    <article className={`work-step tool-step is-${activity.status}`}>
+      <div className="work-dot">{iconFor(activity)}</div>
+      <div className="work-body">
+        {fileTarget ? (
+          <strong className="inline-file-reference">
+            <span className={activity.status === "running" ? "working-glow" : ""}>{fileActionLabel(activity)}</span>
+            <button onClick={() => onOpenFile(fileTarget.normalizedTarget)} title={fileTarget.displayTarget} type="button">
+              {fileTarget.displayTarget}
+            </button>
+          </strong>
+        ) : (
+          <strong>{completedTitle(activity)}</strong>
+        )}
+        {activity.status === "running" && !fileTarget && <p className="muted-line working-glow">正在执行</p>}
+        {activity.status === "failed" && activity.body && <pre className="activity-output">{activity.body}</pre>}
+      </div>
+    </article>
+  );
+}

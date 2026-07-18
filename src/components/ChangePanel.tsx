@@ -1,6 +1,6 @@
 import { ChevronDown, FileCode2 } from "lucide-react";
 import { useState } from "react";
-import { FileDeltaView, WorkspaceDeltaView } from "../../shared/runtimeTypes";
+import { FileChange, Changes } from "../../shared/contracts/runtime";
 
 function diffLineClass(line: string): string {
   if (line.startsWith("+++") || line.startsWith("---")) return "is-meta";
@@ -10,7 +10,7 @@ function diffLineClass(line: string): string {
   return "";
 }
 
-function FileChangeRow({ file, onOpenFile }: { file: FileDeltaView; onOpenFile: (path: string) => void }) {
+function FileChangeRow({ file, onOpenFile }: { file: FileChange; onOpenFile: (path: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const hasPatch = Boolean(file.patch?.trim());
   return (
@@ -47,12 +47,12 @@ export function ChangePanel({
   onOpenFile,
   onOpenReview
 }: {
-  delta: WorkspaceDeltaView;
+  delta: Changes;
   onOpenFile: (path: string) => void;
-  onOpenReview: (delta: WorkspaceDeltaView) => void;
+  onOpenReview: (delta: Changes) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
-  if (delta.fileCount === 0 || delta.comparisonBase !== "cycle_start") return null;
+  if (delta.fileCount === 0 || delta.comparisonBase !== "run_start") return null;
   const visibleFiles = showAll ? delta.files : delta.files.slice(0, 3);
   const hiddenCount = Math.max(0, delta.files.length - visibleFiles.length);
   return (

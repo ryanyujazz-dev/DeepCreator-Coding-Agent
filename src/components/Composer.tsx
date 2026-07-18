@@ -1,9 +1,9 @@
 import { ArrowUp, ArrowUpDown, Check, ChevronDown, Mic, Plus, Shield, ShieldAlert, ShieldCheck, Square } from "lucide-react";
 import { CSSProperties, FormEvent, useMemo, useState } from "react";
-import { PermissionProfileKey } from "../../shared/runtimeTypes";
-import { RuntimeConfig, RuntimeContextObserver } from "../runtimeClient";
+import { AccessMode } from "../../shared/contracts/runtime";
+import { RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 
-const permissionOptions: Array<{ description: string; icon: typeof Shield; key: PermissionProfileKey; label: string }> = [
+const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
   { description: "外部访问和有风险的操作会先询问", icon: ShieldAlert, key: "request_approval", label: "请求批准" },
   { description: "仅在检测到高风险操作时询问", icon: ShieldCheck, key: "smart_approval", label: "智能审批" },
   { description: "允许访问网络并执行本机操作", icon: Shield, key: "full_access", label: "完全访问" }
@@ -15,25 +15,25 @@ export function Composer({
   isRunning,
   model,
   onCancel,
-  onPermissionProfileChange,
+  onAccessModeChange,
   onSubmit,
-  permissionProfile
+  accessMode
 }: {
   contextConfig: RuntimeConfig | null;
   contextObserver: RuntimeContextObserver | null;
   isRunning: boolean;
   model: string;
   onCancel: () => void;
-  onPermissionProfileChange: (profile: PermissionProfileKey) => void;
+  onAccessModeChange: (mode: AccessMode) => void;
   onSubmit: (prompt: string) => void;
-  permissionProfile: PermissionProfileKey;
+  accessMode: AccessMode;
 }) {
   const [draft, setDraft] = useState("");
-  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
+  const [accessMenuOpen, setAccessMenuOpen] = useState(false);
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
   const [contextSortMenuOpen, setContextSortMenuOpen] = useState(false);
-  const selectedPermission = permissionOptions.find((option) => option.key === permissionProfile) ?? permissionOptions[0];
-  const SelectedPermissionIcon = selectedPermission.icon;
+  const selectedAccess = accessOptions.find((option) => option.key === accessMode) ?? accessOptions[0];
+  const SelectedAccessIcon = selectedAccess.icon;
   const contextSummary = useMemo(() => {
     const latest = contextObserver?.latest ?? contextConfig?.contextPreview;
     const windowTokens = latest?.providerContextWindowTokens ?? contextConfig?.contextWindowTokens ?? 1_000_000;
@@ -83,27 +83,27 @@ export function Composer({
         <div className="composer-left">
           <button className="plain-icon" type="button" aria-label="添加上下文"><Plus size={20} /></button>
           <div className="permission-selector">
-            <button className="access-button" type="button" aria-expanded={permissionMenuOpen} onClick={() => setPermissionMenuOpen((open) => !open)}>
-              <SelectedPermissionIcon size={15} /><span>{selectedPermission.label}</span><ChevronDown size={13} />
+            <button className="access-button" type="button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
+              <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
             </button>
-            {permissionMenuOpen && (
+            {accessMenuOpen && (
               <div className="permission-menu" role="menu">
-                {permissionOptions.map((option) => {
+                {accessOptions.map((option) => {
                   const Icon = option.icon;
                   return (
                     <button
-                      className={option.key === permissionProfile ? "is-selected" : ""}
+                      className={option.key === accessMode ? "is-selected" : ""}
                       key={option.key}
                       onClick={() => {
-                        onPermissionProfileChange(option.key);
-                        setPermissionMenuOpen(false);
+                        onAccessModeChange(option.key);
+                        setAccessMenuOpen(false);
                       }}
                       role="menuitem"
                       type="button"
                     >
                       <Icon size={16} />
                       <span><strong>{option.label}</strong><small>{option.description}</small></span>
-                      {option.key === permissionProfile && <Check size={15} />}
+                      {option.key === accessMode && <Check size={15} />}
                     </button>
                   );
                 })}

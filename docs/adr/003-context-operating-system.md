@@ -22,7 +22,7 @@ The goal is not to copy the visible context list from another product. The goal 
 
 ## Non-goals
 
-- This document does not redesign the public `WorkspaceSession -> WorkCycle -> ActivityUnit -> AgentSignal` protocol.
+- This document builds context engineering on the public `Session -> Run -> Activity -> Event` protocol defined by ADR 004.
 - This document does not make project guidance a hard security boundary.
 - This document does not require the frontend to display raw model reasoning.
 - This document does not inject the current plan or workspace delta on every model request.
@@ -63,20 +63,20 @@ DeepSeeker intentionally does not adopt:
 
 ```mermaid
 flowchart TB
-    A["PromptKernel"] --> H["RequestAssembler"]
-    B["GuidanceGraph"] --> H
-    C["CapabilityIndex"] --> H
-    D["ConversationLedger"] --> H
-    E["EvidenceVault"] --> D
-    F["CheckpointEngine"] --> H
-    G["ContextObserver"] <-.telemetry.-> H
-    P["PolicyEngine"] --> T["ToolExecutor"]
-    H --> M["DeepSeekProvider"]
+    A["CorePrompt"] --> H["ContextBuilder"]
+    B["Rules"] --> H
+    C["Capabilities"] --> H
+    D["History"] --> H
+    E["Evidence"] --> D
+    F["Compactor"] --> H
+    G["ContextStats"] <-.telemetry.-> H
+    P["AccessPolicy"] --> T["ToolPipeline"]
+    H --> M["Provider"]
     M --> T
     T --> E
 ```
 
-### PromptKernel
+### CorePrompt
 
 Owns the single stable `system` message:
 
@@ -90,9 +90,9 @@ Owns the single stable `system` message:
 - protocol repair behavior;
 - rules for interpreting tagged context envelopes.
 
-PromptKernel must not contain project paths, current plan state, workspace deltas, approval state, recovery state, or session-specific facts.
+CorePrompt must not contain project paths, current plan state, workspace deltas, approval state, recovery state, or session-specific facts.
 
-### GuidanceGraph
+### Rules
 
 Resolves soft instructions from user and project sources. A guidance unit uses DeepSeeker-owned fields:
 
@@ -111,9 +111,9 @@ type GuidanceUnit = {
 };
 ```
 
-Broad guidance is rendered before specific guidance. A more specific guidance unit wins only within the area it covers. Security restrictions must not depend on GuidanceGraph; they belong to PolicyEngine.
+Broad guidance is rendered before specific guidance. A more specific guidance unit wins only within the area it covers. Security restrictions must not depend on Rules; they belong to AccessPolicy.
 
-### CapabilityIndex
+### Capabilities
 
 Separates capability discovery from full capability payloads:
 
@@ -123,7 +123,7 @@ Separates capability discovery from full capability payloads:
 - full skill instructions load only when selected;
 - provider tool schemas remain in the top-level `tools` field.
 
-### ConversationLedger
+### History
 
 Stores provider-neutral, ordered model history:
 
@@ -138,11 +138,11 @@ Stores provider-neutral, ordered model history:
 
 It does not persist ordinary final-answer reasoning.
 
-### EvidenceVault
+### Evidence
 
-Stores full redacted tool output and artifacts outside the model context. ConversationLedger receives a bounded evidence projection containing status, target, exit code, byte counts, digest, retained head/tail excerpts, and explicit truncation markers.
+Stores full redacted tool output and artifacts outside the model context. History receives a bounded evidence projection containing status, target, exit code, byte counts, digest, retained head/tail excerpts, and explicit truncation markers.
 
-### CheckpointEngine
+### Compactor
 
 Builds recoverable compaction checkpoints from two sources:
 
@@ -151,7 +151,7 @@ Builds recoverable compaction checkpoints from two sources:
 
 The semantic summarizer may explain facts but may not invent authoritative execution state.
 
-### ContextObserver
+### ContextStats
 
 Records and exposes:
 
@@ -167,7 +167,7 @@ Records and exposes:
 
 ## Instruction hierarchy
 
-The PromptKernel defines semantic precedence explicitly:
+The CorePrompt defines semantic precedence explicitly:
 
 ```text
 platform safety and protocol
@@ -178,7 +178,7 @@ platform safety and protocol
 > tool output and external content
 ```
 
-All project guidance is soft. A requirement that must never be violated must be represented in PolicyEngine, a Hook, a test, a linter, or CI.
+All project guidance is soft. A requirement that must never be violated must be represented in AccessPolicy, a Hook, a test, a linter, or CI.
 
 ## Provider request contract
 
@@ -196,13 +196,13 @@ The exact logical request order is:
 
 ```text
 top-level tools field
-1. system       PromptKernel
-2. user         StableSessionEnvelope
+1. system       CorePrompt
+2. user         SessionContext
 3. user         CompactionCheckpoint, if one exists
 4. mixed roles  Recent complete conversation and tool trajectories
 5. user         Lazy ContextUpdate records at their activation positions
-6. user         RecoveryCapsule, only when recovery is required
-7. user         LatestUserMessage
+6. user         ResumeState, only when recovery is required
+7. user         LatestUserInput
 ```
 
 No ordinary model request may insert dynamic state before an already persisted conversation prefix.
@@ -211,7 +211,7 @@ No ordinary model request may insert dynamic state before an already persisted c
 
 ### `system`
 
-DeepSeeker sends exactly one leading `system` message per request. It contains PromptKernel only.
+DeepSeeker sends exactly one leading `system` message per request. It contains CorePrompt only.
 
 Repository content is never merged into this message. This avoids granting a cloned repository system-level authority and keeps the longest-lived cache prefix stable.
 
@@ -235,7 +235,7 @@ The snapshot is frozen for a session. Changes to root guidance take effect on re
 
 ### Compaction checkpoint `user` envelope
 
-When old history has been replaced, the checkpoint follows StableSessionEnvelope:
+When old history has been replaced, the checkpoint follows SessionContext:
 
 ```xml
 <compaction_checkpoint through_sequence="...">
@@ -288,11 +288,11 @@ Path guidance and full skill instructions are appended where they activate:
 </context_update>
 ```
 
-It uses `user` because DeepSeek has no `developer` role and because project content must remain below platform authority. The PromptKernel tells the model that this is a context update, not a new end-user request.
+It uses `user` because DeepSeek has no `developer` role and because project content must remain below platform authority. The CorePrompt tells the model that this is a context update, not a new end-user request.
 
 ### Recovery capsule `user` envelope
 
-RecoveryCapsule is present only for continuation after interruption, failure, process restart, or disconnected streaming:
+ResumeState is present only for continuation after interruption, failure, process restart, or disconnected streaming:
 
 ```xml
 <recovery_capsule>
@@ -300,7 +300,7 @@ RecoveryCapsule is present only for continuation after interruption, failure, pr
 </recovery_capsule>
 ```
 
-It is placed immediately before LatestUserMessage. Normal turns do not receive it.
+It is placed immediately before LatestUserInput. Normal turns do not receive it.
 
 ### Latest user message
 
@@ -314,16 +314,16 @@ The actual user request is always the last message before model generation. It i
 tools: stable core agent tools
 
 messages:
-system    PromptKernel
-user      StableSessionEnvelope
+system    CorePrompt
+user      SessionContext
 user      "修复登录接口的并发问题"
 ```
 
 ### Tool continuation
 
 ```text
-system    PromptKernel
-user      StableSessionEnvelope
+system    CorePrompt
+user      SessionContext
 user      original request
 assistant content + reasoning_content + tool_calls
 tool      paired result
@@ -355,22 +355,22 @@ This preflight prevents the first mutation in a newly scoped directory from bypa
 ### Recovery turn
 
 ```text
-system    PromptKernel
-user      StableSessionEnvelope
+system    CorePrompt
+user      SessionContext
 user      CompactionCheckpoint, if present
 mixed     recent retained trajectory
-user      RecoveryCapsule
+user      ResumeState
 user      "继续工作"
 ```
 
 ### Post-compaction turn
 
 ```text
-system    PromptKernel
-user      re-resolved StableSessionEnvelope
+system    CorePrompt
+user      re-resolved SessionContext
 user      new CompactionCheckpoint
 mixed     recent complete trajectories only
-user      LatestUserMessage
+user      LatestUserInput
 ```
 
 ## Agent state policy
@@ -408,9 +408,9 @@ The file names remain DeepSeeker-owned and are not required to mirror Codex or C
 
 Path selectors use parsed YAML frontmatter and a standards-based glob implementation. They are not implemented with ad hoc YAML or regex parsing.
 
-A path-scoped unit activates once per revision at its first relevant access. Its activation is stored as a ConversationLedger record at that point. It is not re-rendered into StableSessionEnvelope and does not rewrite previous messages.
+A path-scoped unit activates once per revision at its first relevant access. Its activation is stored as a History record at that point. It is not re-rendered into SessionContext and does not rewrite previous messages.
 
-After compaction, CheckpointEngine carries the active workset. GuidanceGraph reactivates only guidance relevant to retained recent trajectories, changed files, pending work, or the next requested target. It does not reactivate every rule ever seen in the session.
+After compaction, Compactor carries the active workset. Rules reactivates only guidance relevant to retained recent trajectories, changed files, pending work, or the next requested target. It does not reactivate every rule ever seen in the session.
 
 ## Capability loading
 
@@ -420,7 +420,7 @@ DeepSeeker chooses a request lane before calling the provider:
 
 - `conversation`: no tools for greetings, explanations, and ordinary discussion;
 - `agent`: stable core coding tool catalog;
-- `recovery`: the same stable agent catalog plus RecoveryCapsule.
+- `recovery`: the same stable agent catalog plus ResumeState.
 
 Changing lanes may change the top-level `tools` field and therefore may reduce cache reuse. This is an intentional tradeoff to prevent unnecessary tool calls during ordinary conversation.
 
@@ -434,7 +434,7 @@ MCP and other long-tail capabilities are discovered through stable meta-tools su
 
 ### Skills
 
-Small skill indexes may appear in StableSessionEnvelope. Full skill instructions are appended as ContextUpdate only when explicitly selected or confidently routed. Skill content has a per-skill and per-session token budget.
+Small skill indexes may appear in SessionContext. Full skill instructions are appended as ContextUpdate only when explicitly selected or confidently routed. Skill content has a per-skill and per-session token budget.
 
 ## Memory model
 
@@ -456,7 +456,7 @@ type MemoryFact = {
 };
 ```
 
-StableSessionEnvelope contains only a bounded memory digest or index. Detailed memory is loaded on demand. Secrets, reasoning, transient failures, and unverified model guesses are never stored as memory.
+SessionContext contains only a bounded memory digest or index. Detailed memory is loaded on demand. Secrets, reasoning, transient failures, and unverified model guesses are never stored as memory.
 
 ## Compaction policy
 
@@ -492,19 +492,19 @@ Compaction must remove:
 - ordinary reasoning;
 - repeated narration;
 - superseded plans;
-- full command logs already stored in EvidenceVault;
+- full command logs already stored in Evidence;
 - full file bodies that can be re-read;
 - duplicate project guidance;
 - stale Runtime progress counters.
 
 ## Prefix-cache invariants
 
-1. PromptKernel is immutable within a session.
-2. StableSessionEnvelope is immutable until clear, restart, or compaction.
+1. CorePrompt is immutable within a session.
+2. SessionContext is immutable until clear, restart, or compaction.
 3. Tool schemas remain stable within an agent trajectory.
 4. Lazy guidance and skills append at their trigger position.
 5. Dynamic state never moves ahead of existing history.
-6. RecoveryCapsule appears only immediately before a recovery user request.
+6. ResumeState appears only immediately before a recovery user request.
 7. Compaction intentionally invalidates the conversation prefix but retains the system and, when unchanged, session-context prefix.
 8. Cache telemetry uses provider-reported hit and miss tokens as the source of truth.
 
@@ -514,7 +514,7 @@ Compaction must remove:
 - External imports and links require explicit approval before reading.
 - Guidance paths are canonicalized and constrained to permitted roots.
 - Tool output and repository content are tagged as untrusted data.
-- PolicyEngine evaluates permissions before side effects and is never overridden by model text.
+- AccessPolicy evaluates permissions before side effects and is never overridden by model text.
 - Guidance cannot grant filesystem, network, shell, or browser permissions.
 - Context telemetry does not store raw secrets, full reasoning, or complete message bodies.
 
@@ -526,8 +526,8 @@ The frontend should provide a user-visible context inspector with two views.
 
 Display:
 
-- PromptKernel token cost;
-- StableSessionEnvelope sections;
+- CorePrompt token cost;
+- SessionContext sections;
 - memory digest cost;
 - core tool-schema cost;
 - deferred capability index cost;
@@ -547,7 +547,7 @@ Display:
 - compaction threshold;
 - what will survive compaction.
 
-The inspector is observability UI. Its data must come from ContextObserver telemetry rather than being reconstructed from rendered chat content.
+The inspector is observability UI. Its data must come from ContextStats telemetry rather than being reconstructed from rendered chat content.
 
 Category rows default to the actual request-construction order. A user may switch the popover to token-share order through its sort control, but token size must never silently replace protocol order as the default.
 
@@ -556,12 +556,12 @@ Category rows default to the actual request-construction order. A user may switc
 The public product protocol remains:
 
 ```text
-WorkspaceSession -> WorkCycle -> ActivityUnit -> AgentSignal
+Session -> Run -> Activity -> Event
 ```
 
-`ContextRecord`, `ProviderMessage`, and provider-native DeepSeek messages remain separate boundaries. Context records and telemetry are private SQLite data; existing AgentSignal JSONL logs remain authoritative for UI replay and are not expanded with private context events.
+`ContextEntry`, `ModelMessage`, and provider-native DeepSeek messages remain separate boundaries. Context records and telemetry are private SQLite data. Public UI replay reads committed V2 Events from SQLite; V1 JSONL is import-only compatibility input.
 
-For a legacy terminal cycle that has no context ledger records, SignalStore projects its user prompt and final response into compatibility records before the next provider request. Native cycles write complete ledger records directly and are never duplicated by migration. Full redacted tool output remains in Runtime-owned EvidenceVault artifacts while bounded projections enter the ledger.
+For a legacy terminal run that has no History records, `LegacyDecoder` projects its user prompt and final response into compatibility records before the next provider request. Native Runs write complete records directly and are never duplicated by migration. Full redacted tool output remains in Runtime-owned Evidence while bounded projections enter History.
 
 Context telemetry stores roles, section costs, hashes, record keys, retention decisions, truncation facts, compaction estimates, and provider usage. It never stores full reasoning, secrets, or full message bodies. Debug snapshots are opt-in and contain request structure rather than content.
 
@@ -571,7 +571,7 @@ The accepted implementation applies the following changes:
 
 1. Keep `ContextRecord`, provider-neutral messages, evidence projection, prompt blueprint versioning, and telemetry.
 2. Replace per-request front-loaded path-rule rendering with append-only ContextUpdate records.
-3. Replace the ordinary per-request `Runtime current facts` system message with an optional user-role RecoveryCapsule.
+3. Replace the ordinary per-request `Runtime current facts` system message with an optional user-role ResumeState.
 4. Change compaction checkpoint transport from `system` to tagged `user` context.
 5. Freeze root guidance for a session and re-resolve it only at explicit lifecycle boundaries.
 6. Replace hand-written YAML and glob parsing with maintained parsers.
@@ -586,18 +586,18 @@ The accepted implementation applies the following changes:
 
 - Typed context sections and envelope kinds are implemented.
 - Exact message ordering, role assignment, prefix stability, and tool pairing are covered by regression tests.
-- The public AgentSignal protocol remains compatible.
+- V1 fixtures remain readable through `LegacyDecoder`; all active writes use V2 Events.
 
-### Stage 2: GuidanceGraph
+### Stage 2: Rules
 
-- DeepSeeker-owned GuidanceGraph fields and trusted source discovery are implemented.
+- DeepSeeker-owned Rules fields and trusted source discovery are implemented.
 - YAML frontmatter and glob selectors use maintained libraries.
 - Lazy ContextUpdate persistence and mutation preflight are implemented.
 
 ### Stage 3: Recovery and compaction
 
 - Normal Runtime-state injection is removed.
-- RecoveryCapsule is limited to discontinuities and checkpoints use user-role envelopes.
+- ResumeState is limited to discontinuities and checkpoints use user-role envelopes.
 - Deterministic execution facts and optional constrained provider semantic summaries are stored separately in each checkpoint.
 
 ### Stage 4: Progressive capability disclosure
@@ -606,14 +606,14 @@ The accepted implementation applies the following changes:
 
 ### Stage 5: Curated memory and observability
 
-- Curated MemoryFact persistence, ContextObserver API, pre-input/live visualization, cache efficiency, and compaction status are implemented.
+- Curated MemoryFact persistence, ContextStats API, pre-input/live visualization, cache efficiency, and compaction status are implemented.
 
 ### Stage 6: DeepSeek adaptation evaluation
 
 - Controlled DeepSeek requests validate native streaming, usage, role transport, and structured tool behavior.
 - Provider-reported usage continuously calibrates heuristic token estimates.
 - Long-run cache and adherence measurements remain operational tuning, without changing this contract.
-- Provider-specific behavior remains inside `DeepSeekProvider` and capability metadata.
+- Provider-specific behavior remains inside `Provider` and capability metadata.
 
 ## Acceptance criteria
 
@@ -622,9 +622,9 @@ The accepted implementation applies the following changes:
 - Tool schemas are absent from message text.
 - Exactly one leading system message contains platform instructions only.
 - Stable project guidance is transported as the first user context envelope.
-- LatestUserMessage is always the final input message.
+- LatestUserInput is always the final input message.
 - Normal turns contain no injected current plan or workspace delta.
-- RecoveryCapsule appears only after a real discontinuity.
+- ResumeState appears only after a real discontinuity.
 - Every assistant tool call has paired tool results before continuation.
 - Tool-call reasoning is retained only when required by DeepSeek continuation rules.
 - Ordinary reasoning never enters memory or checkpoints.

@@ -1,0 +1,218 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { RunRegistry } from "../server/app/runRegistry";
+import { runAgent } from "../server/app/runner";
+import { defaultContextConfig } from "../server/app/contextBuilder";
+import { Database } from "../server/infra/database";
+import { EventStore } from "../server/infra/eventStore";
+import { RuntimeStore } from "../server/infra/runtimeStore";
+import { SessionStore } from "../server/infra/sessionStore";
+import { toolHost } from "../server/infra/tools";
+import { createHttp } from "../server/transport/http";
+import { emptyCapabilitySource } from "../shared/contracts/capability";
+import { emptyRuleSource } from "../shared/contracts/rules";
+import { Provider } from "../shared/contracts/provider";
+import { EVENT_VERSION, Event, SessionInput } from "../shared/contracts/runtime";
+import { createSession, reduceEvent } from "../shared/domain/reducer";
+import { decodeLegacyEvent } from "../shared/legacy/decoder";
+
+const createdAt = "2026-07-18T00:00:00.000Z";
+const registration: SessionInput = {
+  accessMode: "request_approval",
+  compactThresholdTokens: 850_000,
+  contextWindowTokens: 1_000_000,
+  createdAt,
+  model: "deepseek-v4-flash",
+  projectRoot: "/tmp/project",
+  sessionId: "session_v2",
+  title: "Runtime V2"
+};
+
+function event(offset: number, type: Event["type"], data: unknown, runId?: string): Event {
+  return {
+    at: `2026-07-18T00:00:0${offset}.000Z`,
+    data,
+    eventId: `session_v2:${offset}`,
+    offset,
+    scope: { runId, sessionId: registration.sessionId },
+    type,
+    version: EVENT_VERSION
+  };
+}
+
+test("decodes a real V1 session into the V2 contract", () => {
+  const decoded = decodeLegacyEvent({
+    contract: "deepseeker.flow/v1",
+    emittedAt: createdAt,
+    offset: 1,
+    payload: {
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      createdAt,
+      model: "deepseek-v4-flash",
+      permissionProfile: "smart_approval",
+      projectRoot: "/tmp/project",
+      sessionKey: "session_legacy",
+      title: "历史会话"
+    },
+    scope: { sessionKey: "session_legacy" },
+    signalKey: "session_legacy:1",
+    topic: "session.registered"
+  });
+  assert.equal(decoded?.version, EVENT_VERSION);
+  assert.equal(decoded?.type, "session.created");
+  assert.deepEqual(decoded?.scope, { activityId: undefined, runId: undefined, sessionId: "session_legacy" });
+  assert.equal((decoded?.data as SessionInput).sessionId, "session_legacy");
+  assert.equal((decoded?.data as SessionInput).accessMode, "smart_approval");
+});
+
+test("loads V1 JSONL and deterministically settles an interrupted run", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-legacy-"));
+  try {
+    const signals = path.join(directory, "signals");
+    mkdirSync(signals);
+    const sessionId = "session_legacy";
+    const runId = "run_legacy";
+    const rows = [
+      { contract: "deepseeker.flow/v1", emittedAt: createdAt, offset: 1, payload: { compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, createdAt, model: "deepseek-v4-flash", projectRoot: directory, sessionKey: sessionId, title: "历史会话" }, scope: { sessionKey: sessionId }, signalKey: `${sessionId}:1`, topic: "session.registered" },
+      { contract: "deepseeker.flow/v1", emittedAt: createdAt, offset: 2, payload: { model: "deepseek-v4-flash", prompt: "继续工作", startedAt: createdAt }, scope: { cycleKey: runId, sessionKey: sessionId }, signalKey: `${sessionId}:2`, topic: "cycle.accepted" },
+      { contract: "deepseeker.flow/v1", emittedAt: createdAt, offset: 3, payload: {}, scope: { cycleKey: runId, sessionKey: sessionId }, signalKey: `${sessionId}:3`, topic: "cycle.executing" }
+    ];
+    writeFileSync(path.join(signals, `${sessionId}.jsonl`), `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
+    const store = new RuntimeStore(directory);
+    const session = store.getSession(sessionId)!;
+    assert.equal(session.title, "历史会话");
+    assert.equal(session.runs[0].status, "failed");
+    assert.equal(session.runs[0].resume?.failureType, "interrupted");
+    assert.equal(store.readEvents(sessionId).at(-1)?.type, "run.finished");
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("commits an Event and its projection atomically", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-atomic-"));
+  const database = new Database(path.join(directory, "runtime.sqlite"));
+  try {
+    const sessions = new SessionStore(database);
+    const events = new EventStore(database, sessions);
+    const created = event(1, "session.created", registration);
+    database.raw.exec("CREATE TRIGGER reject_session BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'projection failed'); END;");
+    assert.throws(() => events.append(created, createSession(registration, 1)), /projection failed/);
+    assert.equal(events.count(registration.sessionId), 0);
+    assert.equal(database.raw.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 0);
+  } finally {
+    database.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("replays ordered offsets and deduplicates repeated events", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-offset-"));
+  const database = new Database(path.join(directory, "runtime.sqlite"));
+  try {
+    const sessions = new SessionStore(database);
+    const events = new EventStore(database, sessions);
+    const created = event(1, "session.created", registration);
+    const started = event(2, "run.started", { model: registration.model, prompt: "测试", startedAt: createdAt }, "run_v2");
+    const session = createSession(registration, 1);
+    events.append(created, session);
+    const withRun = reduceEvent(session, started);
+    events.append(started, withRun);
+    events.append(started, withRun);
+    assert.deepEqual(events.read(registration.sessionId, 1).map((item) => item.offset), [2]);
+    assert.equal(events.count(registration.sessionId), 2);
+  } finally {
+    database.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("runs ordered migrations idempotently", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-migrate-"));
+  const file = path.join(directory, "runtime.sqlite");
+  try {
+    const first = new Database(file);
+    const count = Number((first.raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count);
+    first.close();
+    const second = new Database(file);
+    const repeated = Number((second.raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count);
+    second.close();
+    assert.equal(count, 2);
+    assert.equal(repeated, count);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("keeps DeepSeek private response fields outside public Events", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-provider-boundary-"));
+  try {
+    const store = new RuntimeStore(directory);
+    store.createSession({ ...registration, projectRoot: directory, sessionId: "session_provider" });
+    store.append({ data: { model: registration.model, prompt: "你好", startedAt: createdAt }, runId: "run_provider", sessionId: "session_provider", type: "run.started" });
+    const provider: Provider = {
+      capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: true, supportsThinking: true, supportsTools: true },
+      async stream(request) {
+        request.onFragment?.({ kind: "thinking", text: "private reasoning" });
+        request.onFragment?.({ kind: "answer", text: "完成" });
+        return { answer: "完成", continuationMessage: { continuationThinking: "private reasoning", role: "assistant", text: "完成" }, finishCause: "complete", thinking: "private reasoning", toolCalls: [] };
+      }
+    };
+    const registry = new RunRegistry();
+    await runAgent({ model: registration.model, projectRoot: directory, prompt: "你好", provider, registry, runId: "run_provider", sessionId: "session_provider", signal: registry.startRun("run_provider").signal, store, tools: toolHost });
+    const serialized = JSON.stringify(store.readEvents("session_provider"));
+    assert.ok(!serialized.includes("reasoning_content"));
+    assert.ok(!serialized.includes("tool_calls"));
+    assert.ok(!serialized.includes("private reasoning"));
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("serves the V2 REST contract and registers the SSE transport", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-http-"));
+  const store = new RuntimeStore(directory);
+  const registry = new RunRegistry();
+  const provider: Provider = {
+    capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: true, supportsThinking: true, supportsTools: true },
+    async stream() {
+      return { answer: "", continuationMessage: { role: "assistant", text: "" }, finishCause: "complete", thinking: "", toolCalls: [] };
+    }
+  };
+  const app = createHttp({
+    capabilities: emptyCapabilitySource,
+    config: { context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
+    providerFor: () => ({ model: "mock-agent", provider }),
+    registry,
+    resolveProjectRoot: async () => directory,
+    rules: emptyRuleSource,
+    run: async () => undefined,
+    store,
+    tools: toolHost.specs
+  });
+  try {
+    const created = await app.inject({
+      method: "POST",
+      payload: { accessMode: "request_approval", model: "mock-agent", prompt: "测试 V2 API" },
+      url: "/api/sessions/session_http/runs"
+    });
+    assert.equal(created.statusCode, 200);
+    const body = created.json() as { run: { runId: string }; session: { sessionId: string } };
+    assert.match(body.run.runId, /^run_/);
+    assert.equal(body.session.sessionId, "session_http");
+    const replay = await app.inject({ method: "GET", url: "/api/sessions/session_http/events?afterOffset=0" });
+    assert.equal(replay.statusCode, 200);
+    assert.deepEqual((replay.json() as { events: Event[] }).events.map((item) => item.type), ["session.created", "run.started"]);
+    assert.equal(app.hasRoute({ method: "GET", url: "/api/sessions/:sessionId/stream" }), true);
+  } finally {
+    await app.close();
+    store.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

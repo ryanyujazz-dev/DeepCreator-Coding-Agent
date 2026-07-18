@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, CircleHelp, Folder, MoreHorizontal, PanelLeft, PencilLine, Search } from "lucide-react";
-import { SessionListEntry } from "../../shared/runtimeTypes";
+import { SessionSummary } from "../../shared/contracts/runtime";
 import { useState } from "react";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 
@@ -24,12 +24,12 @@ export function SessionSidebar({
 }: {
   onNewSession: () => void;
   onSearch: (query: string) => void;
-  onSelectSession: (sessionKey: string) => void;
+  onSelectSession: (sessionId: string) => void;
   onWidthChange: (width: number) => void;
   onWidthReset: () => void;
   selectedSessionKey: string | null;
   sidebarWidth: number;
-  sessions: SessionListEntry[];
+  sessions: SessionSummary[];
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -71,9 +71,9 @@ export function SessionSidebar({
           {sessions.length === 0 && <div className="sidebar-empty">暂无会话</div>}
           {sessions.map((session) => (
             <button
-              className={`thread-row ${selectedSessionKey === session.sessionKey ? "active-thread" : ""}`}
-              key={session.sessionKey}
-              onClick={() => onSelectSession(session.sessionKey)}
+              className={`thread-row ${selectedSessionKey === session.sessionId ? "active-thread" : ""}`}
+              key={session.sessionId}
+              onClick={() => onSelectSession(session.sessionId)}
               type="button"
             >
               <span>{session.title}</span>
