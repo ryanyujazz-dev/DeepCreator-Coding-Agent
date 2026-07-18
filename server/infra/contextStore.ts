@@ -1,4 +1,5 @@
 import { ContextEntry, ContextInput, createContextEntry } from "../../shared/contracts/context";
+import { decodeLegacyContextEntry } from "../../shared/legacy/context";
 import { Database } from "./database";
 
 export class ContextStore {
@@ -19,7 +20,7 @@ export class ContextStore {
   read(sessionId: string): ContextEntry[] {
     return (this.database.raw.prepare(`SELECT entry_json FROM context_entries
       WHERE session_id = ? ORDER BY sequence`).all(sessionId) as Array<{ entry_json: string }>)
-      .map((row) => JSON.parse(row.entry_json) as ContextEntry);
+      .map((row) => decodeLegacyContextEntry(JSON.parse(row.entry_json)));
   }
 
   runIds(sessionId: string): Set<string> {

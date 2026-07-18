@@ -7,6 +7,7 @@ import { RunRegistry } from "../server/app/runRegistry";
 import { runAgent } from "../server/app/runner";
 import { defaultContextConfig } from "../server/app/contextBuilder";
 import { Database } from "../server/infra/database";
+import { ContextStore } from "../server/infra/contextStore";
 import { EventStore } from "../server/infra/eventStore";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 import { SessionStore } from "../server/infra/sessionStore";
@@ -18,6 +19,7 @@ import { Provider } from "../shared/contracts/provider";
 import { EVENT_VERSION, Event, SessionInput } from "../shared/contracts/runtime";
 import { createSession, reduceEvent } from "../shared/domain/reducer";
 import { decodeLegacyEvent } from "../shared/legacy/decoder";
+import { decodeLegacyContextEntry } from "../shared/legacy/context";
 
 const createdAt = "2026-07-18T00:00:00.000Z";
 const registration: SessionInput = {
@@ -67,6 +69,39 @@ test("decodes a real V1 session into the V2 contract", () => {
   assert.deepEqual(decoded?.scope, { activityId: undefined, runId: undefined, sessionId: "session_legacy" });
   assert.equal((decoded?.data as SessionInput).sessionId, "session_legacy");
   assert.equal((decoded?.data as SessionInput).accessMode, "smart_approval");
+});
+
+test("normalizes V1 context identities before provider serialization", () => {
+  const raw = {
+    createdAt,
+    cycleKey: "cycle_legacy",
+    kind: "agent_text",
+    recordKey: "context_legacy",
+    sequence: 3,
+    sessionKey: "session_legacy",
+    source: "model",
+    toolCalls: [{ argumentsText: '{"path":"src/App.tsx"}', callKey: "call_legacy", index: 0, name: "read_file" }]
+  };
+  const decoded = decodeLegacyContextEntry(raw);
+  assert.equal(decoded.recordId, "context_legacy");
+  assert.equal(decoded.sessionId, "session_legacy");
+  assert.equal(decoded.runId, "cycle_legacy");
+  assert.equal(decoded.toolCalls?.[0].callId, "call_legacy");
+
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-context-v1-"));
+  const database = new Database(path.join(directory, "runtime.sqlite"));
+  try {
+    database.raw.prepare(`INSERT INTO context_entries
+      (record_id, session_id, run_id, sequence, created_at, entry_json)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .run("context_legacy", "session_legacy", "cycle_legacy", 3, createdAt, JSON.stringify(raw));
+    const stored = new ContextStore(database).read("session_legacy")[0];
+    assert.equal(stored.toolCalls?.[0].callId, "call_legacy");
+    assert.equal(stored.recordId, "context_legacy");
+  } finally {
+    database.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
 });
 
 test("loads V1 JSONL and deterministically settles an interrupted run", () => {
