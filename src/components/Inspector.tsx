@@ -1,6 +1,6 @@
 import { Sparkles } from "lucide-react";
 import { Changes, Session } from "../../shared/contracts/runtime";
-import { PlanPanel } from "./PlanPanel";
+import { TaskPanel } from "./TaskPanel";
 import { EnvironmentPanel } from "./EnvironmentPanel";
 
 export function Inspector({
@@ -16,8 +16,8 @@ export function Inspector({
       <EnvironmentPanel onOpenReview={onOpenReview} session={session} />
       <section className="environment-section plan-section">
         <header><span>执行计划</span></header>
-        <div className="environment-row plan-row"><Sparkles size={15} /><span>{run?.plan.find((step) => step.status === "running")?.label ?? "当前没有执行中的步骤"}</span></div>
-        <PlanPanel steps={run?.plan ?? []} />
+        <div className="environment-row plan-row"><Sparkles size={15} /><span>{(run?.tasks ?? []).find((task) => task.status === "running")?.label ?? "当前没有执行中的任务"}</span></div>
+        <TaskPanel tasks={run?.tasks ?? []} />
       </section>
     </aside>
   );

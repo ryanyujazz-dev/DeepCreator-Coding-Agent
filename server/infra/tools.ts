@@ -686,33 +686,87 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
-    name: "update_plan",
-    description: "建立或替换当前工作周期的任务计划。简单问答不要调用。",
+    name: "enter_plan",
+    description: "在实施尚未产生副作用时请求进入计划模式。仅用于复杂、含重大取舍或难以回滚的工作。",
+    inputSchema: objectSchema({ reason: { type: "string" } }, ["reason"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "control_only",
+      importance: "notable",
+      action: "plan",
+      targetKind: "plan",
+      resolveTarget: () => "计划模式"
+    }
+  },
+  {
+    name: "ask_user",
+    description: "在计划模式中提出一至三个会实质影响方案的简短问题，并等待用户回答。",
+    inputSchema: objectSchema({
+      questions: {
+        items: objectSchema({
+          questionId: { type: "string" },
+          label: { type: "string" },
+          prompt: { type: "string" },
+          options: { items: { type: "string" }, maxItems: 3, minItems: 2, type: "array" }
+        }, ["questionId", "label", "prompt"]),
+        maxItems: 3,
+        minItems: 1,
+        type: "array"
+      }
+    }, ["questions"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "control_only",
+      importance: "notable",
+      action: "plan",
+      targetKind: "plan",
+      resolveTarget: () => "方案问题"
+    }
+  },
+  {
+    name: "submit_plan",
+    description: "提交一份决策完整、可供用户审阅的 Markdown 实施方案。提交后等待用户决定，不会自行开始实施。",
+    inputSchema: objectSchema({ title: { type: "string" }, markdown: { type: "string" } }, ["title", "markdown"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "control_only",
+      importance: "notable",
+      action: "plan",
+      targetKind: "plan",
+      resolveTarget: () => "实施方案"
+    }
+  },
+  {
+    name: "update_tasks",
+    description: "建立或替换当前运行的执行任务清单。简单问答不要调用。",
     inputSchema: objectSchema(
       {
-        steps: {
+        tasks: {
           items: objectSchema(
             {
               label: { type: "string" },
-              state: { enum: ["pending", "running", "completed", "blocked"], type: "string" },
-              stepId: { type: "string" }
+              status: { enum: ["pending", "running", "completed", "blocked"], type: "string" },
+              taskId: { type: "string" }
             },
-            ["stepId", "label", "state"]
+            ["taskId", "label", "status"]
           ),
           minItems: 1,
           type: "array"
         }
       },
-      ["steps"]
+      ["tasks"]
     ),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
       effect: "control_only",
       importance: "routine",
-      action: "plan",
-      targetKind: "plan",
-      resolveTarget: () => "当前计划"
+      action: "task",
+      targetKind: "task",
+      resolveTarget: () => "执行任务"
     }
   }
 ];
@@ -797,15 +851,18 @@ export function activityKindForTool(tool: ToolState): ActivityKind {
 export function toolTitle(name: string): string {
   return ({
     invoke_capability: "启用能力",
+    ask_user: "询问方案问题",
     delete_file: "删除文件",
     edit_file: "编辑文件",
     git_status: "检查 Git 状态",
+    enter_plan: "进入计划模式",
     list_files: "列出项目文件",
     read_file: "读取文件",
     search_capabilities: "搜索能力",
     search_memory: "检索记忆",
     run_command: "运行命令",
-    update_plan: "更新计划",
+    submit_plan: "提交实施方案",
+    update_tasks: "更新执行任务",
     write_file: "写入文件"
   } as Record<string, string>)[name] ?? name;
 }

@@ -47,7 +47,7 @@ test("routes greetings directly while recovery and coding follow-ups keep agent 
     runIds: ["run_1"],
     runs: [{
       approvals: [], runId: "run_1", answer: "已修改", lastOffset: 1, model: "test",
-      status: "completed" as const, plan: [], prompt: "修改代码", sessionId: "session",
+      status: "completed" as const, tasks: [], prompt: "修改代码", sessionId: "session",
       startedAt: now, activities: [{
         audience: "user" as const, body: "", runId: "run_1", kind: "tool" as const,
         startedAt: now, status: "completed" as const, title: "读取", activityId: "unit_1",
@@ -411,9 +411,9 @@ test("compacts old records into a structured checkpoint without preserving reaso
     createdAt: now, runIds: ["run_old"], runs: [{
       approvals: [], runId: "run_old", error: "旧构建失败", answer: "仍需修复", lastOffset: 1,
       model: "deepseek-v4-flash", status: "failed" as const,
-      plan: [
-        { label: "读取入口", status: "completed" as const, stepId: "step_read" },
-        { label: "修复构建", status: "running" as const, stepId: "step_fix" }
+      tasks: [
+        { label: "读取入口", status: "completed" as const, taskId: "task_read" },
+        { label: "修复构建", status: "running" as const, taskId: "task_fix" }
       ],
       prompt: "必须保持事件协议。", sessionId: "session", startedAt: now, activities: [],
       changes: {
@@ -595,7 +595,7 @@ test("records context telemetry without recording full reasoning content", async
     assert.equal(existsSync(debugPath), true);
     const debug = JSON.parse(readFileSync(debugPath, "utf8")) as { layout: unknown[]; messageRoles: string[] };
     assert.ok(debug.layout.length > 0);
-    assert.deepEqual(debug.messageRoles, ["system", "user", "user"]);
+    assert.deepEqual(debug.messageRoles, ["system", "user", "user", "user"]);
     store.close();
   } finally {
     delete process.env.DEEPSEEK_CONTEXT_DEBUG;
@@ -626,8 +626,9 @@ test("injects failed-run recovery facts immediately before a continue request", 
       async stream(request) {
         assert.ok(request.tools.length > 0);
         const runtimeIndex = request.messages.findIndex((message) => message.role === "user" && message.text?.includes("<recovery_capsule>"));
-        assert.equal(runtimeIndex, request.messages.length - 2);
+        assert.equal(runtimeIndex, request.messages.length - 3);
         assert.match(request.messages[runtimeIndex].text ?? "", /构建失败/);
+        assert.match(request.messages[runtimeIndex + 1].text ?? "", /<mode_context/);
         assert.equal(request.messages.filter((message) => message.role === "system").length, 1);
         assert.equal(request.messages.at(-1)?.text, "继续");
         sawRecovery = true;
@@ -657,7 +658,9 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   const second = prompts.compileSystem("deepseek-v4-flash");
   assert.equal(first.hash, second.hash);
   assert.match(first.version, /identity@1\.1\.0/);
+  assert.match(first.version, /final_response@1\.1\.0/);
   assert.match(first.text, /结构化 tool_calls/);
+  assert.match(first.text, /不得使用 Emoji/);
   assert.doesNotMatch(first.text, /项目根目录/);
 });
 

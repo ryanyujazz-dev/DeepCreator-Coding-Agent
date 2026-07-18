@@ -5,6 +5,7 @@ import { Run, Changes, isRunDone } from "../../shared/contracts/runtime";
 import { ActivityView } from "./ActivityView";
 import { ChangePanel } from "./ChangePanel";
 import { ActivityGroupRenderer } from "./ActivityGroupRenderer";
+import { MarkdownContent } from "./MarkdownContent";
 
 function elapsed(run: Run): string {
   const seconds = Math.max(0, Math.floor(((run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now()) - new Date(run.startedAt).getTime()) / 1000));
@@ -14,11 +15,13 @@ function elapsed(run: Run): string {
 export function RunTimeline({
   run,
   onOpenFile,
-  onOpenReview
+  onOpenReview,
+  onTextFrame
 }: {
   run: Run;
   onOpenFile: (path: string) => void;
   onOpenReview: (delta: Changes) => void;
+  onTextFrame?: () => void;
 }) {
   const active = !isRunDone(run.status);
   const visibleUnits = active
@@ -37,7 +40,7 @@ export function RunTimeline({
         onClick={() => setExpanded((value) => !value)}
         type="button"
       >
-        <span className={active && run.status !== "waiting" ? "working-glow" : ""}>{active ? (run.status === "waiting" ? "等待批准" : "正在工作") : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
+        <span>{active ? (run.status === "waiting" ? "等待批准" : "正在工作") : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
         <span>{elapsed(run)}</span><ChevronDown size={13} />
       </button>
       {expanded && timelineEntries.length > 0 && (
@@ -50,12 +53,18 @@ export function RunTimeline({
                 activities={visibleUnits}
                 changes={run.changes}
               />
-            : <ActivityView runActive={active} key={entry.entryId} onOpenFile={onOpenFile} activity={entry.activity} />)}
+            : <ActivityView
+                runActive={active}
+                key={entry.entryId}
+                onOpenFile={onOpenFile}
+                onTextFrame={onTextFrame}
+                activity={entry.activity}
+              />)}
         </section>
       )}
       {!active && (
         <section className="final-answer">
-          {(run.answer || run.error || "本次工作未产生回答。").split(/\n{2,}/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 20)}`}>{paragraph}</p>)}
+          <MarkdownContent text={run.answer || run.error || "本次工作未产生回答。"} />
         </section>
       )}
       {!active && <ChangePanel delta={run.changes} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />}

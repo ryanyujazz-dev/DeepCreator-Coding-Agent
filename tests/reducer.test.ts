@@ -51,13 +51,13 @@ test("ignores duplicate and stale offsets", () => {
   assert.equal(twice.lastOffset, 2);
 });
 
-test("keeps the model-owned plan unchanged when a run terminates unsuccessfully", () => {
+test("keeps the model-owned tasks unchanged when a run terminates unsuccessfully", () => {
   const result = reduceEvents(createSession(registration, 1), [
     event(2, "run.started", { model: "deepseek-chat", prompt: "修改代码", startedAt: registration.createdAt }),
-    event(4, "plan.changed", {
+    event(4, "tasks.changed", {
       items: [
-        { label: "修改文件", status: "running", stepId: "edit" },
-        { label: "运行测试", status: "pending", stepId: "test" }
+        { label: "修改文件", status: "running", taskId: "edit" },
+        { label: "运行测试", status: "pending", taskId: "test" }
       ]
     }),
     event(5, "run.finished", {
@@ -66,8 +66,8 @@ test("keeps the model-owned plan unchanged when a run terminates unsuccessfully"
       finishedAt: "2026-07-17T10:00:05.000Z"
     })
   ]);
-  assert.equal(result.runs[0].plan[0].status, "running");
-  assert.equal(result.runs[0].plan[1].status, "pending");
+  assert.equal(result.runs[0].tasks[0].status, "running");
+  assert.equal(result.runs[0].tasks[1].status, "pending");
 });
 
 test("replay produces the same semantic activity projection as live reduction", () => {

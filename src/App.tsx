@@ -1,4 +1,4 @@
-import { Component, CSSProperties, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { Component, CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal, PanelRight, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
@@ -53,20 +53,32 @@ export function App() {
     currentRun,
     error,
     model,
+    mode,
     newSession,
     pendingApproval,
     accessMode,
     resolveApproval,
+    resolvePlan,
+    revisePlan,
+    answerQuestion,
     searchSessions,
     selectSession,
     setAccessMode,
+    setMode,
     session,
     sessions,
     startRun
   } = useWorkspace();
-  const activeStep = currentRun?.plan.find((step) => step.status === "running");
-  const workLabel = activeRun
-    ? activeStep?.label ?? "Agent 正在处理"
+  const openedPlanRuns = useRef(new Set<string>());
+  const activeTask = (currentRun?.tasks ?? []).find((task) => task.status === "running");
+  const waitingRun = activeRun?.status === "waiting" ? activeRun : undefined;
+  const agentRunning = Boolean(activeRun && activeRun.status !== "waiting");
+  const workLabel = waitingRun
+    ? (session?.plans ?? []).some((plan) => plan.runId === waitingRun.runId && plan.status === "proposed")
+      ? "等待方案审阅"
+      : "等待你的回答"
+    : activeRun
+      ? activeTask?.label ?? "Agent 正在处理"
     : currentRun?.status === "failed"
       ? "工作已中断"
       : currentRun?.status === "cancelled"
@@ -159,6 +171,21 @@ export function App() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+  useEffect(() => {
+    openedPlanRuns.current.clear();
+  }, [session?.sessionId]);
+  useEffect(() => {
+    if (!session) return;
+    const proposedPlan = [...session.plans].reverse().find((plan) => plan.status === "proposed");
+    const pendingQuestion = [...session.questions].reverse().find((question) => question.status === "pending");
+    const runId = pendingQuestion?.runId ?? proposedPlan?.runId;
+    if (!runId || openedPlanRuns.current.has(runId)) return;
+    openedPlanRuns.current.add(runId);
+    const surface: Surface = { id: `plan:${runId}`, kind: "plan", runId, title: proposedPlan ? "计划" : "问题" };
+    setSurfaceClosing(false);
+    setSurfaces((current) => current.some((candidate) => candidate.id === surface.id) ? current : [...current, surface]);
+    setActiveSurfaceId(surface.id);
+  }, [session]);
 
   return (
     <AppErrorBoundary>
@@ -191,8 +218,8 @@ export function App() {
                   aria-hidden={!activeRun}
                   className={`composer-hud is-${currentRun.status} ${activeRun ? "is-visible" : "is-collapsed"}`}
                 >
-                  <span className={activeRun ? "working-glow" : ""}>{activeRun ? "正在执行" : "最近工作"}</span>
-                  <strong className={activeRun ? "working-glow" : ""}>{workLabel}</strong>
+                  <span className={agentRunning ? "working-glow" : ""}>{waitingRun ? "等待决定" : activeRun ? "正在执行" : "最近工作"}</span>
+                  <strong className={agentRunning ? "working-glow" : ""}>{workLabel}</strong>
                   <span>{currentDelta.fileCount} 个文件已更改 <b>+{currentDelta.additions}</b> <i>-{currentDelta.deletions}</i></span>
                 </div>
               )}
@@ -202,29 +229,38 @@ export function App() {
               <Composer
                 contextConfig={config}
                 contextObserver={contextObserver}
-                isRunning={Boolean(activeRun)}
+                isRunning={agentRunning}
+                isWaiting={Boolean(waitingRun)}
                 model={model}
                 onCancel={() => void cancelRun()}
                 onAccessModeChange={(mode) => void setAccessMode(mode)}
+                onModeChange={(nextMode) => void setMode(nextMode)}
                 onSubmit={(prompt) => void startRun(prompt)}
                 accessMode={accessMode}
+                mode={mode}
               />
             </div>
           </div>
           <SurfacePane
             activeSurfaceId={activeSurface?.id ?? null}
+            accessMode={accessMode}
             file={activeFileState?.file ?? null}
             fileError={activeFileState?.error ?? null}
             fileLoading={activeFileState?.loading ?? false}
             isClosing={surfaceClosing}
             onClose={closeActiveSurface}
             onCloseSurface={closeSurfaceTab}
+            onAnswerQuestion={answerQuestion}
+            onResolvePlan={resolvePlan}
+            onRevisePlan={revisePlan}
             onSelectSurface={setActiveSurfaceId}
             onWidthChange={setSurfaceWidth}
             onWidthReset={() => setSurfaceWidth(DEFAULT_SURFACE_WIDTH)}
             panelMaxWidth={() => surfaceMaxWidth}
             panelWidth={effectiveSurfaceWidth}
             surfaces={surfaces}
+            plans={session?.plans ?? []}
+            questions={session?.questions ?? []}
           />
         </main>
       </div>

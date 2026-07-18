@@ -25,7 +25,7 @@ function maxImportance(left: ToolImportance, right: ToolImportance): ToolImporta
 function groupCategory(activity: Activity): ActionKind | undefined {
   const tool = activity.tool;
   if (!tool) return undefined;
-  if (tool.action === "plan") return undefined;
+  if (tool.action === "task" || tool.action === "plan") return undefined;
   if (tool.toolName === "run_command" && (tool.action === "execute" || tool.action === "verify")) return tool.action;
   if (tool.action === "inspect" || tool.action === "search") return "inspect";
   return tool.action;
@@ -38,6 +38,7 @@ function detailKind(activity: Activity): DetailKind {
   if (tool.action === "search") return "search";
   if (tool.action === "modify") return "modify";
   if (tool.action === "verify") return "verify";
+  if (tool.action === "task") return "task";
   if (tool.action === "plan") return "plan";
   if (tool.action === "external") return "external";
   return "execute";
@@ -52,6 +53,7 @@ function detailLabel(kind: DetailKind): string {
     plan: "计划",
     read: "读取",
     search: "搜索",
+    task: "任务",
     verify: "验证"
   } as const)[kind];
 }
@@ -185,6 +187,7 @@ function createGroup(activity: Activity, category: ActionKind, changes: Changes)
 
 function isHiddenActivity(activity: Activity): boolean {
   return activity.audience === "internal"
+    || activity.tool?.action === "task"
     || activity.tool?.action === "plan"
     || (activity.kind === "thinking" && activity.status !== "running");
 }

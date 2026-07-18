@@ -16,6 +16,7 @@ type PendingApproval = {
 export class RunRegistry {
   private readonly runs = new Map<string, AbortController>();
   private readonly approvals = new Map<string, PendingApproval>();
+  private readonly finishListeners = new Map<string, Set<() => void>>();
 
   startRun(runId: string): AbortController {
     const controller = new AbortController();
@@ -23,8 +24,25 @@ export class RunRegistry {
     return controller;
   }
 
+  hasRun(runId: string): boolean {
+    return this.runs.has(runId);
+  }
+
   finishRun(runId: string): void {
     this.runs.delete(runId);
+    const listeners = this.finishListeners.get(runId);
+    this.finishListeners.delete(runId);
+    listeners?.forEach((listener) => listener());
+  }
+
+  afterRun(runId: string, listener: () => void): void {
+    if (!this.runs.has(runId)) {
+      listener();
+      return;
+    }
+    const listeners = this.finishListeners.get(runId) ?? new Set<() => void>();
+    listeners.add(listener);
+    this.finishListeners.set(runId, listeners);
   }
 
   cancelRun(runId: string): boolean {

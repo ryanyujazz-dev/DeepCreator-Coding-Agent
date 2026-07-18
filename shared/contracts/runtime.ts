@@ -3,6 +3,8 @@ export const EVENT_VERSION = "deepseeker.events/v2" as const;
 export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 export type ActivityStatus = "running" | "completed" | "failed" | "cancelled";
 export type Audience = "user" | "debug" | "internal";
+export type Mode = "work" | "plan";
+export type PlanEntry = "manual" | "suggest" | "auto";
 
 export type ActivityKind =
   | "thinking"
@@ -13,8 +15,8 @@ export type ActivityKind =
   | "compaction"
   | "error";
 
-export type ActionKind = "inspect" | "search" | "modify" | "execute" | "verify" | "plan" | "external";
-export type TargetKind = "file" | "directory" | "workspace" | "process" | "network" | "plan";
+export type ActionKind = "inspect" | "search" | "modify" | "execute" | "verify" | "task" | "plan" | "external";
+export type TargetKind = "file" | "directory" | "workspace" | "process" | "network" | "task" | "plan";
 export type Effect = "read_only" | "workspace_write" | "process_side_effect" | "external_side_effect" | "control_only";
 export type GroupMode = "consecutive" | "same_model_step" | "standalone" | "workspace_delta";
 export type ToolImportance = "routine" | "notable" | "critical";
@@ -54,8 +56,15 @@ export type ToolState = {
 export type EventType =
   | "session.created"
   | "session.updated"
+  | "mode.changed"
   | "run.started"
-  | "plan.changed"
+  | "tasks.changed"
+  | "plan.proposed"
+  | "plan.revised"
+  | "plan.approved"
+  | "plan.rejected"
+  | "question.asked"
+  | "question.answered"
   | "changes.changed"
   | "usage.changed"
   | "activity.started"
@@ -81,12 +90,50 @@ export type Event<T = unknown> = {
   data: T;
 };
 
-export type PlanStatus = "pending" | "running" | "completed" | "blocked";
+export type TaskStatus = "pending" | "running" | "completed" | "blocked";
 
-export type PlanItem = {
-  stepId: string;
+export type Task = {
+  taskId: string;
   label: string;
+  status: TaskStatus;
+};
+
+export type PlanStatus = "draft" | "proposed" | "approved" | "rejected" | "superseded";
+
+export type Plan = {
+  planId: string;
+  sessionId: string;
+  runId: string;
+  callId: string;
+  revision: number;
   status: PlanStatus;
+  title: string;
+  markdown: string;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string;
+};
+
+export type PlanDecision = "continue_planning" | "start_work" | "cancel";
+
+export type QuestionPrompt = {
+  questionId: string;
+  label: string;
+  prompt: string;
+  options?: string[];
+};
+
+export type Question = {
+  interactionId: string;
+  sessionId: string;
+  runId: string;
+  callId: string;
+  prompts: QuestionPrompt[];
+  purpose?: "clarification" | "plan_entry";
+  status: "pending" | "answered" | "cancelled";
+  answers?: Record<string, string>;
+  createdAt: string;
+  resolvedAt?: string;
 };
 
 export type AccessMode = "request_approval" | "smart_approval" | "full_access";
@@ -147,7 +194,9 @@ export type ResumeState = {
   projectRoot: string;
   failureType: "runtime_error" | "provider_protocol_error" | "interrupted" | "cancelled";
   failureMessage: string;
-  plan: PlanItem[];
+  tasks: Task[];
+  mode: Mode;
+  plan?: Plan;
   completedOperations: string[];
   interruptedOperations: string[];
   changedFiles: string[];
@@ -174,7 +223,7 @@ export type Activity = {
   error?: string;
 };
 
-export type DetailKind = "read" | "search" | "list" | "modify" | "verify" | "execute" | "plan" | "external";
+export type DetailKind = "read" | "search" | "list" | "modify" | "verify" | "execute" | "task" | "plan" | "external";
 
 export type DetailRow = {
   detailId: string;
@@ -213,11 +262,13 @@ export type Run = {
   sessionId: string;
   prompt: string;
   model: string;
+  mode: Mode;
   status: RunStatus;
   startedAt: string;
   finishedAt?: string;
   activities: Activity[];
-  plan: PlanItem[];
+  tasks: Task[];
+  planId?: string;
   changes: Changes;
   approvals: Approval[];
   usage?: Usage;
@@ -231,6 +282,10 @@ export type Session = {
   sessionId: string;
   title: string;
   model: string;
+  mode: Mode;
+  planEntry: PlanEntry;
+  plans: Plan[];
+  questions: Question[];
   projectRoot: string;
   createdAt: string;
   updatedAt: string;
@@ -248,7 +303,7 @@ export type Session = {
 export type SessionInput = Pick<
   Session,
   "sessionId" | "title" | "model" | "projectRoot" | "createdAt" | "contextWindowTokens" | "compactThresholdTokens"
-> & { accessMode?: AccessMode };
+> & { accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry };
 
 export type SessionSummary = Pick<
   Session,

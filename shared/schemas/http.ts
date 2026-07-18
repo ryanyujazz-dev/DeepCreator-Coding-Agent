@@ -25,7 +25,20 @@ export const runInputSchema = {
       projectRoot: id,
       prompt: id,
       accessMode: { type: "string", enum: ["request_approval", "smart_approval", "full_access"] },
+      mode: { type: "string", enum: ["work", "plan"] },
+      planEntry: { type: "string", enum: ["manual", "suggest", "auto"] },
       sessionId: id
+    }
+  }
+} as const;
+
+export const modeInputSchema = {
+  ...sessionParamsSchema,
+  body: {
+    type: "object",
+    properties: {
+      mode: { type: "string", enum: ["work", "plan"] },
+      planEntry: { type: "string", enum: ["manual", "suggest", "auto"] }
     }
   }
 } as const;

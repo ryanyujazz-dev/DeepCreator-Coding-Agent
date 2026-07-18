@@ -37,6 +37,7 @@ type RuntimeInput = {
   tools: ToolHost;
   rules: RuleSource;
   workspaceBaseline: Baseline;
+  continuation?: boolean;
 };
 
 export type RunInput = Omit<RuntimeInput, "workspaceBaseline" | "capabilities" | "context" | "rules"> & Partial<Pick<RuntimeInput, "capabilities" | "context" | "rules">>;
@@ -218,18 +219,20 @@ async function executeRun(input: RuntimeInput): Promise<void> {
   const pipeline = new ToolPipeline(input.tools, input.rules);
   const session = input.store.getSession(input.sessionId);
   if (!session) throw new Error("Session 不存在。");
-  const mode = classifyInteraction(input.prompt, session);
+  const mode = session.mode === "plan" ? "agent" : classifyInteraction(input.prompt, session);
   const tools = mode === "direct" ? [] : input.tools.specs;
-  let prepared = await prepareRuntimeContext(input, session, tools);
+  let prepared = await prepareRuntimeContext(input, session, tools, Boolean(input.continuation));
 
   persistPreparedContext(input, session.contextTokens, prepared);
-  input.store.appendContextEntry({
-    runId: input.runId,
-    kind: "human_text",
-    sessionId: input.sessionId,
-    source: "user",
-    text: input.prompt
-  });
+  if (!input.continuation) {
+    input.store.appendContextEntry({
+      runId: input.runId,
+      kind: "human_text",
+      sessionId: input.sessionId,
+      source: "user",
+      text: input.prompt
+    });
+  }
   let messages = [...prepared.messages];
   const knownInstructionKeys = new Set([
     ...prepared.instructions.map((instruction) => instruction.instructionKey),
@@ -384,6 +387,14 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           : "DeepSeek 推理资源不足，本轮未完成。");
     }
     if (response.toolCalls.length === 0) {
+      const currentMode = input.store.getSession(input.sessionId)?.mode ?? session.mode;
+      if (currentMode === "plan") {
+        messages.push({
+          role: "user",
+          text: "当前处于计划模式。普通文本不能结束本轮：若信息不足，请调用 ask_user；若方案已经完整，请调用 submit_plan 提交可审阅方案。不要执行任何实现操作。"
+        });
+        continue;
+      }
       if (tools.length > 0 && deferredWorkCorrectionCount === 0 && looksLikeDeferredWork(answer)) {
         deferredWorkCorrectionCount += 1;
         messages.push({
@@ -411,6 +422,8 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     let mutatedWorkspace = false;
     let protocolErrors = 0;
     const deferredContextRecords: ContextInput[] = [];
+    const stepRejection = pipeline.stepRejection(response.toolCalls, modelStepId, input.projectRoot);
+    let suspended = false;
     for (const call of response.toolCalls) {
       const outcome = await pipeline.run({
         baseline: input.workspaceBaseline,
@@ -420,10 +433,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         sessionId: input.sessionId,
         signal: input.signal,
         store: input.store
-      }, call, modelStepId, knownInstructionKeys, toolActivities.get(call.callId));
-      messages.push(outcome.message);
+      }, call, modelStepId, knownInstructionKeys, toolActivities.get(call.callId), stepRejection);
+      if (outcome.message) messages.push(outcome.message);
       deferredContextRecords.push(...outcome.contextRecords);
       mutatedWorkspace ||= outcome.mutatedWorkspace;
+      suspended ||= Boolean(outcome.suspended);
       if (outcome.protocolError) protocolErrors += 1;
     }
     for (const record of deferredContextRecords) {
@@ -438,6 +452,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         type: "changes.changed"
       });
     }
+    if (suspended) return;
     consecutiveToolProtocolErrors = protocolErrors === response.toolCalls.length
       ? consecutiveToolProtocolErrors + 1
       : 0;

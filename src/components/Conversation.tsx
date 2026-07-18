@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { Changes, Session } from "../../shared/contracts/runtime";
 import { RunTimeline } from "./RunTimeline";
 
@@ -13,14 +13,23 @@ export function Conversation({
 }) {
   const scrollRef = useRef<HTMLElement>(null);
   const stickToBottom = useRef(true);
+  const scrollFrame = useRef<number | undefined>(undefined);
 
-  useLayoutEffect(() => {
-    if (!stickToBottom.current || !scrollRef.current) return;
-    const frame = requestAnimationFrame(() => {
+  const scheduleFollow = useCallback(() => {
+    if (!stickToBottom.current || scrollFrame.current !== undefined) return;
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = undefined;
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     });
-    return () => cancelAnimationFrame(frame);
-  }, [session?.lastOffset, session?.sessionId]);
+  }, []);
+
+  useLayoutEffect(() => {
+    scheduleFollow();
+  }, [scheduleFollow, session?.lastOffset, session?.sessionId]);
+
+  useEffect(() => () => {
+    if (scrollFrame.current !== undefined) cancelAnimationFrame(scrollFrame.current);
+  }, []);
 
   return (
     <section
@@ -36,7 +45,12 @@ export function Conversation({
           {session.runs.map((run) => (
             <div className="conversation-turn" key={run.runId}>
               <section className="user-turn"><p>{run.prompt}</p></section>
-              <RunTimeline run={run} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />
+              <RunTimeline
+                run={run}
+                onOpenFile={onOpenFile}
+                onOpenReview={onOpenReview}
+                onTextFrame={scheduleFollow}
+              />
             </div>
           ))}
         </div>

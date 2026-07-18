@@ -9,7 +9,7 @@ export function assertEventTransition(session: Session, draft: EventDraft): void
     throw new Error("Event session scope does not match the target session.");
   }
   if (draft.type === "session.created") throw new Error("A session can only be created once.");
-  if (draft.type === "session.updated") return;
+  if (draft.type === "session.updated" || draft.type === "mode.changed") return;
 
   const run = session.runs.find((item) => item.runId === draft.scope.runId);
   if (draft.type === "run.started") {

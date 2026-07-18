@@ -1,4 +1,5 @@
 import { Event, Session } from "../../shared/contracts/runtime";
+import { decodeEvent } from "../../shared/legacy/decoder";
 import { Database } from "./database";
 import { SessionStore } from "./sessionStore";
 
@@ -16,6 +17,18 @@ export class EventStore {
     });
   }
 
+  appendMany(events: Event[], session: Session): void {
+    this.database.transaction(() => {
+      for (const event of events) this.insert(event);
+      const runIds = new Set(events.flatMap((event) => event.scope.runId ? [event.scope.runId] : []));
+      this.sessions.save(session);
+      for (const runId of runIds) {
+        const run = session.runs.find((item) => item.runId === runId);
+        if (run) this.sessions.save(session, run);
+      }
+    });
+  }
+
   import(events: Event[], session: Session): void {
     this.database.transaction(() => {
       for (const event of events) this.insert(event);
@@ -27,7 +40,8 @@ export class EventStore {
   read(sessionId: string, afterOffset = 0): Event[] {
     return (this.database.raw.prepare(`SELECT event_json FROM events
       WHERE session_id = ? AND offset > ? ORDER BY offset`).all(sessionId, afterOffset) as Array<{ event_json: string }>)
-      .map((row) => JSON.parse(row.event_json) as Event);
+      .map((row) => decodeEvent(JSON.parse(row.event_json)))
+      .filter((event): event is Event => Boolean(event));
   }
 
   count(sessionId: string): number {

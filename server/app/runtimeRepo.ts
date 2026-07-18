@@ -11,6 +11,13 @@ export interface RuntimeRepo {
     sessionId: string;
     type: Exclude<EventType, "session.created">;
   }): Event<T>;
+  appendMany(inputs: Array<{
+    activityId?: string;
+    data: unknown;
+    runId?: string;
+    sessionId: string;
+    type: Exclude<EventType, "session.created">;
+  }>): Event[];
   appendContextEntry(input: ContextInput): ContextEntry;
   close(): void;
   createSession(input: Omit<SessionInput, "createdAt">): Session;

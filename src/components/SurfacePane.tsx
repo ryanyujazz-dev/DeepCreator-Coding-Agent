@@ -1,13 +1,15 @@
-import { CheckSquare, Copy, FileCode2, GitPullRequest, Globe2, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
+import { CheckSquare, Copy, FileCode2, GitPullRequest, Globe2, Lightbulb, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { FileChange } from "../../shared/contracts/runtime";
+import { AccessMode, FileChange, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { RuntimeFilePreview } from "../runtimeApi";
 import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
 import { PanelResizeHandle } from "./PanelResizeHandle";
+import { PlanSurface } from "./PlanSurface";
 
 export type Surface =
   | { id: string; kind: "file"; path: string }
   | { files: FileChange[]; id: string; kind: "review"; selectedPath?: string; title?: string }
+  | { id: string; kind: "plan"; runId: string; title?: string }
   | { id: string; kind: "browser"; title?: string; url: string };
 
 function fileBreadcrumbs(file: RuntimeFilePreview): string[] {
@@ -117,43 +119,57 @@ function BrowserSurface({ surface }: { surface: Extract<Surface, { kind: "browse
 function surfaceTitle(surface: Surface): string {
   if (surface.kind === "file") return surface.path.split("/").filter(Boolean).at(-1) ?? "文件";
   if (surface.kind === "review") return surface.title ?? "审阅";
+  if (surface.kind === "plan") return surface.title ?? "计划";
   return surface.title ?? surface.url;
 }
 
 function surfaceIcon(surface: Surface) {
   if (surface.kind === "review") return <CheckSquare size={13} />;
+  if (surface.kind === "plan") return <Lightbulb size={13} />;
   if (surface.kind === "browser") return <Globe2 size={13} />;
   return <FileCode2 size={13} />;
 }
 
 export function SurfacePane({
   activeSurfaceId,
+  accessMode,
   file,
   fileError,
   fileLoading,
   isClosing = false,
   onClose,
   onCloseSurface,
+  onAnswerQuestion,
+  onResolvePlan,
+  onRevisePlan,
   onSelectSurface,
   onWidthChange,
   onWidthReset,
   panelMaxWidth,
   panelWidth,
-  surfaces
+  surfaces,
+  plans,
+  questions
 }: {
   activeSurfaceId: string | null;
+  accessMode: AccessMode;
   file: RuntimeFilePreview | null;
   fileError: string | null;
   fileLoading: boolean;
   isClosing?: boolean;
   onClose: () => void;
   onCloseSurface: (surfaceId: string) => void;
+  onAnswerQuestion: (interactionId: string, answers: Record<string, string>) => Promise<void> | void;
+  onResolvePlan: (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => Promise<void> | void;
+  onRevisePlan: (plan: Plan, title: string, markdown: string) => Promise<void> | void;
   onSelectSurface: (surfaceId: string) => void;
   onWidthChange: (width: number) => void;
   onWidthReset: () => void;
   panelMaxWidth: () => number;
   panelWidth: number;
   surfaces: Surface[];
+  plans: Plan[];
+  questions: Question[];
 }) {
   if (surfaces.length === 0) return null;
   const surface = surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0];
@@ -205,7 +221,16 @@ export function SurfacePane({
         ? <FileSurface error={fileError} file={file} loading={fileLoading} />
         : surface.kind === "review"
           ? <ReviewSurface files={surface.files} selectedPath={surface.selectedPath} />
-          : <BrowserSurface surface={surface} />}
+          : surface.kind === "plan"
+            ? <PlanSurface
+                accessMode={accessMode}
+                onAnswerQuestion={onAnswerQuestion}
+                onResolve={onResolvePlan}
+                onRevise={onRevisePlan}
+                plans={plans.filter((plan) => plan.runId === surface.runId)}
+                question={[...questions].reverse().find((question) => question.runId === surface.runId)}
+              />
+            : <BrowserSurface surface={surface} />}
     </aside>
   );
 }

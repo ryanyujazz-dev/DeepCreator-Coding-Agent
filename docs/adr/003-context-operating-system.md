@@ -386,7 +386,7 @@ The following state is not injected on every request:
 - active approval state;
 - running process list.
 
-The model sees plan changes through its own `update_plan` tool calls and results. The Runtime persists and displays them. After compaction or recovery, the authoritative current plan is restored through the checkpoint or recovery capsule.
+The model sees execution-task changes through its own `update_tasks` tool calls and results. The Runtime persists and displays them. After compaction or recovery, the authoritative current Tasks are restored through the checkpoint or recovery capsule. These Tasks are execution progress, not a user-reviewed implementation Plan.
 
 This avoids duplicate plan maintenance and prevents dynamic state from invalidating earlier cacheable history.
 

@@ -101,6 +101,41 @@ export class RuntimeStore implements RuntimeRepo {
     return clone(event);
   }
 
+  appendMany(inputs: Array<{
+    sessionId: string;
+    runId?: string;
+    activityId?: string;
+    type: Exclude<EventType, "session.created">;
+    data: unknown;
+  }>): Event[] {
+    if (inputs.length === 0) return [];
+    const sessionId = inputs[0].sessionId;
+    if (inputs.some((input) => input.sessionId !== sessionId)) throw new Error("A committed Event batch must belong to one Session.");
+    let session = this.sessions.get(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    const events: Event[] = [];
+    for (const input of inputs) {
+      const scope = { activityId: input.activityId, runId: input.runId, sessionId };
+      assertEventTransition(session, { data: input.data, scope, type: input.type });
+      const offset = session.lastOffset + 1;
+      const event: Event = {
+        at: new Date().toISOString(),
+        data: input.data,
+        eventId: `${sessionId}:${offset}`,
+        offset,
+        scope,
+        type: input.type,
+        version: EVENT_VERSION
+      };
+      session = reduceEvent(session, event);
+      events.push(event);
+    }
+    this.events.appendMany(events, session);
+    this.sessions.set(sessionId, session);
+    this.publish(sessionId, events);
+    return clone(events);
+  }
+
   getSession(sessionId: string): Session | undefined {
     const session = this.sessions.get(sessionId);
     return session ? clone(session) : undefined;
@@ -248,6 +283,9 @@ export class RuntimeStore implements RuntimeRepo {
     for (const session of [...this.sessions.values()]) {
       for (const run of session.runs) {
         if (run.status !== "running" && run.status !== "waiting" && run.status !== "queued") continue;
+        const hasDurablePlanWait = run.status === "waiting" && session.plans.some((plan) => plan.runId === run.runId && plan.status === "proposed");
+        const hasDurableQuestionWait = run.status === "waiting" && session.questions.some((question) => question.runId === run.runId && question.status === "pending");
+        if (hasDurablePlanWait || hasDurableQuestionWait) continue;
         finishRun({
           answer: "上一次运行因 Runtime 重启而中断。",
           error: "Runtime restarted before this Run reached a terminal state.",

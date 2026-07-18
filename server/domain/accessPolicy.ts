@@ -10,6 +10,7 @@ export type CommandSemantics = {
   destructive: boolean;
   fingerprint: string;
   network: boolean;
+  planSafe: boolean;
   readOnly: boolean;
   risk: AccessRisk;
   targetsCriticalPath: boolean;
@@ -155,7 +156,15 @@ function segmentSemantics(segment: string) {
     program === "cd" ||
     verification
   );
-  return { destructive, fingerprint: program === "git" ? `git:${git}` : `${program}:${npmVerb || npxVerb}`, network: effectiveNetwork, readOnly, words };
+  const gitArgs = words.slice(words.indexOf(git) + 1);
+  const safeGitBranch = git === "branch" && gitArgs.every((word) => word.startsWith("-") || ["--list", "--show-current", "--contains", "--no-contains"].includes(word));
+  const planSafe = !hasWriteRedirect && !verification && (
+    READ_ONLY_PROGRAMS.has(program) ||
+    (program === "find" && !words.includes("-delete") && !words.includes("-exec") && !words.includes("-execdir")) ||
+    (program === "sed" && words.includes("-n") && !words.some((word) => /^-.*i/.test(word))) ||
+    (program === "git" && (["diff", "log", "show", "status"].includes(git) || safeGitBranch))
+  );
+  return { destructive, fingerprint: program === "git" ? `git:${git}` : `${program}:${npmVerb || npxVerb}`, network: effectiveNetwork, planSafe, readOnly, words };
 }
 
 export function analyzeCommand(command: string): CommandSemantics {
@@ -163,6 +172,10 @@ export function analyzeCommand(command: string): CommandSemantics {
   const network = segments.some((segment) => segment.network);
   const destructive = segments.some((segment) => segment.destructive);
   const readOnly = segments.length > 0 && segments.every((segment) => segment.readOnly);
+  const composed = /&&|\|\||[;|\n]|(?:^|[^<])>{1,2}|<|`|\$\(/.test(command);
+  const outsideWorkspace = /(?:^|\s)(?:\/|~\/|\.\.\/)/.test(command);
+  const background = /&(?:\s|$)/.test(command.replaceAll("&&", ""));
+  const planSafe = segments.length === 1 && segments[0].planSafe && !composed && !outsideWorkspace && !background;
   const targetsCriticalPath = /(?:^|\s)(?:\/|~)(?:\s|$)/.test(command) && /\brm\b|\brmdir\b/.test(command);
   const capability: AccessScope = network
     ? "network_access"
@@ -175,6 +188,7 @@ export function analyzeCommand(command: string): CommandSemantics {
     destructive,
     fingerprint: segments.map((segment) => segment.fingerprint).join("+") || "shell:unknown",
     network,
+    planSafe,
     readOnly,
     risk,
     targetsCriticalPath

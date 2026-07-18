@@ -1,4 +1,4 @@
-import { EVENT_VERSION, Event, EventType, PlanItem } from "../contracts/runtime";
+import { EVENT_VERSION, Event, EventType, Session, Task } from "../contracts/runtime";
 import { LEGACY_EVENT_VERSION, LegacyEvent } from "./v1";
 
 const TYPE_MAP: Record<string, EventType | undefined> = {
@@ -7,7 +7,7 @@ const TYPE_MAP: Record<string, EventType | undefined> = {
   "session.permissionProfile.changed": "session.updated",
   "session.permissionGrants.replaced": "session.updated",
   "cycle.accepted": "run.started",
-  "cycle.plan.replaced": "plan.changed",
+  "cycle.plan.replaced": "tasks.changed",
   "cycle.workspaceDelta.replaced": "changes.changed",
   "cycle.usage.replaced": "usage.changed",
   "cycle.settled": "run.finished",
@@ -55,15 +55,16 @@ function mapGrant(value: unknown): unknown {
   };
 }
 
-function mapPlan(value: unknown): unknown {
+function mapTasks(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
-  const source = value as { steps?: Array<Record<string, unknown>> };
-  if (!source.steps) return value;
+  const source = value as { items?: Array<Record<string, unknown>>; steps?: Array<Record<string, unknown>> };
+  const items = source.items ?? source.steps;
+  if (!items) return value;
   return {
-    items: source.steps.map((step): PlanItem => ({
-      label: String(step.label ?? ""),
-      status: mapStatus(step.state) as PlanItem["status"],
-      stepId: String(step.stepKey ?? step.stepId ?? "")
+    items: items.map((item): Task => ({
+      label: String(item.label ?? ""),
+      status: mapStatus(item.status ?? item.state) as Task["status"],
+      taskId: String(item.taskId ?? item.stepKey ?? item.stepId ?? "")
     }))
   };
 }
@@ -96,7 +97,7 @@ function mapData(event: LegacyEvent, type: EventType): unknown {
       grants: Array.isArray(record.grants) ? record.grants.map(mapGrant) : undefined
     };
   }
-  if (type === "plan.changed") return mapPlan(record);
+  if (type === "tasks.changed") return mapTasks(record);
   if (type === "activity.updated") {
     if (typeof record.text === "string") {
       return event.topic === "unit.toolArguments.appended"
@@ -169,7 +170,49 @@ export function decodeLegacyEvent(input: unknown): Event | undefined {
 
 export function decodeEvent(input: unknown): Event | undefined {
   if (!input || typeof input !== "object") return undefined;
-  const event = input as Partial<Event> & { contract?: string };
-  if (event.version === EVENT_VERSION) return event as Event;
+  const event = input as Omit<Partial<Event>, "type"> & { contract?: string; type?: string };
+  if (event.version === EVENT_VERSION) {
+    if (event.type === "plan.changed") {
+      return { ...event, data: mapTasks(event.data), type: "tasks.changed" } as Event;
+    }
+    if (event.type === "tasks.changed") {
+      return { ...event, data: mapTasks(event.data) } as Event;
+    }
+    return event as Event;
+  }
   return decodeLegacyEvent(input);
+}
+
+export function decodeStoredSession(input: unknown): Session {
+  type StoredResume = NonNullable<Session["runs"][number]["resume"]> & { plan?: unknown[]; tasks?: unknown[] };
+  type StoredRun = Omit<Session["runs"][number], "mode" | "tasks"> & {
+    mode?: Session["mode"];
+    plan?: unknown[];
+    tasks?: unknown[];
+    resume?: StoredResume;
+  };
+  const source = input as Omit<Session, "mode" | "planEntry" | "plans" | "questions" | "runs"> & {
+    mode?: Session["mode"];
+    planEntry?: Session["planEntry"];
+    plans?: Session["plans"];
+    questions?: Session["questions"];
+    runs?: StoredRun[];
+  };
+  return {
+    ...source,
+    mode: source.mode ?? "work",
+    planEntry: source.planEntry ?? "suggest",
+    plans: source.plans ?? [],
+    questions: source.questions ?? [],
+    runs: (source.runs ?? []).map((run) => ({
+      ...run,
+      mode: run.mode ?? source.mode ?? "work",
+      resume: run.resume ? {
+        ...run.resume,
+        mode: run.resume.mode ?? run.mode ?? source.mode ?? "work",
+        tasks: (mapTasks({ items: run.resume.tasks ?? run.resume.plan ?? [] }) as { items: Task[] }).items
+      } : undefined,
+      tasks: (mapTasks({ items: run.tasks ?? run.plan ?? [] }) as { items: Task[] }).items
+    }))
+  };
 }

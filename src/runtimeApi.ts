@@ -1,4 +1,4 @@
-import { Event, ApprovalChoice, AccessMode, EventStream, Session } from "../shared/contracts/runtime";
+import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, Session } from "../shared/contracts/runtime";
 
 export class RuntimeRequestError extends Error {
   status: number;
@@ -34,6 +34,7 @@ export type RuntimeConfig = {
   defaultModel: string;
   hasApiKey: boolean;
   eventContract: string;
+  planEntry: PlanEntry;
 };
 
 export type RuntimeContextSection = {
@@ -102,7 +103,7 @@ export const runtimeApi = {
     fetch(`/api/sessions/${encodeURIComponent(sessionId)}/files?path=${encodeURIComponent(path)}`).then((response) =>
       json<RuntimeFilePreview>(response)
     ),
-  startRun: (input: { model: string; accessMode: AccessMode; prompt: string; sessionId?: string }) => {
+  startRun: (input: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; prompt: string; sessionId?: string }) => {
     const sessionId = input.sessionId ?? `session_${crypto.randomUUID()}`;
     return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, {
       body: JSON.stringify(input),
@@ -120,6 +121,30 @@ export const runtimeApi = {
       headers: { "Content-Type": "application/json" },
       method: "PUT"
     }).then((response) => json<{ session: Session }>(response)),
+  setMode: (sessionId: string, input: { mode?: Mode; planEntry?: PlanEntry }) =>
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/mode`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    }).then((response) => json<{ session: Session }>(response)),
+  resolvePlan: (sessionId: string, plan: Pick<Plan, "planId" | "revision">, input: { accessMode?: AccessMode; comments?: string; decision: PlanDecision }) =>
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}/resolve`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    }).then((response) => json<{ idempotent: boolean; session: Session }>(response)),
+  revisePlan: (sessionId: string, plan: Pick<Plan, "planId" | "revision">, input: { markdown: string; title: string }) =>
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}`, {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    }).then((response) => json<{ session: Session }>(response)),
+  answerQuestion: (sessionId: string, interactionId: string, answers: Record<string, string>) =>
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(interactionId)}/answer`, {
+      body: JSON.stringify({ answers }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    }).then((response) => json<{ idempotent: boolean; session: Session }>(response)),
   resolveApproval: (approvalId: string, decision: ApprovalChoice) =>
     fetch(`/api/approvals/${encodeURIComponent(approvalId)}/resolve`, {
       body: JSON.stringify({ decision }),

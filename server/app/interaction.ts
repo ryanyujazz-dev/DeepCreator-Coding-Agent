@@ -13,7 +13,7 @@ function sessionHasAgentEvidence(session: Session): boolean {
   return session.runs.some((run) =>
     run.activities.some((activity) => activity.tool) ||
     run.changes.fileCount > 0 ||
-    run.plan.length > 0
+    run.tasks.length > 0
   );
 }
 

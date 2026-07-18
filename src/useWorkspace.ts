@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { reduceEvents } from "../shared/domain/reducer";
-import { ApprovalChoice, isRunDone, AccessMode, SessionSummary, Session } from "../shared/contracts/runtime";
+import { ApprovalChoice, isRunDone, AccessMode, Mode, Plan, PlanDecision, PlanEntry, SessionSummary, Session } from "../shared/contracts/runtime";
 import { ConnectionPhase } from "./components/ConnectionStatus";
 import { parseEventMessage, runtimeApi, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError } from "./runtimeApi";
 
@@ -11,6 +11,8 @@ export function useWorkspace() {
   const [connection, setConnection] = useState<ConnectionPhase>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [draftAccessMode, setDraftAccessMode] = useState<AccessMode>("request_approval");
+  const [draftMode, setDraftMode] = useState<Mode>("work");
+  const [draftPlanEntry, setDraftPlanEntry] = useState<PlanEntry>("suggest");
   const [contextObserver, setContextObserver] = useState<RuntimeContextObserver | null>(null);
 
   const refreshSessions = useCallback(async (query = "") => {
@@ -25,6 +27,8 @@ export function useWorkspace() {
       const next = (await runtimeApi.getSession(sessionId)).session;
       setSession(next);
       setDraftAccessMode(next.accessMode ?? "request_approval");
+      setDraftMode(next.mode ?? "work");
+      setDraftPlanEntry(next.planEntry ?? "suggest");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -63,6 +67,8 @@ export function useWorkspace() {
             return snapshot;
           });
           setDraftAccessMode(snapshot.accessMode ?? "request_approval");
+          setDraftMode(snapshot.mode ?? "work");
+          setDraftPlanEntry(snapshot.planEntry ?? "suggest");
           const latestRun = snapshot.runs.at(-1);
           if (latestRun && isRunDone(latestRun.status)) void refreshSessions();
         })
@@ -101,19 +107,25 @@ export function useWorkspace() {
     };
   }, [activeRun, session?.sessionId, session?.updatedAt]);
 
+  useEffect(() => {
+    if (!session) return;
+    setDraftMode(session.mode);
+    setDraftPlanEntry(session.planEntry);
+  }, [session?.mode, session?.planEntry]);
+
   const pendingApproval = activeRun?.approvals.find((approval) => approval.state === "pending");
   const model = config?.hasApiKey ? config.defaultModel : "mock-agent";
 
   const startRun = useCallback(async (prompt: string) => {
     setError(null);
     try {
-      const result = await runtimeApi.startRun({ model, accessMode: draftAccessMode, prompt, sessionId: session?.sessionId });
+      const result = await runtimeApi.startRun({ model, accessMode: draftAccessMode, mode: draftMode, planEntry: draftPlanEntry, prompt, sessionId: session?.sessionId });
       setSession(result.session);
       await refreshSessions();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, [draftAccessMode, model, refreshSessions, session?.sessionId]);
+  }, [draftAccessMode, draftMode, draftPlanEntry, model, refreshSessions, session?.sessionId]);
 
   const cancelRun = useCallback(async () => {
     if (!activeRun) return;
@@ -148,8 +160,56 @@ export function useWorkspace() {
     }
   }, [session]);
 
+  const setMode = useCallback(async (mode: Mode) => {
+    setDraftMode(mode);
+    if (!session) return;
+    try {
+      const result = await runtimeApi.setMode(session.sessionId, { mode });
+      setSession(result.session);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, [session]);
+
+  const resolvePlan = useCallback(async (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => {
+    if (!session) return;
+    setError(null);
+    try {
+      const result = await runtimeApi.resolvePlan(session.sessionId, plan, { accessMode: nextAccessMode, comments, decision });
+      setSession(result.session);
+      if (decision === "start_work" && nextAccessMode) setDraftAccessMode(nextAccessMode);
+      if (decision === "start_work" || decision === "cancel") setDraftMode("work");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, [session]);
+
+  const revisePlan = useCallback(async (plan: Plan, title: string, markdown: string) => {
+    if (!session) return;
+    setError(null);
+    try {
+      const result = await runtimeApi.revisePlan(session.sessionId, plan, { markdown, title });
+      setSession(result.session);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, [session]);
+
+  const answerQuestion = useCallback(async (interactionId: string, answers: Record<string, string>) => {
+    if (!session) return;
+    setError(null);
+    try {
+      const result = await runtimeApi.answerQuestion(session.sessionId, interactionId, answers);
+      setSession(result.session);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, [session]);
+
   return {
     activeRun,
+    accessMode: draftAccessMode,
+    answerQuestion,
     cancelRun,
     config,
     connection,
@@ -157,13 +217,17 @@ export function useWorkspace() {
     currentRun: session?.runs.at(-1),
     error,
     model,
-    newSession: () => { setSession(null); setError(null); setDraftAccessMode("request_approval"); },
+    mode: draftMode,
+    newSession: () => { setSession(null); setError(null); setDraftAccessMode("request_approval"); setDraftMode("work"); setDraftPlanEntry(config?.planEntry ?? "suggest"); },
     pendingApproval,
-    accessMode: draftAccessMode,
+    planEntry: draftPlanEntry,
     resolveApproval,
+    resolvePlan,
+    revisePlan,
     searchSessions: (query: string) => void refreshSessions(query),
     selectSession,
     setAccessMode,
+    setMode,
     session,
     sessions,
     startRun

@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { ContextInput } from "../../shared/contracts/context";
 import { ModelMessage, ToolCall } from "../../shared/contracts/provider";
-import { PlanItem } from "../../shared/contracts/runtime";
+import { Plan, Question, QuestionPrompt, Task, ToolState } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
 import { approvalFor } from "../domain/accessPolicy";
 import { reduceToolEvidence } from "../domain/evidence";
+import { hasConflictingControlStep, planPolicy } from "../domain/planPolicy";
 import { contextUpdateRecord, findNewPathInstructions } from "./contextBuilder";
 import { RunRegistry } from "./runRegistry";
 import { RuntimeRepo } from "./runtimeRepo";
@@ -23,9 +24,10 @@ export type ToolContext = {
 
 export type ToolOutcome = {
   contextRecords: ContextInput[];
-  message: ModelMessage;
+  message?: ModelMessage;
   mutatedWorkspace: boolean;
   protocolError: boolean;
+  suspended?: boolean;
   target?: string;
 };
 
@@ -37,14 +39,14 @@ function parseArgs(text: string): Record<string, unknown> {
   }
 }
 
-function planFrom(value: unknown): PlanItem[] {
-  if (!Array.isArray(value) || value.length === 0) throw new Error("计划至少需要一个步骤。");
+function tasksFrom(value: unknown): Task[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error("执行任务至少需要一项。");
   return value.map((raw) => {
-    if (!raw || typeof raw !== "object") throw new Error("计划步骤格式无效。");
+    if (!raw || typeof raw !== "object") throw new Error("执行任务格式无效。");
     const item = raw as Record<string, unknown>;
-    const status = String(item.status ?? "pending") as PlanItem["status"];
-    if (!["pending", "running", "completed", "blocked"].includes(status)) throw new Error("计划状态无效。");
-    return { label: String(item.label ?? item.stepId ?? "未命名步骤"), status, stepId: String(item.stepId ?? randomUUID()) };
+    const status = String(item.status ?? "pending") as Task["status"];
+    if (!["pending", "running", "completed", "blocked"].includes(status)) throw new Error("执行任务状态无效。");
+    return { label: String(item.label ?? item.taskId ?? "未命名任务"), status, taskId: String(item.taskId ?? randomUUID()) };
   });
 }
 
@@ -69,12 +71,38 @@ export class ToolPipeline {
     private readonly rules: RuleSource = emptyRuleSource
   ) {}
 
+  stepRejection(calls: ToolCall[], modelStepId: string, projectRoot: string): string | undefined {
+    const tools = calls.flatMap((call): ToolState[] => {
+      try {
+        if (!this.host.has(call.name)) return [];
+        const args = parseArgs(call.argumentsText);
+        return [this.host.prepare({
+          args,
+          argumentsPreview: this.host.summarizeArgs(call.name, args),
+          callId: call.callId,
+          modelStepId,
+          name: call.name,
+          projectRoot
+        })];
+      } catch {
+        return [];
+      }
+    });
+    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user") && tools.length > 1) {
+      return "模式控制或暂停工具必须是当前模型步骤中的唯一工具调用。";
+    }
+    return hasConflictingControlStep(tools)
+      ? "模式控制工具不能与产生副作用的工具出现在同一个模型步骤中。"
+      : undefined;
+  }
+
   async run(
     input: ToolContext,
     call: ToolCall,
     modelStepId: string,
     knownRuleIds: Set<string>,
-    existingActivityId?: string
+    existingActivityId?: string,
+    stepRejection?: string
   ): Promise<ToolOutcome> {
     let activityId = existingActivityId;
     try {
@@ -110,7 +138,18 @@ export class ToolPipeline {
         });
       }
 
-      if (call.name === "update_plan") return this.updatePlan(input, call, modelStepId, activityId, args, argsSummary);
+      const session = input.store.getSession(input.sessionId)!;
+      if (stepRejection) return this.reject(input, call, modelStepId, activityId, prepared, stepRejection);
+      if (call.name === "enter_plan" && input.store.getRun(input.runId)?.changes.fileCount) {
+        return this.reject(input, call, modelStepId, activityId, prepared, "当前运行已经修改工作区，不能再进入计划模式。");
+      }
+      const policy = planPolicy({ args, mode: session.mode, planEntry: session.planEntry, tool: prepared });
+      if (!policy.allowed) return this.reject(input, call, modelStepId, activityId, prepared, policy.reason ?? "当前模式不允许该操作。");
+
+      if (call.name === "enter_plan") return this.enterPlan(input, call, modelStepId, activityId, args, prepared);
+      if (call.name === "ask_user") return this.askUser(input, call, modelStepId, activityId, args, prepared);
+      if (call.name === "submit_plan") return this.submitPlan(input, call, modelStepId, activityId, args, prepared);
+      if (call.name === "update_tasks") return this.updateTasks(input, call, modelStepId, activityId, args, argsSummary);
       if (call.name === "search_memory") return this.searchMemory(input, call, modelStepId, activityId, args, prepared);
 
       const target = prepared.normalizedTarget;
@@ -133,7 +172,6 @@ export class ToolPipeline {
       }
 
       // authorize
-      const session = input.store.getSession(input.sessionId)!;
       const approval = approvalFor({ args, grants: session.grants, profile: session.accessMode, runId: input.runId, toolName: call.name });
       if (approval) {
         const decision = await input.registry.requestApproval({
@@ -163,7 +201,7 @@ export class ToolPipeline {
         args,
         name: call.name,
         onOutput: call.name === "run_command" ? ({ text }) => {
-          input.store.append({ activityId, data: { text }, runId: input.runId, sessionId: input.sessionId, type: "activity.updated" });
+          input.store.append({ activityId, data: { bodyDelta: text }, runId: input.runId, sessionId: input.sessionId, type: "activity.updated" });
         } : undefined,
         projectRoot: input.projectRoot,
         signal: input.signal
@@ -272,7 +310,144 @@ export class ToolPipeline {
     });
   }
 
-  private updatePlan(
+  private reject(
+    input: ToolContext,
+    call: ToolCall,
+    modelStepId: string,
+    activityId: string,
+    prepared: ToolState,
+    reason: string
+  ): ToolOutcome {
+    const text = `Runtime 拒绝了该操作：${reason}`;
+    finishActivity(input, activityId, {
+      body: reason,
+      error: reason,
+      status: "failed",
+      tool: { ...prepared, resultSummary: reason }
+    });
+    this.record(input, call, modelStepId, text, { action: prepared.action, policyDenied: true, target: prepared.normalizedTarget }, true);
+    return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: prepared.normalizedTarget };
+  }
+
+  private enterPlan(
+    input: ToolContext,
+    call: ToolCall,
+    modelStepId: string,
+    activityId: string,
+    args: Record<string, unknown>,
+    prepared: ToolState
+  ): ToolOutcome {
+    const reason = String(args.reason ?? "").trim() || "当前工作需要先形成可审阅方案。";
+    const session = input.store.getSession(input.sessionId)!;
+    if (session.planEntry === "suggest") {
+      const question: Question = {
+        callId: call.callId,
+        createdAt: new Date().toISOString(),
+        interactionId: `question_${randomUUID()}`,
+        prompts: [{
+          label: "工作方式",
+          options: ["进入计划模式", "继续工作模式"],
+          prompt: reason,
+          questionId: "plan_entry"
+        }],
+        purpose: "plan_entry",
+        runId: input.runId,
+        sessionId: input.sessionId,
+        status: "pending"
+      };
+      input.store.append({ data: { question }, runId: input.runId, sessionId: input.sessionId, type: "question.asked" });
+      finishActivity(input, activityId, { body: "已建议进入计划模式，等待用户决定。", status: "completed", tool: { ...prepared, resultSummary: "等待用户决定是否进入计划模式" } });
+      return { contextRecords: [], mutatedWorkspace: false, protocolError: false, suspended: true, target: "计划模式" };
+    }
+    input.store.append({
+      data: { mode: "plan" as const, previousMode: "work" as const, reason, source: "model" as const },
+      runId: input.runId,
+      sessionId: input.sessionId,
+      type: "mode.changed"
+    });
+    const text = `已进入计划模式。原因：${reason}`;
+    finishActivity(input, activityId, { body: text, status: "completed", tool: { ...prepared, resultSummary: text } });
+    this.record(input, call, modelStepId, text, { action: "plan", mode: "plan", target: "计划模式" });
+    return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "计划模式" };
+  }
+
+  private askUser(
+    input: ToolContext,
+    call: ToolCall,
+    _modelStepId: string,
+    activityId: string,
+    args: Record<string, unknown>,
+    prepared: ToolState
+  ): ToolOutcome {
+    if (!Array.isArray(args.questions) || args.questions.length < 1 || args.questions.length > 3) {
+      throw new Error("ask_user 需要一至三个问题。");
+    }
+    const prompts = args.questions.map((raw, index): QuestionPrompt => {
+      if (!raw || typeof raw !== "object") throw new Error("问题格式无效。");
+      const item = raw as Record<string, unknown>;
+      const prompt = String(item.prompt ?? "").trim();
+      if (!prompt) throw new Error("问题内容不能为空。");
+      const options = Array.isArray(item.options) ? item.options.map(String).filter(Boolean).slice(0, 3) : undefined;
+      return {
+        label: String(item.label ?? `问题 ${index + 1}`).trim(),
+        options: options && options.length >= 2 ? options : undefined,
+        prompt,
+        questionId: String(item.questionId ?? `question_${index + 1}`)
+      };
+    });
+    const question: Question = {
+      callId: call.callId,
+      createdAt: new Date().toISOString(),
+      interactionId: `question_${randomUUID()}`,
+      prompts,
+      purpose: "clarification",
+      runId: input.runId,
+      sessionId: input.sessionId,
+      status: "pending"
+    };
+    input.store.append({ data: { question }, runId: input.runId, sessionId: input.sessionId, type: "question.asked" });
+    finishActivity(input, activityId, { body: "等待用户回答方案问题。", status: "completed", tool: { ...prepared, resultSummary: "等待用户回答" } });
+    return { contextRecords: [], mutatedWorkspace: false, protocolError: false, suspended: true, target: "方案问题" };
+  }
+
+  private submitPlan(
+    input: ToolContext,
+    call: ToolCall,
+    _modelStepId: string,
+    activityId: string,
+    args: Record<string, unknown>,
+    prepared: ToolState
+  ): ToolOutcome {
+    const title = String(args.title ?? "").trim();
+    const markdown = String(args.markdown ?? "").trim();
+    if (!title || !markdown) throw new Error("方案标题和 Markdown 内容不能为空。");
+    const existing = input.store.getSession(input.sessionId)?.plans
+      .filter((plan) => plan.runId === input.runId)
+      .sort((left, right) => right.revision - left.revision)[0];
+    const at = new Date().toISOString();
+    const plan: Plan = {
+      callId: call.callId,
+      createdAt: existing?.createdAt ?? at,
+      markdown,
+      planId: existing?.planId ?? `plan_${randomUUID()}`,
+      revision: (existing?.revision ?? 0) + 1,
+      runId: input.runId,
+      sessionId: input.sessionId,
+      status: "proposed",
+      title,
+      updatedAt: at
+    };
+    input.store.append({
+      data: { plan },
+      runId: input.runId,
+      sessionId: input.sessionId,
+      type: existing ? "plan.revised" : "plan.proposed"
+    });
+    finishActivity(input, activityId, { body: "方案已提交，等待用户审阅。", status: "completed", tool: { ...prepared, resultSummary: "等待用户审阅" } });
+    return { contextRecords: [], mutatedWorkspace: false, protocolError: false, suspended: true, target: "实施方案" };
+  }
+
+  private updateTasks(
     input: ToolContext,
     call: ToolCall,
     modelStepId: string,
@@ -280,9 +455,9 @@ export class ToolPipeline {
     args: Record<string, unknown>,
     argsSummary: string
   ): ToolOutcome {
-    const steps = planFrom(args.steps);
-    input.store.append({ data: { items: steps }, runId: input.runId, sessionId: input.sessionId, type: "plan.changed" });
-    const text = "计划已更新。";
+    const tasks = tasksFrom(args.tasks);
+    input.store.append({ data: { items: tasks }, runId: input.runId, sessionId: input.sessionId, type: "tasks.changed" });
+    const text = "执行任务已更新。";
     finishActivity(input, activityId, {
       body: text,
       status: "completed",
@@ -297,8 +472,8 @@ export class ToolPipeline {
         result: { mutatedWorkspace: false, output: text }
       })
     });
-    this.record(input, call, modelStepId, text, { action: "plan", target: "当前计划" });
-    return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "当前计划" };
+    this.record(input, call, modelStepId, text, { action: "task", target: "执行任务" });
+    return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "执行任务" };
   }
 
   private searchMemory(

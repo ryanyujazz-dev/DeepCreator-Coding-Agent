@@ -148,8 +148,14 @@ function sentences(text: string): string[] {
   return text.split(/(?<=[。！？.!?])\s*|\n+/).map((value) => value.trim()).filter(Boolean);
 }
 
+function latestTasks(session: Session) {
+  return [...session.runs].reverse().find((run) => (run.tasks ?? []).length > 0)?.tasks ?? [];
+}
+
 function latestPlan(session: Session) {
-  return [...session.runs].reverse().find((run) => run.plan.length > 0)?.plan ?? [];
+  return [...(session.plans ?? [])]
+    .filter((plan) => plan.status !== "superseded")
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.revision - left.revision)[0];
 }
 
 function buildCheckpoint(
@@ -161,9 +167,9 @@ function buildCheckpoint(
   const humanTexts = dropped.filter((record) => record.kind === "human_text").map((record) => record.text ?? "");
   const agentTexts = dropped.filter((record) => record.kind === "agent_text").map((record) => record.text ?? "");
   const toolResults = dropped.filter((record) => record.kind === "tool_result");
-  const plan = latestPlan(session);
-  const authoritativePlan = plan.length > 0 ? plan : previous?.currentPlan ?? [];
-  const pendingWork = authoritativePlan.filter((step) => step.status !== "completed").map((step) => step.label);
+  const tasks = latestTasks(session);
+  const authoritativeTasks = tasks.length > 0 ? tasks : previous?.currentTasks ?? [];
+  const pendingWork = authoritativeTasks.filter((task) => task.status !== "completed").map((task) => task.label);
   const changedFiles = session.runs.flatMap((run) => run.changes.files.map((file) => file.path));
   const fileChanges = session.runs.flatMap((run) => run.changes.files.map((file) => ({
     additions: file.additions,
@@ -197,18 +203,20 @@ function buildCheckpoint(
       ...(semanticSummary?.constraints ?? []),
       ...humanTexts.flatMap(sentences).filter((line) => /必须|不要|不得|不能|只需|只要|保持|注意|应该|需要/.test(line))
     ]),
-    currentPlan: authoritativePlan,
+    currentTasks: authoritativeTasks,
     decisions: unique([
       ...(previous?.decisions ?? []),
       ...(semanticSummary?.decisions ?? []),
       ...agentTexts.flatMap(sentences).filter((line) => /采用|决定|改为|实现为|方案|原因|根因/.test(line))
     ]),
+    mode: session.mode ?? previous?.mode ?? "work",
+    plan: latestPlan(session) ?? previous?.plan,
     failures: unique(failures),
     fileChanges: uniqueObjects([...(previous?.fileChanges ?? []), ...fileChanges], (file) => `${file.path}:${file.operation}:${file.additions}:${file.deletions}`),
     inspectedFiles: unique([...(previous?.inspectedFiles ?? []), ...inspectedFiles]),
-    nextActions: unique(pendingWork.length ? pendingWork : authoritativePlan.length > 0 ? [] : previous?.nextActions ?? []),
+    nextActions: unique(pendingWork.length ? pendingWork : authoritativeTasks.length > 0 ? [] : previous?.nextActions ?? []),
     objective: (semanticSummary?.objective || previous?.objective || humanTexts.find(Boolean) || session.runs[0]?.prompt || "继续当前项目任务").slice(0, 1_200),
-    pendingWork: unique(authoritativePlan.length > 0 ? pendingWork : previous?.pendingWork ?? []),
+    pendingWork: unique(authoritativeTasks.length > 0 ? pendingWork : previous?.pendingWork ?? []),
     semanticSummary,
     toolStates: uniqueObjects([
       ...(previous?.toolStates ?? []),
@@ -269,7 +277,14 @@ function recoveryText(resume: ResumeState): string {
       error: { message: resume.failureMessage, type: resume.failureType },
       interruptedOperations: resume.interruptedOperations,
       lastProgress: resume.lastProgress,
-      plan: resume.plan
+      plan: resume.plan ? {
+        markdown: resume.plan.markdown,
+        planId: resume.plan.planId,
+        revision: resume.plan.revision,
+        status: resume.plan.status,
+        title: resume.plan.title
+      } : undefined,
+      tasks: resume.tasks
     })),
     "</recovery_capsule>"
   ].join("\n");
@@ -277,6 +292,21 @@ function recoveryText(resume: ResumeState): string {
 
 function escapeEnvelopeText(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function modeText(session: Session): string {
+  const plan = latestPlan(session);
+  const mode = session.mode ?? "work";
+  const planEntry = session.planEntry ?? "suggest";
+  return [
+    `<mode_context mode="${mode}" plan_entry="${planEntry}">`,
+    "这是 Runtime 当前工作模式，不是新的用户要求。工具是否可执行最终由 Runtime 策略决定。",
+    escapeEnvelopeText(JSON.stringify({
+      mode,
+      plan: plan ? { planId: plan.planId, revision: plan.revision, status: plan.status, title: plan.title } : undefined
+    })),
+    "</mode_context>"
+  ].join("\n");
 }
 
 function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {
@@ -334,6 +364,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
   );
   const resume = recoveryFor(input.session, input.prompt);
   const recoveryEnvelope = resume ? recoveryText(resume) : undefined;
+  const modeEnvelope = input.latestUserInRecords ? undefined : modeText(input.session);
   const toolText = JSON.stringify(input.tools);
   const configuredWindow = input.session.contextWindowTokens || getContextWindowTokens(context);
   const windowTokens = input.providerContextWindowTokens
@@ -349,6 +380,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
     ...(prior.checkpoint ? [{ role: "user" as const, text: renderCheckpoint(prior.checkpoint) }] : []),
     ...afterCheckpoint.map(modelMessageFromEntry).filter((message): message is ModelMessage => Boolean(message)),
     ...(recoveryEnvelope ? [{ role: "user" as const, text: recoveryEnvelope }] : []),
+    ...(modeEnvelope ? [{ role: "user" as const, text: modeEnvelope }] : []),
     ...(input.latestUserInRecords ? [] : [{ role: "user" as const, text: input.prompt }])
   ];
   const initialEstimate = Math.ceil(estimateProviderRequestTokens(initialMessages, input.tools) * calibrationFactor);
@@ -381,6 +413,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
     ...(checkpointMessage ? [{ role: "user" as const, text: checkpointMessage }] : []),
     ...historyMessages,
     ...(recoveryEnvelope ? [{ role: "user" as const, text: recoveryEnvelope }] : []),
+    ...(modeEnvelope ? [{ role: "user" as const, text: modeEnvelope }] : []),
     ...(input.latestUserInRecords ? [] : [{ role: "user" as const, text: input.prompt }])
   ];
   const updateRecords = retainedRecords.filter((record) => record.kind === "context_update");
@@ -412,6 +445,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
       trust: String(record.metadata?.trust ?? "")
     })),
     ...(recoveryEnvelope ? [metric("recovery_capsule", "Runtime resume evidence", recoveryEnvelope, "dynamic", { role: "user", survivesCompaction: false })] : []),
+    ...(modeEnvelope ? [metric("mode_context", "Runtime mode", modeEnvelope, "dynamic", { role: "user", survivesCompaction: true })] : []),
     metric("latest_user", "User", input.latestUserInRecords ? "" : input.prompt, "dynamic", { role: "user", survivesCompaction: true })
   ];
   const rawEstimatedInputTokens = estimateProviderRequestTokens(messages, input.tools);

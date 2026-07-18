@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import Fastify, { FastifyInstance } from "fastify";
-import { ApprovalChoice, AccessMode, EventStream, Session } from "../../shared/contracts/runtime";
+import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, Session } from "../../shared/contracts/runtime";
 import { MemoryFact } from "../../shared/contracts/context";
 import { Provider, ToolSpec } from "../../shared/contracts/provider";
 import { CapabilitySource } from "../../shared/contracts/capability";
@@ -11,6 +11,7 @@ import {
   accessInputSchema,
   approvalInputSchema,
   eventQuerySchema,
+  modeInputSchema,
   runInputSchema,
   runParamsSchema,
   sessionParamsSchema
@@ -19,6 +20,7 @@ import { RunInput } from "../app/runner";
 import { finishRun } from "../app/runLifecycle";
 import { ContextConfig, getCompactThresholdTokens, getContextWindowTokens, getEffectiveInputBudgetTokens, getRequestedMaxOutputTokens, prepareSessionContext } from "../app/contextBuilder";
 import { RunRegistry } from "../app/runRegistry";
+import { answerQuestion, resolvePlan, ResumeRun, revisePlan } from "../app/planReview";
 import { RuntimeStore } from "../infra/runtimeStore";
 
 export type HttpConfig = {
@@ -47,6 +49,31 @@ export function createHttp(deps: HttpDeps): FastifyInstance {
   const { context, dataDirectory, defaultModel, frontendUrl, hasApiKey, workspaceRoot } = config;
   const app = Fastify({ logger: false });
 
+function explicitPlanMode(prompt: string): boolean {
+  return /(?:先|只|请).{0,12}(?:规划|计划|设计方案|分析方案)|(?:不要|先别|暂不).{0,8}(?:修改|改代码|执行|实现)|plan\s+mode/i.test(prompt);
+}
+
+function resumeRun(resume: ResumeRun): void {
+  if (registry.hasRun(resume.runId)) {
+    registry.afterRun(resume.runId, () => resumeRun(resume));
+    return;
+  }
+  const controller = registry.startRun(resume.runId);
+  const selected = providerFor(resume.model);
+  void run({
+    continuation: true,
+    model: selected.model,
+    projectRoot: resume.projectRoot,
+    prompt: resume.prompt,
+    provider: selected.provider,
+    registry,
+    runId: resume.runId,
+    sessionId: resume.sessionId,
+    signal: controller.signal,
+    store
+  }).finally(() => registry.finishRun(resume.runId));
+}
+
 function createContextPreview(): ReturnType<typeof prepareSessionContext>["telemetry"] {
   const now = new Date().toISOString();
   const session: Session = {
@@ -58,6 +85,10 @@ function createContextPreview(): ReturnType<typeof prepareSessionContext>["telem
     runs: [],
     lastOffset: 0,
     model: defaultModel,
+    mode: "work",
+    planEntry: "suggest",
+    plans: [],
+    questions: [],
     grants: [],
     accessMode: "request_approval",
     projectRoot: workspaceRoot,
@@ -118,7 +149,8 @@ app.get("/api/config", async () => ({
   contextPreview: createContextPreview(),
   defaultModel,
   hasApiKey,
-  eventContract: "deepseeker.events/v2"
+  eventContract: "deepseeker.events/v2",
+  planEntry: "suggest"
 }));
 
 app.get<{ Querystring: { query?: string } }>("/api/sessions", async (request) => ({
@@ -193,6 +225,26 @@ app.post<{
   }
 });
 
+app.put<{
+  Params: { sessionId: string; planId: string; revision: string };
+  Body: { markdown?: string; title?: string };
+}>("/api/sessions/:sessionId/plans/:planId/revisions/:revision", async (request, reply) => {
+  try {
+    const session = revisePlan({
+      markdown: request.body.markdown ?? "",
+      planId: request.params.planId,
+      revision: Number(request.params.revision),
+      sessionId: request.params.sessionId,
+      store,
+      title: request.body.title ?? ""
+    });
+    return { session };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return reply.code(/not found/i.test(message) ? 404 : /stale/i.test(message) ? 409 : 400).send({ error: message });
+  }
+});
+
 app.delete<{ Params: { memoryId: string } }>("/api/memory/:memoryId", async (request, reply) => {
   return reply.code(store.deleteMemory(request.params.memoryId) ? 200 : 404).send({ ok: true });
 });
@@ -228,7 +280,7 @@ app.get<{ Params: { runId: string } }>("/api/runs/:runId", { schema: runParamsSc
 
 app.post<{
   Params: { sessionId: string };
-  Body: { model?: string; accessMode?: AccessMode; projectRoot?: string; prompt?: string; sessionId?: string };
+  Body: { model?: string; accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry; projectRoot?: string; prompt?: string; sessionId?: string };
 }>("/api/sessions/:sessionId/runs", { schema: runInputSchema }, async (request, reply) => {
   const prompt = request.body.prompt?.trim();
   if (!prompt) return reply.code(400).send({ error: "prompt is required" });
@@ -241,15 +293,22 @@ app.post<{
     prompt
   });
   if (!session) {
+    const mode = request.body.mode ?? (explicitPlanMode(prompt) ? "plan" : "work");
     session = store.createSession({
       compactThresholdTokens: getCompactThresholdTokens(context.windowTokens, context.maxOutputTokens, context),
       contextWindowTokens: getContextWindowTokens(context),
       model,
+      mode,
+      planEntry: request.body.planEntry ?? "suggest",
       accessMode: request.body.accessMode ?? "request_approval",
       projectRoot,
       sessionId,
       title: prompt.slice(0, 42) || "新任务"
     });
+  }
+  if (request.body.planEntry && request.body.planEntry !== session.planEntry) {
+    store.append({ data: { planEntry: request.body.planEntry }, sessionId, type: "session.updated" });
+    session = store.getSession(sessionId)!;
   }
   if (request.body.accessMode && request.body.accessMode !== session.accessMode) {
     store.append({
@@ -262,11 +321,20 @@ app.post<{
   if (session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued")) {
     return reply.code(409).send({ error: "session already has an active run" });
   }
+  const requestedMode = request.body.mode ?? (explicitPlanMode(prompt) ? "plan" : session.mode);
+  if (requestedMode !== session.mode) {
+    store.append({
+      data: { mode: requestedMode, previousMode: session.mode, reason: "用户在发送请求时选择了工作模式。", source: "user" },
+      sessionId,
+      type: "mode.changed"
+    });
+    session = store.getSession(sessionId)!;
+  }
 
   const runId = `run_${randomUUID()}`;
   store.append({
     runId,
-    data: { model, prompt, startedAt: new Date().toISOString() },
+    data: { mode: session.mode, model, prompt, startedAt: new Date().toISOString() },
     sessionId,
     type: "run.started"
   });
@@ -367,6 +435,74 @@ app.put<{
     type: "session.updated"
   });
   return { session: store.getSession(session.sessionId) };
+});
+
+app.put<{
+  Params: { sessionId: string };
+  Body: { mode?: Mode; planEntry?: PlanEntry };
+}>("/api/sessions/:sessionId/mode", { schema: modeInputSchema }, async (request, reply) => {
+  let session = store.getSession(request.params.sessionId);
+  if (!session) return reply.code(404).send({ error: "session not found" });
+  if (session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued")) {
+    return reply.code(409).send({ error: "active run controls the current mode" });
+  }
+  if (request.body.planEntry && request.body.planEntry !== session.planEntry) {
+    store.append({ data: { planEntry: request.body.planEntry }, sessionId: session.sessionId, type: "session.updated" });
+    session = store.getSession(session.sessionId)!;
+  }
+  if (request.body.mode && request.body.mode !== session.mode) {
+    store.append({
+      data: { mode: request.body.mode, previousMode: session.mode, reason: "用户切换了工作模式。", source: "user" },
+      sessionId: session.sessionId,
+      type: "mode.changed"
+    });
+  }
+  return { session: store.getSession(session.sessionId) };
+});
+
+app.post<{
+  Params: { sessionId: string; planId: string; revision: string };
+  Body: { accessMode?: AccessMode; comments?: string; decision?: PlanDecision };
+}>("/api/sessions/:sessionId/plans/:planId/revisions/:revision/resolve", async (request, reply) => {
+  const decision = request.body.decision;
+  if (!decision || !["continue_planning", "start_work", "cancel"].includes(decision)) {
+    return reply.code(400).send({ error: "invalid plan decision" });
+  }
+  try {
+    const result = resolvePlan({
+      accessMode: request.body.accessMode,
+      comments: request.body.comments,
+      decision,
+      planId: request.params.planId,
+      revision: Number(request.params.revision),
+      sessionId: request.params.sessionId,
+      store
+    });
+    if (result.resume) resumeRun(result.resume);
+    return { idempotent: result.idempotent, session: result.session };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return reply.code(/not found/i.test(message) ? 404 : /stale|not waiting/i.test(message) ? 409 : 400).send({ error: message });
+  }
+});
+
+app.post<{
+  Params: { sessionId: string; interactionId: string };
+  Body: { answers?: Record<string, string> };
+}>("/api/sessions/:sessionId/questions/:interactionId/answer", async (request, reply) => {
+  try {
+    const result = answerQuestion({
+      answers: request.body.answers ?? {},
+      interactionId: request.params.interactionId,
+      sessionId: request.params.sessionId,
+      store
+    });
+    if (result.resume) resumeRun(result.resume);
+    return { idempotent: result.idempotent, session: result.session };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return reply.code(/not found/i.test(message) ? 404 : /stale/i.test(message) ? 409 : 400).send({ error: message });
+  }
 });
 
 app.post<{

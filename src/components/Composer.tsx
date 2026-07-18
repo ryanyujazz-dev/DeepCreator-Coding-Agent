@@ -1,6 +1,6 @@
-import { ArrowUp, ArrowUpDown, Check, ChevronDown, Mic, Plus, Shield, ShieldAlert, ShieldCheck, Square } from "lucide-react";
+import { ArrowUp, ArrowUpDown, Check, ChevronDown, Lightbulb, Mic, Plus, Shield, ShieldAlert, ShieldCheck, Square } from "lucide-react";
 import { CSSProperties, FormEvent, useMemo, useState } from "react";
-import { AccessMode } from "../../shared/contracts/runtime";
+import { AccessMode, Mode } from "../../shared/contracts/runtime";
 import { RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 
 const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
@@ -13,23 +13,30 @@ export function Composer({
   contextConfig,
   contextObserver,
   isRunning,
+  isWaiting,
   model,
   onCancel,
   onAccessModeChange,
+  onModeChange,
   onSubmit,
-  accessMode
+  accessMode,
+  mode
 }: {
   contextConfig: RuntimeConfig | null;
   contextObserver: RuntimeContextObserver | null;
   isRunning: boolean;
+  isWaiting: boolean;
   model: string;
   onCancel: () => void;
   onAccessModeChange: (mode: AccessMode) => void;
+  onModeChange: (mode: Mode) => void;
   onSubmit: (prompt: string) => void;
   accessMode: AccessMode;
+  mode: Mode;
 }) {
   const [draft, setDraft] = useState("");
   const [accessMenuOpen, setAccessMenuOpen] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
   const [contextSortMenuOpen, setContextSortMenuOpen] = useState(false);
   const selectedAccess = accessOptions.find((option) => option.key === accessMode) ?? accessOptions[0];
@@ -72,16 +79,38 @@ export function Composer({
   function submit(event: FormEvent) {
     event.preventDefault();
     const prompt = draft.trim();
-    if (!prompt || isRunning) return;
+    if (!prompt || isRunning || isWaiting) return;
     setDraft("");
     onSubmit(prompt);
   }
   return (
     <form className="composer" onSubmit={submit}>
-      <textarea aria-label="输入任务" disabled={isRunning} onChange={(event) => setDraft(event.target.value)} placeholder={isRunning ? "Agent 正在处理" : "随心输入"} value={draft} />
+      <textarea aria-label="输入任务" disabled={isRunning || isWaiting} onChange={(event) => setDraft(event.target.value)} placeholder={isWaiting ? "等待你的决定" : isRunning ? "Agent 正在处理" : "随心输入"} value={draft} />
       <div className="composer-row">
         <div className="composer-left">
-          <button className="plain-icon" type="button" aria-label="添加上下文"><Plus size={20} /></button>
+          <div className="add-selector">
+            <button className={`plain-icon ${mode === "plan" ? "is-active" : ""}`} type="button" aria-label="添加" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((open) => !open)}><Plus size={20} /></button>
+            {addMenuOpen && (
+              <div className="add-menu" role="menu">
+                <header>添加</header>
+                <button
+                  className={mode === "plan" ? "is-selected" : ""}
+                  disabled={isRunning || isWaiting}
+                  onClick={() => {
+                    onModeChange(mode === "plan" ? "work" : "plan");
+                    setAddMenuOpen(false);
+                  }}
+                  role="menuitemcheckbox"
+                  aria-checked={mode === "plan"}
+                  type="button"
+                >
+                  <Lightbulb size={16} />
+                  <span>计划模式</span>
+                  {mode === "plan" && <Check size={15} />}
+                </button>
+              </div>
+            )}
+          </div>
           <div className="permission-selector">
             <button className="access-button" type="button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
               <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
@@ -110,6 +139,7 @@ export function Composer({
               </div>
             )}
           </div>
+          {mode === "plan" && <button className="mode-indicator" disabled={isRunning || isWaiting} onClick={() => onModeChange("work")} title="退出计划模式" type="button"><Lightbulb size={14} /><span>计划</span></button>}
         </div>
         <div className="composer-right">
           <div className="context-meter" tabIndex={0} aria-label="上下文用量">
@@ -148,7 +178,7 @@ export function Composer({
               <footer><span>平均缓存命中率</span><strong>{contextSummary.cacheRate === undefined ? "尚无数据" : `${(contextSummary.cacheRate * 100).toFixed(1)}%`}</strong></footer>
             </div>
           </div>
-          <button className="model-button" type="button"><span>{model}</span><ChevronDown size={13} /></button><button className="plain-icon" type="button" aria-label="语音输入"><Mic size={16} /></button>{isRunning ? <button className="send-button stop-button" onClick={onCancel} type="button" aria-label="停止"><Square size={14} /></button> : <button className="send-button" type="submit" aria-label="发送"><ArrowUp size={18} /></button>}
+          <button className="model-button" type="button"><span>{model}</span><ChevronDown size={13} /></button><button className="plain-icon" disabled={isWaiting} type="button" aria-label="语音输入"><Mic size={16} /></button>{isRunning ? <button className="send-button stop-button" onClick={onCancel} type="button" aria-label="停止"><Square size={14} /></button> : <button className="send-button" disabled={isWaiting} type="submit" aria-label="发送"><ArrowUp size={18} /></button>}
         </div>
       </div>
     </form>

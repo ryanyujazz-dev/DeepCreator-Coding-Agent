@@ -1,5 +1,5 @@
 import { ContextEntry } from "../contracts/context";
-import { PlanItem } from "../contracts/runtime";
+import { Task } from "../contracts/runtime";
 import { ToolCall } from "../contracts/provider";
 
 type LegacyToolCall = Partial<ToolCall> & { callKey?: string };
@@ -11,18 +11,18 @@ type LegacyContextEntry = Omit<Partial<ContextEntry>, "toolCalls"> & {
   toolCalls?: LegacyToolCall[];
 };
 
-function planStatus(value: unknown): PlanItem["status"] {
+function taskStatus(value: unknown): Task["status"] {
   if (value === "in_progress" || value === "active") return "running";
   if (value === "completed" || value === "blocked") return value;
   return "pending";
 }
 
-function decodePlanItem(value: unknown, index: number): PlanItem {
+function decodeTask(value: unknown, index: number): Task {
   const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
   return {
     label: String(item.label ?? item.step ?? ""),
-    status: planStatus(item.status ?? item.state),
-    stepId: String(item.stepId ?? item.stepKey ?? `legacy_step_${index}`)
+    status: taskStatus(item.status ?? item.state),
+    taskId: String(item.taskId ?? item.stepId ?? item.stepKey ?? `legacy_task_${index}`)
   };
 }
 
@@ -35,10 +35,11 @@ function decodeMetadata(value: unknown): Record<string, unknown> | undefined {
 
 function decodeCheckpoint(value: unknown): ContextEntry["checkpoint"] {
   if (!value || typeof value !== "object") return undefined;
-  const checkpoint = value as NonNullable<ContextEntry["checkpoint"]> & { currentPlan?: unknown[] };
+  const checkpoint = value as NonNullable<ContextEntry["checkpoint"]> & { currentPlan?: unknown[]; currentTasks?: unknown[] };
   return {
     ...checkpoint,
-    currentPlan: (checkpoint.currentPlan ?? []).map(decodePlanItem)
+    currentTasks: (checkpoint.currentTasks ?? checkpoint.currentPlan ?? []).map(decodeTask),
+    mode: checkpoint.mode === "plan" ? "plan" : "work"
   };
 }
 

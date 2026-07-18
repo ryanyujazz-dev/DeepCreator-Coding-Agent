@@ -177,7 +177,7 @@ test("runs ordered migrations idempotently", () => {
     const second = new Database(file);
     const repeated = Number((second.raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count);
     second.close();
-    assert.equal(count, 2);
+    assert.equal(count, 3);
     assert.equal(repeated, count);
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -245,6 +245,10 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     assert.equal(replay.statusCode, 200);
     assert.deepEqual((replay.json() as { events: Event[] }).events.map((item) => item.type), ["session.created", "run.started"]);
     assert.equal(app.hasRoute({ method: "GET", url: "/api/sessions/:sessionId/stream" }), true);
+    assert.equal(app.hasRoute({ method: "PUT", url: "/api/sessions/:sessionId/mode" }), true);
+    assert.equal(app.hasRoute({ method: "PUT", url: "/api/sessions/:sessionId/plans/:planId/revisions/:revision" }), true);
+    assert.equal(app.hasRoute({ method: "POST", url: "/api/sessions/:sessionId/plans/:planId/revisions/:revision/resolve" }), true);
+    assert.equal(app.hasRoute({ method: "POST", url: "/api/sessions/:sessionId/questions/:interactionId/answer" }), true);
   } finally {
     await app.close();
     store.close();

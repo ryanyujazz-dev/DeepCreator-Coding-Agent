@@ -5,7 +5,11 @@ import {
   Changes,
   Event,
   Grant,
-  PlanItem,
+  Mode,
+  Plan,
+  PlanEntry,
+  Question,
+  Task,
   Run,
   RunStatus,
   Session,
@@ -15,7 +19,7 @@ import {
   emptyChanges
 } from "../contracts/runtime";
 
-type StartRunData = Pick<Run, "model" | "prompt" | "startedAt">;
+type StartRunData = Pick<Run, "model" | "prompt" | "startedAt"> & { mode?: Mode };
 type StartActivityData = Omit<Activity, "activityId" | "body" | "runId" | "status"> & { body?: string };
 
 function clone<T>(value: T): T {
@@ -43,11 +47,20 @@ export function reduceEvent(current: Session, event: Event): Session {
       compactSummary?: string;
       contextTokens?: number;
       grants?: Grant[];
+      planEntry?: PlanEntry;
     };
     if (data.accessMode !== undefined) next.accessMode = data.accessMode;
     if (data.compactSummary !== undefined) next.compactSummary = data.compactSummary;
     if (data.contextTokens !== undefined) next.contextTokens = data.contextTokens;
     if (data.grants !== undefined) next.grants = clone(data.grants);
+    if (data.planEntry !== undefined) next.planEntry = data.planEntry;
+    return next;
+  }
+
+  if (event.type === "mode.changed") {
+    next.mode = (event.data as { mode: Mode }).mode;
+    const run = event.scope.runId ? findRun(next, event) : undefined;
+    if (run) run.mode = next.mode;
     return next;
   }
 
@@ -63,7 +76,8 @@ export function reduceEvent(current: Session, event: Event): Session {
       changes: emptyChanges(),
       lastOffset: event.offset,
       model: data.model,
-      plan: [],
+      mode: data.mode ?? next.mode,
+      tasks: [],
       prompt: data.prompt,
       runId,
       sessionId: next.sessionId,
@@ -78,9 +92,57 @@ export function reduceEvent(current: Session, event: Event): Session {
   run.lastOffset = event.offset;
 
   switch (event.type) {
-    case "plan.changed":
-      run.plan = clone((event.data as { items: PlanItem[] }).items);
+    case "tasks.changed":
+      run.tasks = clone((event.data as { items: Task[] }).items);
       break;
+    case "plan.proposed":
+    case "plan.revised": {
+      const plan = clone((event.data as { plan: Plan }).plan);
+      next.plans = next.plans.map((item) => item.planId === plan.planId && item.status === "proposed"
+        ? { ...item, status: "superseded" }
+        : item);
+      const existing = next.plans.findIndex((item) => item.planId === plan.planId && item.revision === plan.revision);
+      if (existing === -1) next.plans.push(plan);
+      else next.plans[existing] = plan;
+      next.mode = "plan";
+      run.mode = "plan";
+      run.planId = plan.planId;
+      run.status = "waiting";
+      break;
+    }
+    case "plan.approved": {
+      const data = event.data as { approvedAt: string; planId: string; revision: number };
+      const plan = next.plans.find((item) => item.planId === data.planId && item.revision === data.revision);
+      if (plan) {
+        plan.approvedAt = data.approvedAt;
+        plan.status = "approved";
+        plan.updatedAt = data.approvedAt;
+      }
+      run.mode = "work";
+      run.status = "running";
+      break;
+    }
+    case "plan.rejected": {
+      const data = event.data as { decision: "continue_planning" | "cancel"; planId: string; resolvedAt: string; revision: number };
+      const plan = next.plans.find((item) => item.planId === data.planId && item.revision === data.revision);
+      if (plan) {
+        plan.status = "rejected";
+        plan.updatedAt = data.resolvedAt;
+      }
+      run.status = data.decision === "continue_planning" ? "running" : "waiting";
+      break;
+    }
+    case "question.asked":
+      next.questions.push(clone((event.data as { question: Question }).question));
+      run.status = "waiting";
+      break;
+    case "question.answered": {
+      const data = event.data as { answers?: Record<string, string>; interactionId: string; resolvedAt: string; status: Question["status"] };
+      const question = next.questions.find((item) => item.interactionId === data.interactionId);
+      if (question) Object.assign(question, clone(data));
+      run.status = "running";
+      break;
+    }
     case "changes.changed":
       run.changes = clone(event.data as Changes);
       break;
@@ -178,6 +240,10 @@ export function createSession(input: SessionInput, offset = 0): Session {
     compactSummary: undefined,
     contextTokens: 0,
     grants: [],
+    mode: input.mode ?? "work",
+    planEntry: input.planEntry ?? "suggest",
+    plans: [],
+    questions: [],
     lastOffset: offset,
     runIds: [],
     runs: [],

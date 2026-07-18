@@ -1,6 +1,8 @@
 import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, TerminalSquare, Wrench } from "lucide-react";
 import { useState } from "react";
 import { Activity } from "../../shared/contracts/runtime";
+import { useStreamText } from "../stream/useStreamText";
+import { MarkdownContent } from "./MarkdownContent";
 
 function iconFor(activity: Activity) {
   if (activity.kind === "command") return <TerminalSquare size={13} />;
@@ -19,7 +21,8 @@ function completedTitle(activity: Activity): string {
     return activity.command?.command ? `已运行 ${activity.command.command}` : "命令执行完成";
   }
   if (activity.tool?.displayTarget) {
-    if (activity.tool.action === "plan") return "已更新计划";
+    if (activity.tool.action === "task") return "已更新执行任务";
+    if (activity.tool.action === "plan") return "已更新方案";
     if (activity.tool.action === "modify") return `已修改 ${activity.tool.displayTarget}`;
     if (activity.tool.action === "inspect" || activity.tool.action === "search") return `已检查 ${activity.tool.displayTarget}`;
   }
@@ -37,13 +40,35 @@ function fileActionLabel(activity: Activity): string {
   return activity.status === "running" ? "正在处理" : "已处理";
 }
 
+function MessageActivity({
+  activity,
+  onTextFrame,
+  runActive
+}: {
+  activity: Activity;
+  onTextFrame?: () => void;
+  runActive: boolean;
+}) {
+  const streaming = runActive && activity.status === "running";
+  const text = useStreamText(activity.body, streaming, onTextFrame);
+  return (
+    <article className="work-step content-step">
+      <div className="work-body">
+        <MarkdownContent fragments={text.fragments} stable={text.stable} streaming={streaming} />
+      </div>
+    </article>
+  );
+}
+
 export function ActivityView({
   runActive,
   onOpenFile,
+  onTextFrame,
   activity
 }: {
   runActive: boolean;
   onOpenFile: (path: string) => void;
+  onTextFrame?: () => void;
   activity: Activity;
 }) {
   const [commandExpanded, setCommandExpanded] = useState(false);
@@ -59,11 +84,7 @@ export function ActivityView({
     );
   }
   if (activity.kind === "message") {
-    return (
-      <article className="work-step content-step">
-        <div className="work-body"><p>{activity.body}<span className={activity.status === "running" ? "streaming-caret" : ""} /></p></div>
-      </article>
-    );
+    return <MessageActivity activity={activity} onTextFrame={onTextFrame} runActive={runActive} />;
   }
   if (activity.kind === "command") {
     const status = activity.command?.timedOut

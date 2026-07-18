@@ -50,7 +50,7 @@ function run(activities: Activity[]): Run {
     lastOffset: activities.length,
     model: "test",
     status: "running",
-    plan: [],
+    tasks: [],
     prompt: "test",
     sessionId: "session_projection",
     startedAt: "2026-07-17T10:00:00.000Z",
@@ -185,9 +185,9 @@ test("hides plan updates without splitting a surrounding inspection group", () =
       displayTarget: "当前计划",
       effect: "control_only",
       normalizedTarget: "当前计划",
-      action: "plan",
-      targetKind: "plan",
-      toolName: "update_plan"
+      action: "task",
+      targetKind: "task",
+      toolName: "update_tasks"
     })
   });
   const projection = projectGroups(run([

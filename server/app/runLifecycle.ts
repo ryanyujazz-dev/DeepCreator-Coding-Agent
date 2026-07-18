@@ -3,6 +3,7 @@ import type { RuntimeRepo } from "./runtimeRepo";
 
 function recoveryFor(input: {
   run: Run;
+  plan?: ResumeState["plan"];
   failureMessage: string;
   failureType: ResumeState["failureType"];
   projectRoot: string;
@@ -29,7 +30,9 @@ function recoveryFor(input: {
     failureType: input.failureType,
     interruptedOperations,
     lastProgress,
-    plan: input.run.plan,
+    mode: input.run.mode,
+    plan: input.plan,
+    tasks: input.run.tasks,
     projectRoot: input.projectRoot
   };
 }
@@ -78,6 +81,9 @@ export function finishRun(input: {
     ? undefined
     : recoveryFor({
         run,
+        plan: input.store.getSession(input.sessionId)?.plans
+          .filter((plan) => plan.runId === input.runId)
+          .sort((left, right) => right.revision - left.revision)[0],
         failureMessage: input.error,
         failureType: input.failureType ?? (input.status === "cancelled" ? "cancelled" : "runtime_error"),
         projectRoot: input.projectRoot,

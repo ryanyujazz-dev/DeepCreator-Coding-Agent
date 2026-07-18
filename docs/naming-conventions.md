@@ -159,7 +159,7 @@ Event types use `<noun>.<past-tense-change>`:
 ```text
 session.created
 run.started
-plan.changed
+tasks.changed
 changes.changed
 activity.started
 activity.updated
@@ -197,9 +197,20 @@ Use these domain names:
 | `SignalScope` | `EventScope` |
 | `WorkspaceDeltaView` | `Changes` |
 | `FileDeltaView` | `FileChange` |
-| `PlanStepView` | `PlanItem` |
+| `PlanStepView` | `Task` |
 | `RecoveryCapsule` | `ResumeState` |
 | `UsageView` | `Usage` |
+
+Planning and execution progress use four separate nouns:
+
+| Name | Meaning | Must not mean |
+| --- | --- | --- |
+| `Mode` | Current `work` or `plan` policy state | Run status or access level |
+| `Plan` | Versioned Markdown proposal reviewed by the user | Execution progress checklist |
+| `Task` | Model-maintained implementation progress item | User-approved proposal |
+| `Question` | Durable interaction that suspends and later resumes a Run | Approval or ordinary chat message |
+
+Use `PlanPolicy` for the hard planning boundary and `AccessPolicy` for work-mode authorization. A Plan can be proposed, revised, approved, rejected, or superseded; a Task can be pending, running, completed, or blocked. Do not share their status types or UI components.
 
 Use these field names:
 

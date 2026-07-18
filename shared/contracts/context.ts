@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { PlanItem } from "./runtime";
+import { Mode, Plan, Task } from "./runtime";
 import { ModelMessage, ToolCall } from "./provider";
 
 export type ContextKind =
@@ -10,7 +10,8 @@ export type ContextKind =
   | "context_update"
   | "recovery_capsule"
   | "checkpoint"
-  | "runtime_fact";
+  | "runtime_fact"
+  | "mode_context";
 
 export type ContextSource =
   | "user"
@@ -44,7 +45,9 @@ export type Checkpoint = {
   approvals: Array<{ state: string; target: string; title: string }>;
   constraints: string[];
   decisions: string[];
-  currentPlan: PlanItem[];
+  currentTasks: Task[];
+  mode: Mode;
+  plan?: Plan;
   inspectedFiles: string[];
   changedFiles: string[];
   fileChanges: Array<{ additions: number; deletions: number; operation: string; path: string }>;
@@ -94,7 +97,8 @@ export type ContextSectionStats = {
     | "checkpoint"
     | "recent_history"
     | "context_update"
-    | "recovery_capsule"
+      | "recovery_capsule"
+      | "mode_context"
     | "latest_user";
   source: string;
   estimatedTokens: number;
@@ -190,6 +194,7 @@ export function modelMessageFromEntry(record: ContextEntry): ModelMessage | unde
   if (record.kind === "context_update" || record.kind === "recovery_capsule") {
     return { role: "user", text: record.text ?? "" };
   }
+  if (record.kind === "mode_context") return { role: "user", text: record.text ?? "" };
   // Legacy runtime facts are historical evidence, not platform policy.
   if (record.kind === "runtime_fact") return { role: "user", text: record.text ?? "" };
   return undefined;
