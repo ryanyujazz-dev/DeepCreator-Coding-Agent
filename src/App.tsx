@@ -1,4 +1,4 @@
-import { Component, ReactNode, useCallback, useMemo, useState } from "react";
+import { Component, CSSProperties, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { MoreHorizontal, PanelRight, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
@@ -17,6 +17,14 @@ type SurfaceFileState = {
   loading: boolean;
 };
 
+const DEFAULT_SIDEBAR_WIDTH = 192;
+const DEFAULT_SURFACE_WIDTH = 640;
+
+function storedPanelWidth(key: string, fallback: number): number {
+  const stored = Number(window.localStorage.getItem(key));
+  return Number.isFinite(stored) && stored > 0 ? stored : fallback;
+}
+
 class AppErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
   state = { message: null };
   static getDerivedStateFromError(error: unknown) {
@@ -29,6 +37,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { message: str
 }
 
 export function App() {
+  const [sidebarWidth, setSidebarWidth] = useState(() => storedPanelWidth("deepseeker.sidebarWidth", DEFAULT_SIDEBAR_WIDTH));
+  const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepseeker.surfaceWidth", DEFAULT_SURFACE_WIDTH));
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [surfaces, setSurfaces] = useState<WorkspaceSurface[]>([]);
   const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [surfaceFiles, setSurfaceFiles] = useState<Record<string, SurfaceFileState>>({});
@@ -69,6 +80,8 @@ export function App() {
     [activeSurfaceId, surfaces]
   );
   const activeFileState = activeSurface?.kind === "file" ? surfaceFiles[activeSurface.path] : undefined;
+  const surfaceMaxWidth = Math.max(360, Math.min(960, viewportWidth - sidebarWidth - 420));
+  const effectiveSurfaceWidth = Math.min(surfaceWidth, surfaceMaxWidth);
   const openFileSurface = useCallback((filePath: string) => {
     if (!session?.sessionKey) return;
     const surfaceId = `file:${filePath}`;
@@ -139,17 +152,31 @@ export function App() {
     if (activeSurfaceId) closeSurfaceTab(activeSurfaceId);
   }, [activeSurfaceId, closeSurfaceTab]);
 
+  useEffect(() => window.localStorage.setItem("deepseeker.sidebarWidth", String(Math.round(sidebarWidth))), [sidebarWidth]);
+  useEffect(() => window.localStorage.setItem("deepseeker.surfaceWidth", String(Math.round(surfaceWidth))), [surfaceWidth]);
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   return (
     <AppErrorBoundary>
-      <div className="app-shell">
+      <div className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
         <SessionSidebar
           onNewSession={newSession}
           onSearch={searchSessions}
           onSelectSession={(sessionKey) => void selectSession(sessionKey)}
+          onWidthChange={setSidebarWidth}
+          onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
           selectedSessionKey={session?.sessionKey ?? null}
+          sidebarWidth={sidebarWidth}
           sessions={sessions}
         />
-        <main className={`workspace conversation-workspace ${surfaces.length > 0 ? "has-surface" : ""}`}>
+        <main
+          className={`workspace conversation-workspace ${surfaces.length > 0 ? "has-surface" : ""}`}
+          style={{ "--surface-width": `${effectiveSurfaceWidth}px` } as CSSProperties}
+        >
           <div className="conversation-main">
             <header className="thread-header">
               <div className="thread-title"><TerminalSquare size={16} /><span>{session?.title ?? "DeepSeeker CodeAgent"}</span><MoreHorizontal size={14} /></div>
@@ -160,9 +187,12 @@ export function App() {
             <ConversationViewport onOpenFile={openFileSurface} onOpenReview={openReviewSurface} session={session} />
             <div className="composer-dock">
               {currentCycle && (
-                <div className={`composer-hud is-${currentCycle.phase}`}>
-                  <span>{activeCycle ? "正在执行" : "最近工作"}</span>
-                  <strong>{workLabel}</strong>
+                <div
+                  aria-hidden={!activeCycle}
+                  className={`composer-hud is-${currentCycle.phase} ${activeCycle ? "is-visible" : "is-collapsed"}`}
+                >
+                  <span className={activeCycle ? "working-glow" : ""}>{activeCycle ? "正在执行" : "最近工作"}</span>
+                  <strong className={activeCycle ? "working-glow" : ""}>{workLabel}</strong>
                   <span>{currentDelta.fileCount} 个文件已更改 <b>+{currentDelta.additions}</b> <i>-{currentDelta.deletions}</i></span>
                 </div>
               )}
@@ -190,6 +220,10 @@ export function App() {
             onClose={closeActiveSurface}
             onCloseSurface={closeSurfaceTab}
             onSelectSurface={setActiveSurfaceId}
+            onWidthChange={setSurfaceWidth}
+            onWidthReset={() => setSurfaceWidth(DEFAULT_SURFACE_WIDTH)}
+            panelMaxWidth={() => surfaceMaxWidth}
+            panelWidth={effectiveSurfaceWidth}
             surfaces={surfaces}
           />
         </main>

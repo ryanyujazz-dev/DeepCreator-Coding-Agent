@@ -165,7 +165,7 @@ function OperationMemberRow({
             </button>
           </span>
         ) : (
-          <span title={memberLabel(unit)}>{memberLabel(unit)}</span>
+          <span className={unit.phase === "open" ? "working-glow" : ""} title={memberLabel(unit)}>{memberLabel(unit)}</span>
         )}
         <ChevronRight className="operation-member-chevron" size={12} />
       </div>
@@ -298,7 +298,7 @@ export function OperationGroupRenderer({
         tabIndex={0}
       >
         <span className="operation-group-icon">{groupIcon(group)}</span>
-        <span className="operation-group-action">{expanded ? expandedActionLabel(group, members) : collapsedLabel}</span>
+        <span className={`operation-group-action ${group.phase === "open" ? "working-glow" : ""}`}>{expanded ? expandedActionLabel(group, members) : collapsedLabel}</span>
         {directFile && !expanded && (
           <button
             className="operation-summary-file"

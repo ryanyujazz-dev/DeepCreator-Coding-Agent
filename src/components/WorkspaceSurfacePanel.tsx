@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FileDeltaView } from "../../shared/runtimeTypes";
 import { RuntimeFilePreview } from "../runtimeClient";
 import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
+import { PanelResizeHandle } from "./PanelResizeHandle";
 
 export type WorkspaceSurface =
   | { id: string; kind: "file"; path: string }
@@ -23,7 +24,7 @@ function FileSurface({
   loading: boolean;
 }) {
   const parts = file ? fileBreadcrumbs(file) : [];
-  if (loading) return <div className="surface-state">正在读取文件...</div>;
+  if (loading) return <div className="surface-state is-loading working-glow">正在读取文件...</div>;
   if (error) return <div className="surface-state is-error">{error}</div>;
   if (!file) return <div className="surface-state">选择一个文件查看内容。</div>;
   return (
@@ -134,6 +135,10 @@ export function WorkspaceSurfacePanel({
   onClose,
   onCloseSurface,
   onSelectSurface,
+  onWidthChange,
+  onWidthReset,
+  panelMaxWidth,
+  panelWidth,
   surfaces
 }: {
   activeSurfaceId: string | null;
@@ -144,12 +149,25 @@ export function WorkspaceSurfacePanel({
   onClose: () => void;
   onCloseSurface: (surfaceId: string) => void;
   onSelectSurface: (surfaceId: string) => void;
+  onWidthChange: (width: number) => void;
+  onWidthReset: () => void;
+  panelMaxWidth: () => number;
+  panelWidth: number;
   surfaces: WorkspaceSurface[];
 }) {
   if (surfaces.length === 0) return null;
   const surface = surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0];
   return (
     <aside className={`workspace-surface-panel ${isClosing ? "is-closing" : "is-open"}`} aria-label="工作区侧栏">
+      <PanelResizeHandle
+        ariaLabel="调整右侧栏宽度"
+        edge="left"
+        max={panelMaxWidth}
+        min={360}
+        onChange={onWidthChange}
+        onReset={onWidthReset}
+        value={panelWidth}
+      />
       <header className="surface-tab-strip">
         <div className="surface-tabs">
           {surfaces.map((candidate) => (

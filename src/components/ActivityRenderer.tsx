@@ -53,8 +53,7 @@ export function ActivityRenderer({
     return (
       <article className="work-step thinking-step is-expanded">
         <div className="work-body">
-          <strong>正在思考</strong>
-          {unit.body && <p>{unit.body}</p>}
+          <strong className="working-glow">正在思考</strong>
         </div>
       </article>
     );
@@ -84,7 +83,7 @@ export function ActivityRenderer({
             <strong>{completedTitle(unit)}</strong>
             <ChevronDown size={12} />
           </button>
-          {unit.phase === "open" && <p className="muted-line">正在执行</p>}
+          {unit.phase === "open" && <p className="muted-line working-glow">正在执行</p>}
           {commandExpanded && <pre className="activity-output">{output}</pre>}
         </div>
       </article>
@@ -97,7 +96,7 @@ export function ActivityRenderer({
       <div className="work-body">
         {fileTarget ? (
           <strong className="inline-file-reference">
-            <span>{fileActionLabel(unit)}</span>
+            <span className={unit.phase === "open" ? "working-glow" : ""}>{fileActionLabel(unit)}</span>
             <button onClick={() => onOpenFile(fileTarget.normalizedTarget)} title={fileTarget.displayTarget} type="button">
               {fileTarget.displayTarget}
             </button>
@@ -105,7 +104,7 @@ export function ActivityRenderer({
         ) : (
           <strong>{completedTitle(unit)}</strong>
         )}
-        {unit.phase === "open" && <p className="muted-line">正在执行</p>}
+        {unit.phase === "open" && !fileTarget && <p className="muted-line working-glow">正在执行</p>}
         {unit.phase === "failed" && unit.body && <pre className="activity-output">{unit.body}</pre>}
       </div>
     </article>

@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, CircleHelp, Folder, MoreHorizontal, PanelLeft, PencilLine, Search } from "lucide-react";
 import { SessionListEntry } from "../../shared/runtimeTypes";
 import { useState } from "react";
+import { PanelResizeHandle } from "./PanelResizeHandle";
 
 function ageLabel(timestamp: string): string {
   const elapsed = Date.now() - new Date(timestamp).getTime();
@@ -15,13 +16,19 @@ export function SessionSidebar({
   onNewSession,
   onSearch,
   onSelectSession,
+  onWidthChange,
+  onWidthReset,
   selectedSessionKey,
+  sidebarWidth,
   sessions
 }: {
   onNewSession: () => void;
   onSearch: (query: string) => void;
   onSelectSession: (sessionKey: string) => void;
+  onWidthChange: (width: number) => void;
+  onWidthReset: () => void;
   selectedSessionKey: string | null;
+  sidebarWidth: number;
   sessions: SessionListEntry[];
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -79,6 +86,15 @@ export function SessionSidebar({
       <div className="account-strip">
         <div className="avatar">DS</div><div><strong>本地工作区</strong></div><CircleHelp size={16} />
       </div>
+      <PanelResizeHandle
+        ariaLabel="调整左侧栏宽度"
+        edge="right"
+        max={360}
+        min={164}
+        onChange={onWidthChange}
+        onReset={onWidthReset}
+        value={sidebarWidth}
+      />
     </aside>
   );
 }

@@ -12,8 +12,7 @@ export function ConnectionStatus({ phase }: { phase: ConnectionPhase }) {
   return (
     <div className={`connection-status is-${phase}`} title={label}>
       {phase === "connected" ? <Wifi size={12} /> : phase === "offline" ? <CircleAlert size={12} /> : <LoaderCircle size={12} />}
-      <span>{label}</span>
+      <span className={phase === "connecting" || phase === "reconnecting" ? "working-glow" : ""}>{label}</span>
     </div>
   );
 }
-

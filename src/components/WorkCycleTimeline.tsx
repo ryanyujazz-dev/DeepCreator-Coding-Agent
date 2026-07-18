@@ -37,7 +37,7 @@ export function WorkCycleTimeline({
         onClick={() => setExpanded((value) => !value)}
         type="button"
       >
-        <span>{active ? (cycle.phase === "awaiting_approval" ? "等待批准" : "正在工作") : cycle.phase === "succeeded" ? "工作完成" : cycle.phase === "cancelled" ? "已取消" : "工作失败"}</span>
+        <span className={active && cycle.phase !== "awaiting_approval" ? "working-glow" : ""}>{active ? (cycle.phase === "awaiting_approval" ? "等待批准" : "正在工作") : cycle.phase === "succeeded" ? "工作完成" : cycle.phase === "cancelled" ? "已取消" : "工作失败"}</span>
         <span>{elapsed(cycle)}</span><ChevronDown size={13} />
       </button>
       {expanded && timelineEntries.length > 0 && (
