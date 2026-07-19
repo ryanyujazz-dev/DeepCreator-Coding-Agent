@@ -22,8 +22,10 @@ import { ContextConfig, getCompactThresholdTokens, getContextWindowTokens, getEf
 import { RunRegistry } from "../app/runRegistry";
 import { answerQuestion, resolvePlan, ResumeRun, revisePlan } from "../app/planReview";
 import { RuntimeStore } from "../infra/runtimeStore";
+import { WorkspaceInfo } from "../infra/workspace";
 
 export type HttpConfig = {
+  authToken?: string;
   dataDirectory: string;
   context: ContextConfig;
   defaultModel: string;
@@ -42,12 +44,37 @@ export type HttpDeps = {
   run: (input: Omit<RunInput, "tools">) => Promise<void>;
   store: RuntimeStore;
   tools: ToolSpec[];
+  workspaceInfo: (projectRoot: string) => Promise<WorkspaceInfo>;
 };
 
 export function createHttp(deps: HttpDeps): FastifyInstance {
-  const { capabilities, config, providerFor, registry, resolveProjectRoot, rules, run, store, tools } = deps;
-  const { context, dataDirectory, defaultModel, frontendUrl, hasApiKey, workspaceRoot } = config;
+  const { capabilities, config, providerFor, registry, resolveProjectRoot, rules, run, store, tools, workspaceInfo } = deps;
+  const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, workspaceRoot } = config;
   const app = Fastify({ logger: false });
+  const frontendOrigin = new URL(frontendUrl).origin;
+
+  app.addHook("onRequest", async (request, reply) => {
+    const origin = request.headers.origin;
+    const allowedOrigin = origin === "null" || origin === frontendOrigin;
+    if (origin && allowedOrigin) {
+      reply.header("Access-Control-Allow-Origin", origin);
+      reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
+      reply.header("Access-Control-Allow-Methods", "DELETE, GET, OPTIONS, POST, PUT");
+      reply.header("Vary", "Origin");
+      reply.raw.setHeader("Access-Control-Allow-Origin", origin);
+      reply.raw.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+      reply.raw.setHeader("Access-Control-Allow-Methods", "DELETE, GET, OPTIONS, POST, PUT");
+      reply.raw.setHeader("Vary", "Origin");
+    }
+    if (request.method === "OPTIONS" && request.url.startsWith("/api/")) {
+      if (origin && !allowedOrigin) return reply.code(403).send({ error: "origin not allowed" });
+      return reply.code(204).send();
+    }
+    if (!authToken || !request.url.startsWith("/api/")) return;
+    if (request.headers.authorization !== `Bearer ${authToken}`) {
+      return reply.code(401).send({ error: "runtime authorization required" });
+    }
+  });
 
 function explicitPlanMode(prompt: string): boolean {
   return /(?:先|只|请).{0,12}(?:规划|计划|设计方案|分析方案)|(?:不要|先别|暂不).{0,8}(?:修改|改代码|执行|实现)|plan\s+mode/i.test(prompt);
@@ -150,7 +177,8 @@ app.get("/api/config", async () => ({
   defaultModel,
   hasApiKey,
   eventContract: "deepseeker.events/v2",
-  planEntry: "suggest"
+  planEntry: "suggest",
+  workspaceRoot
 }));
 
 app.get<{ Querystring: { query?: string } }>("/api/sessions", async (request) => ({
@@ -161,6 +189,12 @@ app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId", { schema:
   const session = store.getSession(request.params.sessionId);
   if (!session) return reply.code(404).send({ error: "session not found" });
   return { session };
+});
+
+app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/workspace", { schema: sessionParamsSchema }, async (request, reply) => {
+  const session = store.getSession(request.params.sessionId);
+  if (!session) return reply.code(404).send({ error: "session not found" });
+  return { workspace: await workspaceInfo(session.projectRoot) };
 });
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-telemetry", { schema: sessionParamsSchema }, async (request, reply) => {

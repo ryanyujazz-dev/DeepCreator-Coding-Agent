@@ -18,7 +18,7 @@ import { CapabilitySource, emptyCapabilitySource } from "../../shared/contracts/
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
 import { RuntimeRepo } from "./runtimeRepo";
 import { finishRun } from "./runLifecycle";
-import { classifyInteraction } from "./interaction";
+import { classifyInteraction, requiresWorkspaceAction } from "./interaction";
 import { ToolHost } from "./toolHost";
 import { ToolPipeline } from "./toolPipeline";
 import { PlanArgumentStream } from "./planStream";
@@ -420,11 +420,15 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         });
         continue;
       }
-      if (tools.length > 0 && deferredWorkCorrectionCount === 0 && looksLikeDeferredWork(answer)) {
+      if (
+        tools.length > 0 &&
+        deferredWorkCorrectionCount === 0 &&
+        (looksLikeDeferredWork(answer) || requiresWorkspaceAction(input.prompt))
+      ) {
         deferredWorkCorrectionCount += 1;
         messages.push({
           role: "user",
-          text: "Runtime 检测到你在描述即将执行的工作，但还没有真正调用工具。请现在使用结构化工具读取/检查/修改文件；如果无需工具，请给出已完成的最终结果，不要只写计划。"
+          text: "Runtime 检测到这是需要在工作区执行的任务，但当前回答没有任何工具证据。请现在使用结构化工具读取、检查或修改真实文件；不得把计划、代码示例或准备执行的描述当作已完成结果。"
         });
         continue;
       }

@@ -222,17 +222,34 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
   };
   const app = createHttp({
     capabilities: emptyCapabilitySource,
-    config: { context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
+    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
     providerFor: () => ({ model: "mock-agent", provider }),
     registry,
     resolveProjectRoot: async () => directory,
     rules: emptyRuleSource,
     run: async () => undefined,
     store,
-    tools: toolHost.specs
+    tools: toolHost.specs,
+    workspaceInfo: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot })
   });
   try {
+    const preflight = await app.inject({
+      headers: { origin: "http://127.0.0.1:5173" },
+      method: "OPTIONS",
+      url: "/api/health"
+    });
+    assert.equal(preflight.statusCode, 204);
+    assert.equal(preflight.headers["access-control-allow-origin"], "http://127.0.0.1:5173");
+    const rejectedOrigin = await app.inject({
+      headers: { origin: "http://127.0.0.1:9999" },
+      method: "OPTIONS",
+      url: "/api/health"
+    });
+    assert.equal(rejectedOrigin.statusCode, 403);
+    const unauthorized = await app.inject({ method: "GET", url: "/api/health" });
+    assert.equal(unauthorized.statusCode, 401);
     const created = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
       method: "POST",
       payload: { accessMode: "request_approval", model: "mock-agent", prompt: "测试 V2 API" },
       url: "/api/sessions/session_http/runs"
@@ -241,7 +258,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     const body = created.json() as { run: { runId: string }; session: { sessionId: string } };
     assert.match(body.run.runId, /^run_/);
     assert.equal(body.session.sessionId, "session_http");
-    const replay = await app.inject({ method: "GET", url: "/api/sessions/session_http/events?afterOffset=0" });
+    const replay = await app.inject({ headers: { authorization: "Bearer runtime-test-token" }, method: "GET", url: "/api/sessions/session_http/events?afterOffset=0" });
     assert.equal(replay.statusCode, 200);
     assert.deepEqual((replay.json() as { events: Event[] }).events.map((item) => item.type), ["session.created", "run.started"]);
     assert.equal(app.hasRoute({ method: "GET", url: "/api/sessions/:sessionId/stream" }), true);
@@ -249,6 +266,9 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     assert.equal(app.hasRoute({ method: "PUT", url: "/api/sessions/:sessionId/plans/:planId/revisions/:revision" }), true);
     assert.equal(app.hasRoute({ method: "POST", url: "/api/sessions/:sessionId/plans/:planId/revisions/:revision/resolve" }), true);
     assert.equal(app.hasRoute({ method: "POST", url: "/api/sessions/:sessionId/questions/:interactionId/answer" }), true);
+    const workspace = await app.inject({ headers: { authorization: "Bearer runtime-test-token" }, method: "GET", url: "/api/sessions/session_http/workspace" });
+    assert.equal(workspace.statusCode, 200);
+    assert.equal(workspace.json().workspace.exists, true);
   } finally {
     await app.close();
     store.close();

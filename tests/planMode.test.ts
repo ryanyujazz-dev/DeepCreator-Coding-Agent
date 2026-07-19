@@ -123,6 +123,17 @@ test("RunRegistry defers an early review continuation until the suspended stack 
   assert.deepEqual(calls, ["resume", "immediate"]);
 });
 
+test("RunRegistry aborts and drains active runs during Runtime shutdown", async () => {
+  const registry = new RunRegistry();
+  const controller = registry.startRun("run_shutdown");
+  controller.signal.addEventListener("abort", () => registry.finishRun("run_shutdown"), { once: true });
+
+  await registry.cancelAllAndWait();
+
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(registry.hasRun("run_shutdown"), false);
+});
+
 test("submit_plan suspends durably and approval resumes the same Run with a paired tool result", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-plan-"));
   try {

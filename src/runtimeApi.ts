@@ -18,7 +18,7 @@ async function json<T>(response: Response): Promise<T> {
       const parsed = JSON.parse(body) as { error?: string; message?: string };
       message = parsed.message || parsed.error || message;
     } catch {
-      // Keep the plain body when the server does not return JSON.
+      // Preserve a plain-text response.
     }
     throw new RuntimeRequestError(message, response.status);
   }
@@ -35,6 +35,7 @@ export type RuntimeConfig = {
   hasApiKey: boolean;
   eventContract: string;
   planEntry: PlanEntry;
+  workspaceRoot: string;
 };
 
 export type RuntimeContextSection = {
@@ -85,75 +86,143 @@ export type RuntimeFilePreview = {
   truncated: boolean;
 };
 
-export const runtimeApi = {
-  config: () => fetch("/api/config").then((response) => json<RuntimeConfig>(response)),
-  listSessions: (query = "") =>
-    fetch(`/api/sessions${query.trim() ? `?query=${encodeURIComponent(query.trim())}` : ""}`).then((response) =>
-      json<{ sessions: import("../shared/contracts/runtime").SessionSummary[] }>(response)
-    ),
-  getSession: (sessionId: string) =>
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}`).then((response) =>
-      json<{ session: Session }>(response)
-    ),
-  getContextObserver: (sessionId: string) =>
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/context-observer`).then((response) =>
-      json<{ observer: RuntimeContextObserver }>(response)
-    ),
-  getFile: (sessionId: string, path: string) =>
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/files?path=${encodeURIComponent(path)}`).then((response) =>
-      json<RuntimeFilePreview>(response)
-    ),
-  startRun: (input: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; prompt: string; sessionId?: string }) => {
-    const sessionId = input.sessionId ?? `session_${crypto.randomUUID()}`;
-    return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, {
-      body: JSON.stringify(input),
-      headers: { "Content-Type": "application/json" },
-      method: "POST"
-    }).then((response) => json<{ session: Session }>(response));
-  },
-  cancelRun: (runId: string) =>
-    fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }).then((response) =>
-      json<{ ok: boolean }>(response)
-    ),
-  setAccessMode: (sessionId: string, accessMode: AccessMode) =>
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/access-mode`, {
-      body: JSON.stringify({ accessMode }),
-      headers: { "Content-Type": "application/json" },
-      method: "PUT"
-    }).then((response) => json<{ session: Session }>(response)),
-  setMode: (sessionId: string, input: { mode?: Mode; planEntry?: PlanEntry }) =>
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/mode`, {
-      body: JSON.stringify(input),
-      headers: { "Content-Type": "application/json" },
-      method: "PUT"
-    }).then((response) => json<{ session: Session }>(response)),
-  resolvePlan: (sessionId: string, plan: Pick<Plan, "planId" | "revision">, input: { accessMode?: AccessMode; comments?: string; decision: PlanDecision }) =>
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}/resolve`, {
-      body: JSON.stringify(input),
-      headers: { "Content-Type": "application/json" },
-      method: "POST"
-    }).then((response) => json<{ idempotent: boolean; session: Session }>(response)),
-  revisePlan: (sessionId: string, plan: Pick<Plan, "planId" | "revision">, input: { markdown: string; title: string }) =>
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}`, {
-      body: JSON.stringify(input),
-      headers: { "Content-Type": "application/json" },
-      method: "PUT"
-    }).then((response) => json<{ session: Session }>(response)),
-  answerQuestion: (sessionId: string, interactionId: string, answers: Record<string, string>) =>
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(interactionId)}/answer`, {
-      body: JSON.stringify({ answers }),
-      headers: { "Content-Type": "application/json" },
-      method: "POST"
-    }).then((response) => json<{ idempotent: boolean; session: Session }>(response)),
-  resolveApproval: (approvalId: string, decision: ApprovalChoice) =>
-    fetch(`/api/approvals/${encodeURIComponent(approvalId)}/resolve`, {
-      body: JSON.stringify({ decision }),
-      headers: { "Content-Type": "application/json" },
-      method: "POST"
-    }).then((response) => json<{ ok: boolean }>(response)),
-  streamUrl: (sessionId: string, afterOffset: number) =>
-    `/api/sessions/${encodeURIComponent(sessionId)}/stream?afterOffset=${afterOffset}`
+export type RuntimeWorkspace = {
+  branch?: string;
+  dirtyFiles: number;
+  exists: boolean;
+  git: boolean;
+  name: string;
+  projectRoot: string;
 };
+
+export class SSEDecoder {
+  private buffer = "";
+
+  push(chunk: string): string[] {
+    this.buffer += chunk.replaceAll("\r\n", "\n");
+    const messages: string[] = [];
+    let boundary = this.buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const block = this.buffer.slice(0, boundary);
+      this.buffer = this.buffer.slice(boundary + 2);
+      const data = block.split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      if (data) messages.push(data);
+      boundary = this.buffer.indexOf("\n\n");
+    }
+    return messages;
+  }
+}
+
+export class RuntimeClient {
+  private baseUrl = "";
+  private token?: string;
+
+  configure(input: { baseUrl?: string; token?: string }): void {
+    this.baseUrl = (input.baseUrl ?? "").replace(/\/$/, "");
+    this.token = input.token;
+  }
+
+  config = () => this.request<RuntimeConfig>("/api/config");
+  listSessions = (query = "") => this.request<{ sessions: import("../shared/contracts/runtime").SessionSummary[] }>(
+    `/api/sessions${query.trim() ? `?query=${encodeURIComponent(query.trim())}` : ""}`
+  );
+  getSession = (sessionId: string) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}`);
+  getWorkspace = (sessionId: string) => this.request<{ workspace: RuntimeWorkspace }>(`/api/sessions/${encodeURIComponent(sessionId)}/workspace`);
+  getContextObserver = (sessionId: string) => this.request<{ observer: RuntimeContextObserver }>(`/api/sessions/${encodeURIComponent(sessionId)}/context-observer`);
+  getFile = (sessionId: string, path: string) => this.request<RuntimeFilePreview>(`/api/sessions/${encodeURIComponent(sessionId)}/files?path=${encodeURIComponent(path)}`);
+  startRun = (input: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; projectRoot?: string; prompt: string; sessionId?: string }) => {
+    const sessionId = input.sessionId ?? `session_${crypto.randomUUID()}`;
+    return this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { body: JSON.stringify(input), method: "POST" });
+  };
+  cancelRun = (runId: string) => this.request<{ ok: boolean }>(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+  setAccessMode = (sessionId: string, accessMode: AccessMode) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/access-mode`, {
+    body: JSON.stringify({ accessMode }), method: "PUT"
+  });
+  setMode = (sessionId: string, input: { mode?: Mode; planEntry?: PlanEntry }) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/mode`, {
+    body: JSON.stringify(input), method: "PUT"
+  });
+  resolvePlan = (sessionId: string, plan: Pick<Plan, "planId" | "revision">, input: { accessMode?: AccessMode; comments?: string; decision: PlanDecision }) =>
+    this.request<{ idempotent: boolean; session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}/resolve`, {
+      body: JSON.stringify(input), method: "POST"
+    });
+  revisePlan = (sessionId: string, plan: Pick<Plan, "planId" | "revision">, input: { markdown: string; title: string }) =>
+    this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}`, {
+      body: JSON.stringify(input), method: "PUT"
+    });
+  answerQuestion = (sessionId: string, interactionId: string, answers: Record<string, string>) =>
+    this.request<{ idempotent: boolean; session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(interactionId)}/answer`, {
+      body: JSON.stringify({ answers }), method: "POST"
+    });
+  resolveApproval = (approvalId: string, decision: ApprovalChoice) => this.request<{ ok: boolean }>(`/api/approvals/${encodeURIComponent(approvalId)}/resolve`, {
+    body: JSON.stringify({ decision }), method: "POST"
+  });
+
+  subscribe(input: {
+    afterOffset: number;
+    onError: (error: unknown) => void;
+    onEvents: (events: Event[]) => void;
+    onOpen: () => void;
+    sessionId: string;
+  }): () => void {
+    const controller = new AbortController();
+    let offset = input.afterOffset;
+    const run = async () => {
+      let retryMs = 400;
+      while (!controller.signal.aborted) {
+        try {
+          const response = await fetch(this.url(`/api/sessions/${encodeURIComponent(input.sessionId)}/stream?afterOffset=${offset}`), {
+            headers: this.headers(), signal: controller.signal
+          });
+          if (!response.ok) await json<never>(response);
+          if (!response.body) throw new Error("Runtime stream is unavailable.");
+          input.onOpen();
+          retryMs = 400;
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          const sse = new SSEDecoder();
+          while (!controller.signal.aborted) {
+            const next = await reader.read();
+            if (next.done) break;
+            for (const data of sse.push(decoder.decode(next.value, { stream: true }))) {
+              const events = parseEventMessage(data);
+              if (events.length === 0) continue;
+              offset = Math.max(offset, events.at(-1)!.offset);
+              input.onEvents(events);
+            }
+          }
+          if (!controller.signal.aborted) throw new Error("Runtime stream closed.");
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          input.onError(error);
+          await new Promise((resolve) => setTimeout(resolve, retryMs));
+          retryMs = Math.min(5_000, retryMs * 2);
+        }
+      }
+    };
+    void run();
+    return () => controller.abort();
+  }
+
+  private headers(init?: HeadersInit): Headers {
+    const headers = new Headers(init);
+    headers.set("Content-Type", "application/json");
+    if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
+    return headers;
+  }
+
+  private request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    return fetch(this.url(path), { ...init, headers: this.headers(init.headers) }).then((response) => json<T>(response));
+  }
+
+  private url(path: string): string {
+    return `${this.baseUrl}${path}`;
+  }
+}
+
+export const runtimeApi = new RuntimeClient();
 
 export function parseEventMessage(data: string): Event[] {
   const message = JSON.parse(data) as EventStream;

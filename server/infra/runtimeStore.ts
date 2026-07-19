@@ -38,9 +38,9 @@ export class RuntimeStore implements RuntimeRepo {
   private readonly sessionStore: SessionStore;
   private readonly subscribers = new Map<string, Set<EventSubscriber>>();
 
-  constructor(private readonly dataDirectory: string) {
+  constructor(private readonly dataDirectory: string, migrationDirectory?: string) {
     mkdirSync(dataDirectory, { recursive: true });
-    this.database = new Database(path.join(dataDirectory, "runtime.sqlite"));
+    this.database = new Database(path.join(dataDirectory, "runtime.sqlite"), migrationDirectory);
     this.sessionStore = new SessionStore(this.database);
     this.events = new EventStore(this.database, this.sessionStore);
     this.contexts = new ContextStore(this.database);

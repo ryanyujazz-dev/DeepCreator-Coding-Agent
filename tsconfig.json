@@ -17,6 +17,6 @@
     "noEmit": true,
     "jsx": "react-jsx"
   },
-  "include": ["src", "server", "shared", "vite.config.ts"],
+  "include": ["src", "server", "shared", "desktop", "forge.config.ts", "forge.env.d.ts", "vite.config.ts", "vite.*.config.ts"],
   "references": []
 }

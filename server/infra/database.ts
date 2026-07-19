@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 export class Database {
   readonly raw: DatabaseSync;
 
-  constructor(filePath: string) {
+  constructor(filePath: string, private readonly migrationDirectory?: string) {
     this.raw = new DatabaseSync(filePath);
     this.raw.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;");
     this.migrate();
@@ -34,7 +34,7 @@ export class Database {
       name TEXT NOT NULL,
       applied_at TEXT NOT NULL
     )`);
-    const directory = fileURLToPath(new URL("./migrations", import.meta.url));
+    const directory = this.migrationDirectory ?? fileURLToPath(new URL("./migrations", import.meta.url));
     const files = readdirSync(directory)
       .filter((name) => /^\d+_.+\.sql$/.test(name))
       .sort();

@@ -1,4 +1,4 @@
-import { CheckSquare, Copy, FileCode2, GitPullRequest, Globe2, Lightbulb, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
+import { CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { FileChange, Plan, Run, isRunDone } from "../../shared/contracts/runtime";
 import { RuntimeFilePreview } from "../runtimeApi";
@@ -38,6 +38,7 @@ function FileSurface({
       </nav>
       <div className="surface-toolbar">
         <span>{file.truncated ? "内容已截断" : "只读预览"}</span>
+        {window.deepseeker && <button aria-label="在 Finder 中显示" onClick={() => void window.deepseeker?.files.reveal(`${file.projectRoot}/${file.path}`)} type="button"><FolderOpen size={13} /></button>}
         <button
           aria-label="复制文件内容"
           onClick={() => void navigator.clipboard?.writeText(file.content)}
@@ -112,6 +113,7 @@ function BrowserSurface({ surface }: { surface: Extract<Surface, { kind: "browse
     <div className="surface-state">
       <Globe2 size={15} />
       <span>{surface.url}</span>
+      {window.deepseeker && <button aria-label="在默认浏览器中打开" onClick={() => void window.deepseeker?.files.openExternal(surface.url)} type="button"><ExternalLink size={14} /></button>}
     </div>
   );
 }

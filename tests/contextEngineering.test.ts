@@ -13,7 +13,7 @@ import { RunRegistry } from "../server/app/runRegistry";
 import { prompts } from "../server/app/prompts";
 import { Provider } from "../shared/contracts/provider";
 import { RuntimeStore } from "../server/infra/runtimeStore";
-import { classifyInteraction } from "../server/app/interaction";
+import { classifyInteraction, requiresWorkspaceAction } from "../server/app/interaction";
 import { toolHost, toolSpecs } from "../server/infra/tools";
 import { finishRun } from "../server/app/runLifecycle";
 
@@ -74,6 +74,10 @@ test("routes greetings directly while recovery and coding follow-ups keep agent 
   assert.equal(classifyInteraction("还是不行", session), "recovery");
   assert.equal(classifyInteraction("解释一下量子纠缠", session), "direct");
   assert.equal(classifyInteraction("讲个笑话", session), "direct");
+  assert.equal(classifyInteraction("你现在跟 Codex 比赛，请做一款小游戏", { ...session, runIds: [], runs: [] }), "agent");
+  assert.equal(classifyInteraction("进行开发呀？", { ...session, runIds: [], runs: [] }), "agent");
+  assert.equal(requiresWorkspaceAction("请做一款小游戏"), true);
+  assert.equal(requiresWorkspaceAction("解释一下量子纠缠"), false);
 });
 
 test("clamps compaction to the active provider context window", () => {

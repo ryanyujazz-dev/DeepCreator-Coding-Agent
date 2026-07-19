@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { reduceEvents } from "../shared/domain/reducer";
 import { ApprovalChoice, isRunDone, AccessMode, Mode, Plan, PlanDecision, PlanEntry, SessionSummary, Session } from "../shared/contracts/runtime";
 import { ConnectionPhase } from "./components/ConnectionStatus";
-import { parseEventMessage, runtimeApi, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError } from "./runtimeApi";
+import { runtimeApi, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError, RuntimeWorkspace } from "./runtimeApi";
 
 export function useWorkspace() {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
@@ -14,6 +14,8 @@ export function useWorkspace() {
   const [draftMode, setDraftMode] = useState<Mode>("work");
   const [draftPlanEntry, setDraftPlanEntry] = useState<PlanEntry>("suggest");
   const [contextObserver, setContextObserver] = useState<RuntimeContextObserver | null>(null);
+  const [projectRoot, setProjectRoot] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<RuntimeWorkspace | null>(null);
 
   const refreshSessions = useCallback(async (query = "") => {
     const result = await runtimeApi.listSessions(query);
@@ -26,6 +28,7 @@ export function useWorkspace() {
     try {
       const next = (await runtimeApi.getSession(sessionId)).session;
       setSession(next);
+      setProjectRoot(next.projectRoot);
       setDraftAccessMode(next.accessMode ?? "request_approval");
       setDraftMode(next.mode ?? "work");
       setDraftPlanEntry(next.planEntry ?? "suggest");
@@ -43,6 +46,7 @@ export function useWorkspace() {
     void Promise.all([runtimeApi.config(), refreshSessions()])
       .then(([runtimeConfig, availableSessions]) => {
         setConfig(runtimeConfig);
+        if (!window.deepseeker) setProjectRoot(runtimeConfig.workspaceRoot);
         setConnection("connected");
         if (availableSessions[0]) void selectSession(availableSessions[0].sessionId);
       })
@@ -55,39 +59,64 @@ export function useWorkspace() {
   useEffect(() => {
     if (!session?.sessionId) return;
     const sessionId = session.sessionId;
-    const source = new EventSource(runtimeApi.streamUrl(sessionId, session.lastOffset));
     let disposed = false;
-    source.onopen = () => {
-      setConnection("connected");
-      void runtimeApi.getSession(sessionId)
-        .then(({ session: snapshot }) => {
-          if (disposed) return;
-          setSession((current) => {
-            if (current?.sessionId !== sessionId || snapshot.lastOffset < current.lastOffset) return current;
-            return snapshot;
-          });
-          setDraftAccessMode(snapshot.accessMode ?? "request_approval");
-          setDraftMode(snapshot.mode ?? "work");
-          setDraftPlanEntry(snapshot.planEntry ?? "suggest");
-          const latestRun = snapshot.runs.at(-1);
-          if (latestRun && isRunDone(latestRun.status)) void refreshSessions();
-        })
-        .catch(() => {
-          if (!disposed) setConnection(navigator.onLine ? "reconnecting" : "offline");
-        });
-    };
-    source.onmessage = (event) => {
-      const events = parseEventMessage(event.data);
-      if (events.length === 0) return;
-      setSession((current) => current?.sessionId === sessionId ? reduceEvents(current, events) : current);
-      if (events.some((item) => item.type === "run.finished")) void refreshSessions();
-    };
-    source.onerror = () => setConnection(navigator.onLine ? "reconnecting" : "offline");
+    const close = runtimeApi.subscribe({
+      afterOffset: session.lastOffset,
+      onError: () => setConnection(navigator.onLine ? "reconnecting" : "offline"),
+      onEvents: (events) => {
+        setSession((current) => current?.sessionId === sessionId ? reduceEvents(current, events) : current);
+        if (events.some((item) => item.type === "run.finished")) void refreshSessions();
+      },
+      onOpen: () => {
+        setConnection("connected");
+        void runtimeApi.getSession(sessionId)
+          .then(({ session: snapshot }) => {
+            if (disposed) return;
+            setSession((current) => {
+              if (current?.sessionId !== sessionId || snapshot.lastOffset < current.lastOffset) return current;
+              return snapshot;
+            });
+            setDraftAccessMode(snapshot.accessMode ?? "request_approval");
+            setDraftMode(snapshot.mode ?? "work");
+            setDraftPlanEntry(snapshot.planEntry ?? "suggest");
+            const latestRun = snapshot.runs.at(-1);
+            if (latestRun && isRunDone(latestRun.status)) void refreshSessions();
+          })
+          .catch(() => { if (!disposed) setConnection(navigator.onLine ? "reconnecting" : "offline"); });
+      },
+      sessionId
+    });
     return () => {
       disposed = true;
-      source.close();
+      close();
     };
   }, [refreshSessions, session?.sessionId]);
+
+  useEffect(() => {
+    if (!session?.sessionId) {
+      setWorkspace(null);
+      return;
+    }
+    let disposed = false;
+    const refresh = () => void runtimeApi.getWorkspace(session.sessionId)
+      .then(({ workspace: next }) => { if (!disposed) setWorkspace(next); })
+      .catch(() => { if (!disposed) setWorkspace(null); });
+    refresh();
+    const timer = activeRun ? window.setInterval(refresh, 3_000) : undefined;
+    return () => {
+      disposed = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [activeRun, session?.sessionId, session?.updatedAt]);
+
+  useEffect(() => {
+    if (!window.deepseeker) return;
+    return window.deepseeker.runtime.onState((state) => {
+      if (state.phase === "ready") setConnection("connecting");
+      else if (state.phase === "failed" || state.phase === "stopped") setConnection("offline");
+      else setConnection("reconnecting");
+    });
+  }, []);
 
   useEffect(() => {
     const sessionId = session?.sessionId;
@@ -118,14 +147,59 @@ export function useWorkspace() {
 
   const startRun = useCallback(async (prompt: string) => {
     setError(null);
+    if (!session && !projectRoot) {
+      setError("请先选择一个项目文件夹。");
+      return;
+    }
     try {
-      const result = await runtimeApi.startRun({ model, accessMode: draftAccessMode, mode: draftMode, planEntry: draftPlanEntry, prompt, sessionId: session?.sessionId });
+      const result = await runtimeApi.startRun({
+        model,
+        accessMode: draftAccessMode,
+        mode: draftMode,
+        planEntry: draftPlanEntry,
+        projectRoot: session ? undefined : projectRoot ?? undefined,
+        prompt,
+        sessionId: session?.sessionId
+      });
       setSession(result.session);
+      setProjectRoot(result.session.projectRoot);
       await refreshSessions();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, [draftAccessMode, draftMode, draftPlanEntry, model, refreshSessions, session?.sessionId]);
+  }, [draftAccessMode, draftMode, draftPlanEntry, model, projectRoot, refreshSessions, session]);
+
+  const newSession = useCallback(async (preferredRoot?: string) => {
+    let nextRoot = preferredRoot;
+    if (!nextRoot && window.deepseeker) {
+      const selected = await window.deepseeker.projects.pick();
+      if (!selected) return;
+      nextRoot = selected.path;
+    }
+    setSession(null);
+    setWorkspace(null);
+    setProjectRoot(nextRoot ?? config?.workspaceRoot ?? null);
+    setError(null);
+    setDraftAccessMode("request_approval");
+    setDraftMode("work");
+    setDraftPlanEntry(config?.planEntry ?? "suggest");
+  }, [config]);
+
+  const retryRuntime = useCallback(async () => {
+    if (!window.deepseeker) return;
+    setConnection("connecting");
+    try {
+      const connection = await window.deepseeker.runtime.retry();
+      runtimeApi.configure(connection);
+      const nextConfig = await runtimeApi.config();
+      setConfig(nextConfig);
+      setConnection("connected");
+      await refreshSessions();
+    } catch (nextError) {
+      setConnection("offline");
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, [refreshSessions]);
 
   const cancelRun = useCallback(async () => {
     if (!activeRun) return;
@@ -218,18 +292,21 @@ export function useWorkspace() {
     error,
     model,
     mode: draftMode,
-    newSession: () => { setSession(null); setError(null); setDraftAccessMode("request_approval"); setDraftMode("work"); setDraftPlanEntry(config?.planEntry ?? "suggest"); },
+    newSession,
     pendingApproval,
     planEntry: draftPlanEntry,
+    projectRoot,
     resolveApproval,
     resolvePlan,
     revisePlan,
+    retryRuntime,
     searchSessions: (query: string) => void refreshSessions(query),
     selectSession,
     setAccessMode,
     setMode,
     session,
     sessions,
-    startRun
+    startRun,
+    workspace
   };
 }

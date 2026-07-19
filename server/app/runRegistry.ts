@@ -52,6 +52,19 @@ export class RunRegistry {
     return true;
   }
 
+  async cancelAllAndWait(timeoutMs = 1_500): Promise<void> {
+    const runIds = [...this.runs.keys()];
+    if (runIds.length === 0) return;
+    const settled = Promise.all(runIds.map((runId) => new Promise<void>((resolve) => {
+      this.afterRun(runId, resolve);
+      this.cancelRun(runId);
+    })));
+    await Promise.race([
+      settled,
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))
+    ]);
+  }
+
   async requestApproval(input: {
     callId: string;
     capability: AccessScope;
