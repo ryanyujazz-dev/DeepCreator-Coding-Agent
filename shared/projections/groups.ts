@@ -7,7 +7,8 @@ import {
   TimelineEntry,
   ToolImportance,
   ActionKind,
-  Changes
+  Changes,
+  LiveStep
 } from "../contracts/runtime";
 
 type MutableGroup = ActivityGroup & { members: Activity[] };
@@ -185,21 +186,117 @@ function createGroup(activity: Activity, category: ActionKind, changes: Changes)
   return group;
 }
 
-function isHiddenActivity(activity: Activity): boolean {
+function isInternallyHidden(activity: Activity): boolean {
   return activity.audience === "internal"
     || activity.tool?.action === "task"
-    || (activity.tool?.action === "plan" && activity.kind !== "plan")
+    || (activity.tool?.action === "plan" && activity.kind !== "plan");
+}
+
+function isHiddenActivity(activity: Activity): boolean {
+  return isInternallyHidden(activity)
     || (activity.kind === "thinking" && activity.status !== "running");
 }
 
+function stepIdFor(activity: Activity): string | undefined {
+  return activity.modelStepId ?? activity.tool?.modelStepId;
+}
+
+function sameCategoryGroup(members: Activity[], changes: Changes): MutableGroup | undefined {
+  const category = groupCategory(members[0]);
+  if (!category) return undefined;
+  const group = createGroup(members[0], category, changes);
+  for (const member of members.slice(1)) group.members.push(member);
+  rebuildGroup(group, changes);
+  return group;
+}
+
+function summarizeMixedLiveTools(members: Activity[]): LiveStep {
+  const running = members.some((activity) => activity.status === "running");
+  const failedCount = members.filter((activity) => activity.status === "failed").length;
+  const cancelledCount = members.filter((activity) => activity.status === "cancelled").length;
+  const currentTarget = [...members]
+    .reverse()
+    .find((activity) => activity.status === "running" && activity.tool?.displayTarget)
+    ?.tool?.displayTarget
+    ?? [...members].reverse().find((activity) => activity.tool?.displayTarget)?.tool?.displayTarget;
+  const fileCount = unique(
+    members
+      .filter((activity) => activity.tool?.targetKind === "file")
+      .map((activity) => activity.tool?.normalizedTarget ?? "")
+  ).length;
+  const scope = fileCount > 0 ? `${fileCount} 个文件` : `${members.length} 项操作`;
+  const prefix = running ? "正在处理" : failedCount > 0 ? "处理失败" : "已完成";
+  const failureSuffix = !running && failedCount > 0 ? ` · ${failedCount} 项失败` : "";
+  const cancelledSuffix = !running && failedCount === 0 && cancelledCount > 0 ? ` · ${cancelledCount} 项已取消` : "";
+  return {
+    category: "mixed",
+    currentTarget,
+    mode: "tools",
+    status: running ? "running" : failedCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed",
+    summaryLabel: `${prefix} ${scope}${failureSuffix}${cancelledSuffix}`,
+    totalCalls: members.length
+  };
+}
+
+function summarizeLiveTools(members: Activity[], changes: Changes): LiveStep {
+  const categories = unique(members.map((activity) => groupCategory(activity) ?? ""));
+  if (categories.length === 1) {
+    const group = sameCategoryGroup(members, changes);
+    if (group) {
+      return {
+        category: group.category,
+        currentTarget: group.currentTarget ?? [...members].reverse().find((activity) => activity.tool?.displayTarget)?.tool?.displayTarget,
+        mode: "tools",
+        status: group.status,
+        summaryLabel: group.summaryLabel,
+        totalCalls: group.totalCalls
+      };
+    }
+  }
+  return summarizeMixedLiveTools(members);
+}
+
+function projectLiveStep(
+  run: Pick<Run, "runId" | "status" | "changes">,
+  activities: Activity[]
+): { hiddenActivityIds: Set<string>; liveStep: LiveStep } | undefined {
+  if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") return undefined;
+  const tailSeed = [...activities]
+    .reverse()
+    .find((activity) => stepIdFor(activity) && !isInternallyHidden(activity));
+  const tailStepId = tailSeed ? stepIdFor(tailSeed) : undefined;
+  if (!tailStepId) return undefined;
+
+  const tailActivities = activities.filter((activity) =>
+    stepIdFor(activity) === tailStepId && !isInternallyHidden(activity)
+  );
+  if (tailActivities.length === 0) return undefined;
+
+  const hiddenActivityIds = new Set(tailActivities.map((activity) => activity.activityId));
+  const toolActivities = tailActivities.filter((activity) => Boolean(groupCategory(activity)));
+  if (toolActivities.length > 0) {
+    return { hiddenActivityIds, liveStep: summarizeLiveTools(toolActivities, run.changes) };
+  }
+
+  const message = [...tailActivities].reverse().find((activity) => activity.kind === "message");
+  if (message) return { hiddenActivityIds, liveStep: { activity: message, mode: "message" } };
+
+  const thinking = [...tailActivities].reverse().find((activity) => activity.kind === "thinking" && activity.status === "running");
+  if (thinking) return { hiddenActivityIds, liveStep: { activity: thinking, mode: "thinking" } };
+
+  return undefined;
+}
+
 export function projectGroups(
-  run: Pick<Run, "runId" | "activities" | "changes">,
+  run: Pick<Run, "runId" | "activities" | "changes" | "status">,
   activities = run.activities
 ): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
+  const liveStep = projectLiveStep(run, activities);
   let activeGroup: MutableGroup | undefined;
 
   for (const activity of activities) {
+    if (liveStep?.hiddenActivityIds.has(activity.activityId)) continue;
     if (isHiddenActivity(activity)) continue;
     if (activity.kind === "thinking") {
       entries.push({ activity: activity, entryId: activity.activityId, type: "activity" });
@@ -221,6 +318,7 @@ export function projectGroups(
     activeGroup = undefined;
     entries.push({ activity: activity, entryId: activity.activityId, type: "activity" });
   }
+  if (liveStep) entries.push({ entryId: `live_step:${run.runId}`, liveStep: liveStep.liveStep, type: "live_step" });
 
   return entries.map((entry) => {
     if (entry.type !== "activity_group") return entry;

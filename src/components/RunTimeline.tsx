@@ -5,6 +5,7 @@ import { Run, Changes, Plan, isRunDone } from "../../shared/contracts/runtime";
 import { ActivityView } from "./ActivityView";
 import { ChangePanel } from "./ChangePanel";
 import { ActivityGroupRenderer } from "./ActivityGroupRenderer";
+import { LiveStepSlot } from "./LiveStepSlot";
 import { MarkdownContent } from "./MarkdownContent";
 
 function elapsed(run: Run): string {
@@ -49,15 +50,30 @@ export function RunTimeline({
       </button>
       {expanded && timelineEntries.length > 0 && (
         <section className="work-process" aria-label="工作过程">
-          {timelineEntries.map((entry) => entry.type === "activity_group"
-            ? <ActivityGroupRenderer
-                group={entry.group}
-                key={entry.entryId}
-                onOpenFile={onOpenFile}
-                activities={visibleUnits}
-                changes={run.changes}
-              />
-            : <ActivityView
+          {timelineEntries.map((entry) => {
+            if (entry.type === "activity_group") {
+              return (
+                <ActivityGroupRenderer
+                  group={entry.group}
+                  key={entry.entryId}
+                  onOpenFile={onOpenFile}
+                  activities={visibleUnits}
+                  changes={run.changes}
+                />
+              );
+            }
+            if (entry.type === "live_step") {
+              return (
+                <LiveStepSlot
+                  key={entry.entryId}
+                  liveStep={entry.liveStep}
+                  onTextFrame={onTextFrame}
+                  runActive={active}
+                />
+              );
+            }
+            return (
+              <ActivityView
                 runActive={active}
                 key={entry.entryId}
                 onOpenFile={onOpenFile}
@@ -65,7 +81,9 @@ export function RunTimeline({
                 onTextFrame={onTextFrame}
                 plan={plans.filter((plan) => plan.callId === entry.activity.tool?.callId).sort((left, right) => right.revision - left.revision)[0]}
                 activity={entry.activity}
-              />)}
+              />
+            );
+          })}
         </section>
       )}
       {!active && (

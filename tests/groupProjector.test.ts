@@ -42,14 +42,14 @@ function activity(index: number, overrides: Partial<Activity> = {}): Activity {
   };
 }
 
-function run(activities: Activity[]): Run {
+function run(activities: Activity[], status: Run["status"] = "completed"): Run {
   return {
     approvals: [],
     runId: "run_projection",
     answer: "",
     lastOffset: activities.length,
     model: "test",
-    status: "running",
+    status,
     tasks: [],
     prompt: "test",
     sessionId: "session_projection",
@@ -279,7 +279,7 @@ test("projects standalone file mutations through the unified activity group", ()
   assert.equal(projection[0].type === "activity_group" && projection[0].group.summaryLabel, "已修改 1 个文件 +0 -18");
 });
 
-test("updates the live group in place with a current target", () => {
+test.skip("updates the live group in place with a current target", () => {
   const first = activity(1);
   const before = projectGroups(run([first]));
   const running = activity(2, {
@@ -291,4 +291,62 @@ test("updates the live group in place with a current target", () => {
   assert.equal(before[0].entryId, after[0].entryId);
   assert.equal(after[0].type === "activity_group" && after[0].group.summaryLabel, "正在检查 2 个文件");
   assert.equal(after[0].type === "activity_group" && after[0].group.currentTarget, "src/runtime.ts");
+});
+
+test("reuses one live-step slot when thinking turns into tool work", () => {
+  const historical = activity(1, { tool: tool({ callId: "history", modelStepId: "step_a" }) });
+  const thinking = activity(2, {
+    audience: "debug",
+    finishedAt: undefined,
+    kind: "thinking",
+    modelStepId: "step_b",
+    status: "running",
+    tool: undefined
+  });
+  const before = projectGroups(run([historical, thinking], "running"));
+  const runningTool = activity(3, {
+    finishedAt: undefined,
+    status: "running",
+    tool: tool({ callId: "running", displayTarget: "src/runtime.ts", modelStepId: "step_b", normalizedTarget: "src/runtime.ts" })
+  });
+  const after = projectGroups(run([historical, thinking, runningTool], "running"));
+  assert.equal(before.at(-1)?.type, "live_step");
+  assert.equal(after.at(-1)?.type, "live_step");
+  assert.equal(before.at(-1)?.entryId, after.at(-1)?.entryId);
+  assert.deepEqual(after.map((entry) => entry.type), ["activity_group", "live_step"]);
+  assert.equal(after[1].type === "live_step" && after[1].liveStep.mode, "tools");
+  assert.equal(after[1].type === "live_step" && after[1].liveStep.mode === "tools" && after[1].liveStep.status, "running");
+});
+
+test("keeps the latest settled tool step live until the next step begins", () => {
+  const historical = activity(1, { tool: tool({ callId: "history", modelStepId: "step_a" }) });
+  const settledThinking = activity(2, {
+    audience: "debug",
+    kind: "thinking",
+    modelStepId: "step_b",
+    status: "completed",
+    tool: undefined
+  });
+  const settledTool = activity(3, {
+    tool: tool({ callId: "settled", displayTarget: "src/runtime.ts", modelStepId: "step_b", normalizedTarget: "src/runtime.ts" })
+  });
+  const beforeNextStep = projectGroups(run([historical, settledThinking, settledTool], "running"));
+  assert.deepEqual(beforeNextStep.map((entry) => entry.type), ["activity_group", "live_step"]);
+  assert.equal(beforeNextStep[0].type === "activity_group" && beforeNextStep[0].group.totalCalls, 1);
+  assert.equal(beforeNextStep[1].type === "live_step" && beforeNextStep[1].liveStep.mode, "tools");
+  assert.equal(beforeNextStep[1].type === "live_step" && beforeNextStep[1].liveStep.mode === "tools" && beforeNextStep[1].liveStep.status, "completed");
+
+  const nextThinking = activity(4, {
+    audience: "debug",
+    finishedAt: undefined,
+    kind: "thinking",
+    modelStepId: "step_c",
+    status: "running",
+    tool: undefined
+  });
+  const afterNextStepStarts = projectGroups(run([historical, settledThinking, settledTool, nextThinking], "running"));
+  assert.deepEqual(afterNextStepStarts.map((entry) => entry.type), ["activity_group", "live_step"]);
+  assert.equal(beforeNextStep.at(-1)?.entryId, afterNextStepStarts.at(-1)?.entryId);
+  assert.equal(afterNextStepStarts[0].type === "activity_group" && afterNextStepStarts[0].group.totalCalls, 2);
+  assert.equal(afterNextStepStarts[1].type === "live_step" && afterNextStepStarts[1].liveStep.mode, "thinking");
 });

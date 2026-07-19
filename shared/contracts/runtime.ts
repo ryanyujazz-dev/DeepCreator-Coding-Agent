@@ -207,6 +207,7 @@ export type ResumeState = {
 export type Activity = {
   activityId: string;
   runId: string;
+  modelStepId?: string;
   kind: ActivityKind;
   status: ActivityStatus;
   audience: Audience;
@@ -254,9 +255,22 @@ export type ActivityGroup = {
   changes?: Pick<Changes, "additions" | "deletions" | "fileCount">;
 };
 
+export type LiveStep =
+  | { mode: "thinking"; activity: Activity }
+  | { mode: "message"; activity: Activity }
+  | {
+      mode: "tools";
+      category: ActionKind | "mixed";
+      currentTarget?: string;
+      status: ActivityStatus;
+      summaryLabel: string;
+      totalCalls: number;
+    };
+
 export type TimelineEntry =
   | { entryId: string; type: "activity_group"; group: ActivityGroup }
-  | { entryId: string; type: "activity"; activity: Activity };
+  | { entryId: string; type: "activity"; activity: Activity }
+  | { entryId: string; type: "live_step"; liveStep: LiveStep };
 
 export type Run = {
   runId: string;

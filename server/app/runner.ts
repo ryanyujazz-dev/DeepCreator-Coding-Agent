@@ -279,7 +279,13 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     };
     const onFragment = (fragment: ModelDelta) => {
       if (fragment.kind === "thinking") {
-        thinkingActivity ??= openActivity(input, { audience: "debug", kind: "thinking", startedAt: new Date().toISOString(), title: "" });
+        thinkingActivity ??= openActivity(input, {
+          audience: "debug",
+          kind: "thinking",
+          modelStepId,
+          startedAt: new Date().toISOString(),
+          title: ""
+        });
       } else if (fragment.kind === "answer") {
         answerActivity ??= openActivity(input, { audience: "user", kind: "message", startedAt: new Date().toISOString(), title: "Agent 回复" });
         appendBuffered(answerActivity, fragment.text);
@@ -298,12 +304,14 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         const activityId = toolActivities.get(fragment.callId) ?? openActivity(input, streamedTool ? {
           audience: "user",
           kind: input.tools.kind(streamedTool),
+          modelStepId,
           startedAt: new Date().toISOString(),
           title: fragment.name === "submit_plan" ? "正在编写计划" : input.tools.title(fragment.name),
           tool: streamedTool
         } : {
           audience: "user",
           kind: "tool",
+          modelStepId,
           startedAt: new Date().toISOString(),
           title: `未知工具：${fragment.name}`
         });
