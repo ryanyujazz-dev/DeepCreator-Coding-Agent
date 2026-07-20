@@ -18,7 +18,7 @@ function redact(text: string, sensitiveValues: string[]): string {
 
 function limitFor(toolName: string): number {
   if (toolName === "read_file") return 18_000;
-  if (toolName === "run_command") return 14_000;
+  if (toolName === "run_command" || toolName === "wait_command" || toolName === "stop_command") return 14_000;
   if (toolName === "list_files" || toolName === "search_files") return 12_000;
   return 8_000;
 }

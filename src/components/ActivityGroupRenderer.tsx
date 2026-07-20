@@ -15,7 +15,8 @@ import {
   Activity,
   FileChange,
   ActivityGroup,
-  Changes
+  Changes,
+  ToolAggregate
 } from "../../shared/contracts/runtime";
 import { CodeDiffViewer } from "./CodeEditorSurface";
 import { DetailPanel } from "./DetailPanel";
@@ -180,17 +181,21 @@ function OperationMemberRow({
   );
 }
 
-function ModificationFileRow({
+export function ModificationFileRow({
   file,
-  onOpenFile
+  onOpenFile,
+  active = false,
+  showIcon = true
 }: {
   file: FileChange;
   onOpenFile: (path: string) => void;
+  active?: boolean;
+  showIcon?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasPatch = Boolean(file.patch?.trim());
   return (
-    <div className={`operation-modification-file ${expanded ? "is-expanded" : ""}`}>
+    <div className={`operation-modification-file ${active ? "is-running" : ""} ${expanded ? "is-expanded" : ""}`}>
       <div
         aria-expanded={expanded}
         className="operation-file-summary"
@@ -206,8 +211,8 @@ function ModificationFileRow({
         role="button"
         tabIndex={0}
       >
-        <span className="operation-file-summary-icon"><PencilLine size={13} /></span>
-        <span className="operation-file-summary-action">{modificationAction(file.operation)}</span>
+        {showIcon && <span className="operation-file-summary-icon"><PencilLine size={13} /></span>}
+        <span className={`operation-file-summary-action ${active ? "working-glow" : ""}`}>{modificationAction(file.operation, active)}</span>
         <button
           className="operation-file-summary-name"
           onClick={(event) => {
@@ -219,7 +224,7 @@ function ModificationFileRow({
         >
           {file.path}
         </button>
-        <span className="operation-diff-metrics"><b>+{file.additions}</b> <i>-{file.deletions}</i></span>
+        <span className={`operation-diff-metrics ${active ? "is-live" : ""}`}><b>+{file.additions}</b> <i>-{file.deletions}</i></span>
         <ChevronRight className="operation-file-summary-chevron" size={13} />
       </div>
       <div className={`operation-file-detail-expander ${expanded ? "is-expanded" : ""}`}>
@@ -266,7 +271,7 @@ export function ActivityGroupRenderer({
     ? fileTargets[0]
     : undefined;
   const directMember = directFile ? members[0] : undefined;
-  const metrics = group.category === "modify" && group.changes && group.status !== "running"
+  const metrics = group.category === "modify" && group.changes
     ? group.changes
     : undefined;
   const toggleExpanded = () => {
@@ -333,6 +338,76 @@ export function ActivityGroupRenderer({
                 : members.map((activity) => (
                     <OperationMemberRow key={activity.activityId} onOpenFile={onOpenFile} activity={activity} />
                   ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function aggregateIcon(aggregate: ToolAggregate) {
+  return aggregate.status === "failed" ? <CircleAlert size={13} /> : <CheckCircle2 size={13} />;
+}
+
+export function ActivityAggregateRenderer({
+  aggregate,
+  onOpenFile,
+  activities,
+  changes
+}: {
+  aggregate: ToolAggregate;
+  onOpenFile: (path: string) => void;
+  activities: Activity[];
+  changes: Changes;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [hasOpened, setHasOpened] = useState(false);
+  const members = useMemo(() => {
+    const keys = new Set(aggregate.memberActivityIds);
+    return activities.filter((activity) => keys.has(activity.activityId));
+  }, [aggregate.memberActivityIds, activities]);
+  const changedFiles = useMemo(() => {
+    if (changes.comparisonBase !== "run_start") return new Map<string, FileChange>();
+    return new Map(changes.files.map((file) => [file.path.replaceAll("\\", "/"), file]));
+  }, [changes]);
+  const toggleExpanded = () => {
+    setHasOpened(true);
+    setExpanded((value) => !value);
+  };
+  const handleSummaryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    toggleExpanded();
+  };
+
+  return (
+    <article className={`operation-group activity-aggregate is-${aggregate.status} ${expanded ? "is-expanded" : ""}`}>
+      <div
+        aria-expanded={expanded}
+        className="operation-group-summary"
+        onClick={toggleExpanded}
+        onKeyDown={handleSummaryKeyDown}
+        role="button"
+        tabIndex={0}
+      >
+        <span className="operation-group-icon">{aggregateIcon(aggregate)}</span>
+        <span className="operation-group-action">{aggregate.summaryLabel}</span>
+        <ChevronRight className="operation-summary-chevron" size={13} />
+      </div>
+      <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>
+        <div>
+          {hasOpened && (
+            <div className="operation-group-details" aria-label="已完成的工具调用">
+              {members.map((activity) => {
+                const changedFile = activity.tool?.action === "modify"
+                  ? (activity.files?.find((file) => file.path.replaceAll("\\", "/") === activity.tool?.normalizedTarget)
+                    ?? changedFiles.get(activity.tool.normalizedTarget))
+                  : undefined;
+                return changedFile
+                  ? <ModificationFileRow file={changedFile} key={activity.activityId} onOpenFile={onOpenFile} />
+                  : <OperationMemberRow activity={activity} key={activity.activityId} onOpenFile={onOpenFile} />;
+              })}
             </div>
           )}
         </div>

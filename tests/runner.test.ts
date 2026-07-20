@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -45,6 +45,10 @@ test("recovers a transient provider failure before any stream fragment", async (
     assert.equal(run.status, "completed");
     assert.equal(run.answer, "恢复成功");
     assert.ok(run.activities.some((activity) => activity.title === "正在恢复模型连接"));
+    const answerStart = store.readEvents("session_retry").find((event) =>
+      event.type === "activity.started" && (event.data as { kind?: string }).kind === "message"
+    );
+    assert.equal((answerStart?.data as { body?: string }).body, "恢复成功");
     store.close();
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -114,5 +118,417 @@ test("persists semantic tool facts while provider schemas stay presentation-free
     store.close();
   } finally {
     rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("publishes streamed and authoritative file diffs before mutation settlement", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-mutation-"));
+  try {
+    const eventToolHost = {
+      ...toolHost,
+      capture: async () => ({ available: true, files: new Map(), snapshotDirectory: path.join(directory, "unused-baseline") }),
+      changes: async () => existsSync(path.join(directory, "created.ts")) ? {
+        additions: 2,
+        comparisonBase: "run_start" as const,
+        deletions: 0,
+        fileCount: 1,
+        files: [{
+          additions: 2,
+          deletions: 0,
+          operation: "created" as const,
+          patch: "diff --git a/created.ts b/created.ts\n--- /dev/null\n+++ b/created.ts\n@@ -0,0 +1,2 @@\n+export const one = 1;\n+export const two = 2;",
+          path: "created.ts"
+        }]
+      } : { additions: 0, comparisonBase: "run_start" as const, deletions: 0, fileCount: 0, files: [] },
+      checkpoint: async () => undefined,
+      close: async () => undefined
+    };
+    let turn = 0;
+    const argumentsText = JSON.stringify({ path: "created.ts", content: "export const one = 1;\nexport const two = 2;\n" });
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          for (let index = 0; index < argumentsText.length; index += 11) {
+            request.onFragment?.({
+              argumentsText: argumentsText.slice(index, index + 11),
+              callId: "call_write",
+              index: 0,
+              kind: "tool_call",
+              name: "write_file"
+            });
+          }
+          return {
+            answer: "",
+            continuationMessage: {
+              role: "assistant",
+              text: null,
+              toolCalls: [{ argumentsText, callId: "call_write", index: 0, name: "write_file" }]
+            },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [{ argumentsText, callId: "call_write", index: 0, name: "write_file" }]
+          };
+        }
+        request.onFragment?.({ kind: "answer", text: "创建完成" });
+        return {
+          answer: "创建完成",
+          continuationMessage: { role: "assistant", text: "创建完成" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({ accessMode: "full_access", compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_mutation", title: "实时 diff" });
+    store.append({ runId: "run_mutation", data: { model: "test", prompt: "创建 created.ts", startedAt: new Date().toISOString() }, sessionId: "session_mutation", type: "run.started" });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_mutation");
+    await runAgent({ tools: eventToolHost, runId: "run_mutation", model: "test", projectRoot: directory, prompt: "创建 created.ts", provider, registry, sessionId: "session_mutation", signal: controller.signal, store });
+
+    const events = store.readEvents("session_mutation");
+    const mutationActivityId = events.find((event) => event.type === "activity.started" && (event.data as { tool?: { callId?: string } }).tool?.callId === "call_write")?.scope.activityId;
+    const liveOffset = events.find((event) => event.scope.activityId === mutationActivityId && event.type === "activity.updated" && ((event.data as { liveFiles?: Array<{ additions: number }> }).liveFiles?.[0]?.additions ?? 0) > 0)?.offset ?? 0;
+    const changesOffset = events.find((event) => event.type === "changes.changed" && ((event.data as { additions?: number }).additions ?? 0) > 0)?.offset ?? 0;
+    const finishedOffset = events.find((event) => event.scope.activityId === mutationActivityId && event.type === "activity.finished")?.offset ?? 0;
+    assert.ok(liveOffset > 0 && liveOffset < changesOffset, "streamed diff is visible before the filesystem result");
+    assert.ok(changesOffset < finishedOffset, "authoritative diff is published while the activity is still running");
+
+    const run = store.getRun("run_mutation")!;
+    const mutation = run.activities.find((activity) => activity.activityId === mutationActivityId);
+    assert.deepEqual(mutation?.liveFiles, []);
+    assert.equal(mutation?.files?.[0]?.additions, 2);
+    assert.equal(run.changes.additions, 2);
+    assert.match(run.changes.files[0]?.patch ?? "", /\+export const two = 2/);
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("does not accept final content while a managed command is running", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-gate-"));
+  const store = new RuntimeStore(directory);
+  let commandChecks = 0;
+  let correctionSeen = false;
+  let stopCalls = 0;
+  let turns = 0;
+  const guardedToolHost = {
+    ...toolHost,
+    runningCommands: () => commandChecks++ === 0
+      ? [{ commandId: "command_live", elapsedMs: 60_000 }]
+      : [],
+    stopCommands: async () => { stopCalls += 1; }
+  };
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      turns += 1;
+      correctionSeen ||= request.messages.some((message) =>
+        message.role === "user" && message.text?.includes("当前文本不能作为最终回答")
+      );
+      const answer = turns === 1 ? "命令已经可以了。" : "命令结束，检查完成。";
+      request.onFragment?.({ kind: "answer", text: answer });
+      return {
+        answer,
+        continuationMessage: { role: "assistant", text: answer },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+
+  try {
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_command_gate",
+      title: "命令门禁"
+    });
+    store.append({
+      data: { model: "test", prompt: "检查状态", startedAt: new Date().toISOString() },
+      runId: "run_command_gate",
+      sessionId: "session_command_gate",
+      type: "run.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_command_gate");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "检查状态",
+      provider,
+      registry,
+      runId: "run_command_gate",
+      sessionId: "session_command_gate",
+      signal: controller.signal,
+      store,
+      tools: guardedToolHost
+    });
+
+    assert.equal(turns, 2);
+    assert.equal(correctionSeen, true);
+    assert.equal(stopCalls, 1);
+    assert.equal(store.getRun("run_command_gate")?.answer, "命令结束，检查完成。");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("command control calls update the original activity without creating a slot", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-control-"));
+  const store = new RuntimeStore(directory);
+  let turns = 0;
+  const controlToolHost = {
+    ...toolHost,
+    execute: async (input: Parameters<typeof toolHost.execute>[0]) => input.name === "wait_command"
+      ? {
+          command: "node long.cjs",
+          commandActivityId: "activity_original_command",
+          commandId: "command_original",
+          commandRunId: "run_command_control",
+          commandSessionId: "session_command_control",
+          commandState: "completed" as const,
+          elapsedMs: 61_000,
+          exitCode: 0,
+          mutatedWorkspace: false,
+          output: "finished",
+          outputTruncated: false
+        }
+      : toolHost.execute(input),
+    runningCommands: () => [],
+    stopCommands: async () => undefined
+  };
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      turns += 1;
+      if (turns === 1) {
+        const argumentsText = JSON.stringify({ commandId: "command_original" });
+        request.onFragment?.({
+          argumentsText,
+          callId: "call_wait",
+          index: 0,
+          kind: "tool_call",
+          name: "wait_command"
+        });
+        return {
+          answer: "",
+          continuationMessage: {
+            role: "assistant",
+            text: null,
+            toolCalls: [{ argumentsText, callId: "call_wait", index: 0, name: "wait_command" }]
+          },
+          finishCause: "tool_calls",
+          thinking: "",
+          toolCalls: [{ argumentsText, callId: "call_wait", index: 0, name: "wait_command" }]
+        };
+      }
+      request.onFragment?.({ kind: "answer", text: "命令已完成。" });
+      return {
+        answer: "命令已完成。",
+        continuationMessage: { role: "assistant", text: "命令已完成。" },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+
+  try {
+    store.createSession({
+      accessMode: "full_access",
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_command_control",
+      title: "命令控制"
+    });
+    store.append({
+      data: { model: "test", prompt: "等待命令完成", startedAt: new Date().toISOString() },
+      runId: "run_command_control",
+      sessionId: "session_command_control",
+      type: "run.started"
+    });
+    store.append({
+      activityId: "activity_original_command",
+      data: {
+        audience: "user",
+        command: { command: "node long.cjs", commandId: "command_original", state: "running" },
+        kind: "command",
+        startedAt: new Date().toISOString(),
+        title: "运行命令"
+      },
+      runId: "run_command_control",
+      sessionId: "session_command_control",
+      type: "activity.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_command_control");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "等待命令完成",
+      provider,
+      registry,
+      runId: "run_command_control",
+      sessionId: "session_command_control",
+      signal: controller.signal,
+      store,
+      tools: controlToolHost
+    });
+
+    const run = store.getRun("run_command_control")!;
+    assert.equal(run.activities.find((activity) => activity.activityId === "activity_original_command")?.status, "completed");
+    assert.equal(run.activities.some((activity) => activity.tool?.callId === "call_wait"), false);
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("an interrupted tool-call step is closed before the next conversation", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-interrupted-step-"));
+  const store = new RuntimeStore(directory);
+  const calls = [
+    { argumentsText: "{}", callId: "call_interrupted_a", index: 0, name: "list_files" },
+    { argumentsText: "{}", callId: "call_interrupted_b", index: 1, name: "git_status" }
+  ];
+  try {
+    store.createSession({
+      accessMode: "full_access",
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_interrupted_step",
+      title: "中断工具步骤"
+    });
+    store.append({
+      data: { model: "test", prompt: "检查项目", startedAt: new Date().toISOString() },
+      runId: "run_interrupted_step",
+      sessionId: "session_interrupted_step",
+      type: "run.started"
+    });
+    const firstRegistry = new RunRegistry();
+    const firstController = firstRegistry.startRun("run_interrupted_step");
+    const interruptedTools = {
+      ...toolHost,
+      parallel: () => {
+        firstController.abort();
+        throw new Error("scheduler interrupted");
+      }
+    };
+    const firstProvider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream() {
+        return {
+          answer: "",
+          continuationMessage: { role: "assistant", text: null, toolCalls: calls },
+          finishCause: "tool_calls",
+          thinking: "",
+          toolCalls: calls
+        };
+      }
+    };
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "检查项目",
+      provider: firstProvider,
+      registry: firstRegistry,
+      runId: "run_interrupted_step",
+      sessionId: "session_interrupted_step",
+      signal: firstController.signal,
+      store,
+      tools: interruptedTools
+    });
+
+    assert.equal(store.getRun("run_interrupted_step")?.status, "cancelled");
+    assert.deepEqual(store.readContextEntries("session_interrupted_step")
+      .filter((entry) => entry.kind === "tool_result")
+      .map((entry) => entry.toolCallKey), ["call_interrupted_a", "call_interrupted_b"]);
+
+    store.append({
+      data: { model: "test", prompt: "继续", startedAt: new Date().toISOString() },
+      runId: "run_after_interruption",
+      sessionId: "session_interrupted_step",
+      type: "run.started"
+    });
+    let sawClosedProtocol = false;
+    const secondProvider: Provider = {
+      capabilities: firstProvider.capabilities,
+      async stream(request) {
+        const assistantIndex = request.messages.findIndex((message) =>
+          message.role === "assistant" && message.toolCalls?.[0]?.callId === "call_interrupted_a"
+        );
+        assert.ok(assistantIndex >= 0);
+        assert.deepEqual(request.messages.slice(assistantIndex + 1, assistantIndex + 3).map((message) => ({
+          role: message.role,
+          toolCallKey: message.toolCallKey
+        })), [
+          { role: "tool", toolCallKey: "call_interrupted_a" },
+          { role: "tool", toolCallKey: "call_interrupted_b" }
+        ]);
+        sawClosedProtocol = true;
+        return {
+          answer: "已安全继续。",
+          continuationMessage: { role: "assistant", text: "已安全继续。" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const secondRegistry = new RunRegistry();
+    const secondController = secondRegistry.startRun("run_after_interruption");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "继续",
+      provider: secondProvider,
+      registry: secondRegistry,
+      runId: "run_after_interruption",
+      sessionId: "session_interrupted_step",
+      signal: secondController.signal,
+      store,
+      tools: toolHost
+    });
+    assert.equal(sawClosedProtocol, true);
+    assert.equal(store.getRun("run_after_interruption")?.status, "completed");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
   }
 });

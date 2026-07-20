@@ -167,13 +167,19 @@ export function reduceEvent(current: Session, event: Event): Session {
       if (!activity) break;
       const data = event.data as {
         argumentsDelta?: string;
-        bodyDelta?: string;
+          bodyDelta?: string;
+          command?: Partial<NonNullable<Activity["command"]>>;
+        files?: Activity["files"];
         kind?: Activity["kind"];
+        liveFiles?: Activity["liveFiles"];
         title?: string;
         tool?: Partial<ToolState>;
       };
-      if (data.bodyDelta) activity.body += data.bodyDelta;
+        if (data.bodyDelta) activity.body += data.bodyDelta;
+        if (data.command) activity.command = { ...(activity.command ?? { command: data.command.command ?? "" }), ...clone(data.command) };
       if (data.argumentsDelta && activity.tool) activity.tool.argumentsPreview += data.argumentsDelta;
+      if (data.files) activity.files = clone(data.files);
+      if (data.liveFiles) activity.liveFiles = clone(data.liveFiles);
       if (data.tool && activity.tool) Object.assign(activity.tool, clone(data.tool));
       if (data.kind) activity.kind = data.kind;
       if (data.title) activity.title = data.title;

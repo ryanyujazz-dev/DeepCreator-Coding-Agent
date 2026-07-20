@@ -35,14 +35,18 @@ export class RunRegistry {
     listeners?.forEach((listener) => listener());
   }
 
-  afterRun(runId: string, listener: () => void): void {
+  afterRun(runId: string, listener: () => void): () => void {
     if (!this.runs.has(runId)) {
       listener();
-      return;
+      return () => undefined;
     }
     const listeners = this.finishListeners.get(runId) ?? new Set<() => void>();
     listeners.add(listener);
     this.finishListeners.set(runId, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.finishListeners.delete(runId);
+    };
   }
 
   cancelRun(runId: string): boolean {
@@ -50,6 +54,24 @@ export class RunRegistry {
     if (!controller) return false;
     controller.abort();
     return true;
+  }
+
+  waitForRun(runId: string, timeoutMs = 15_000): Promise<boolean> {
+    if (!this.runs.has(runId)) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let unsubscribe: () => void = () => undefined;
+      const finish = (completed: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        unsubscribe();
+        resolve(completed);
+      };
+      unsubscribe = this.afterRun(runId, () => finish(true));
+      timer = setTimeout(() => finish(false), Math.max(1, timeoutMs));
+    });
   }
 
   async cancelAllAndWait(timeoutMs = 1_500): Promise<void> {

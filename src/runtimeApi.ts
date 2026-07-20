@@ -138,6 +138,7 @@ export class RuntimeClient {
     return this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { body: JSON.stringify(input), method: "POST" });
   };
   cancelRun = (runId: string) => this.request<{ ok: boolean }>(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+  stopCommand = (commandId: string) => this.request<{ ok: boolean }>(`/api/commands/${encodeURIComponent(commandId)}/stop`, { method: "POST" });
   setAccessMode = (sessionId: string, accessMode: AccessMode) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/access-mode`, {
     body: JSON.stringify({ accessMode }), method: "PUT"
   });
@@ -206,15 +207,16 @@ export class RuntimeClient {
     return () => controller.abort();
   }
 
-  private headers(init?: HeadersInit): Headers {
+  private headers(init?: HeadersInit, hasBody = false): Headers {
     const headers = new Headers(init);
-    headers.set("Content-Type", "application/json");
+    if (hasBody) headers.set("Content-Type", "application/json");
     if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
     return headers;
   }
 
   private request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    return fetch(this.url(path), { ...init, headers: this.headers(init.headers) }).then((response) => json<T>(response));
+    const hasBody = init.body !== undefined && init.body !== null;
+    return fetch(this.url(path), { ...init, headers: this.headers(init.headers, hasBody) }).then((response) => json<T>(response));
   }
 
   private url(path: string): string {

@@ -134,6 +134,19 @@ test("RunRegistry aborts and drains active runs during Runtime shutdown", async 
   assert.equal(registry.hasRun("run_shutdown"), false);
 });
 
+test("RunRegistry waits for one cancelled run to finish unwinding", async () => {
+  const registry = new RunRegistry();
+  const controller = registry.startRun("run_cancel_drain");
+  controller.signal.addEventListener("abort", () => {
+    setTimeout(() => registry.finishRun("run_cancel_drain"), 20);
+  }, { once: true });
+
+  const drained = registry.waitForRun("run_cancel_drain", 1_000);
+  assert.equal(registry.cancelRun("run_cancel_drain"), true);
+  assert.equal(await drained, true);
+  assert.equal(registry.hasRun("run_cancel_drain"), false);
+});
+
 test("submit_plan suspends durably and approval resumes the same Run with a paired tool result", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-plan-"));
   try {

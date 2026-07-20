@@ -72,6 +72,7 @@ export function App() {
     session,
     sessions,
     startRun,
+    stopCommand,
     retryRuntime,
     workspace,
     projectRoot
@@ -251,7 +252,7 @@ export function App() {
             </header>
             <div className="window-actions"><button className="icon-button" aria-label="视图设置"><SlidersHorizontal size={14} /></button><button className="icon-button" aria-label="工作区面板"><PanelRight size={14} /></button></div>
             <Inspector onOpenReview={openReviewSurface} session={session} workspace={workspace} />
-            <Conversation onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} session={session} />
+            <Conversation onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
             <div className="composer-dock">
               {currentRun && (
                 <div

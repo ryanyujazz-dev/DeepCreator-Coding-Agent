@@ -1,11 +1,10 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
-import { projectGroups } from "../../shared/projections/groups";
+import { projectDisplayTimeline } from "../../shared/projections/displaySegments";
 import { Run, Changes, Plan, isRunDone } from "../../shared/contracts/runtime";
 import { ActivityView } from "./ActivityView";
 import { ChangePanel } from "./ChangePanel";
-import { ActivityGroupRenderer } from "./ActivityGroupRenderer";
-import { LiveStepSlot } from "./LiveStepSlot";
+import { DisplaySegmentRenderer } from "./DisplaySegmentRenderer";
 import { MarkdownContent } from "./MarkdownContent";
 
 function elapsed(run: Run): string {
@@ -17,6 +16,7 @@ export function RunTimeline({
   run,
   onOpenFile,
   onOpenReview,
+  onStopCommand,
   onOpenPlan,
   plans,
   onTextFrame
@@ -24,17 +24,18 @@ export function RunTimeline({
   run: Run;
   onOpenFile: (path: string) => void;
   onOpenReview: (delta: Changes) => void;
+  onStopCommand: (commandId: string) => void;
   onOpenPlan: (runId: string, callId: string) => void;
   plans: Plan[];
   onTextFrame?: () => void;
 }) {
   const active = !isRunDone(run.status);
-  const visibleUnits = active
-    ? run.activities
-    : run.activities.filter(
-        (activity) => !(activity.kind === "message" && activity.body.trim() === run.answer.trim())
-      );
-  const timelineEntries = projectGroups(run, visibleUnits);
+  const suppressedContentActivityIds = new Set(active
+    ? []
+    : run.activities
+        .filter((activity) => activity.kind === "message" && activity.body.trim() === run.answer.trim())
+        .map((activity) => activity.activityId));
+  const timelineEntries = projectDisplayTimeline(run, run.activities, { suppressedContentActivityIds });
   const [expanded, setExpanded] = useState(active);
   useEffect(() => setExpanded(active), [active]);
   return (
@@ -45,30 +46,25 @@ export function RunTimeline({
         onClick={() => setExpanded((value) => !value)}
         type="button"
       >
-        <span>{active ? (run.status === "waiting" ? "等待批准" : "正在工作") : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
+        <span>{active
+          ? (run.status === "waiting" ? "等待批准" : "正在工作")
+          : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
         <span>{elapsed(run)}</span><ChevronDown size={13} />
       </button>
       {expanded && timelineEntries.length > 0 && (
         <section className="work-process" aria-label="工作过程">
           {timelineEntries.map((entry) => {
-            if (entry.type === "activity_group") {
+            if (entry.type === "display_segment") {
               return (
-                <ActivityGroupRenderer
-                  group={entry.group}
+                <DisplaySegmentRenderer
+                  activities={run.activities}
+                  changes={run.changes}
                   key={entry.entryId}
                   onOpenFile={onOpenFile}
-                  activities={visibleUnits}
-                  changes={run.changes}
-                />
-              );
-            }
-            if (entry.type === "live_step") {
-              return (
-                <LiveStepSlot
-                  key={entry.entryId}
-                  liveStep={entry.liveStep}
+                  onStopCommand={onStopCommand}
                   onTextFrame={onTextFrame}
                   runActive={active}
+                  segment={entry.segment}
                 />
               );
             }
@@ -88,7 +84,7 @@ export function RunTimeline({
       )}
       {!active && (
         <section className="final-answer">
-          <MarkdownContent text={run.answer || run.error || "本次工作未产生回答。"} />
+          <MarkdownContent text={(run.status === "failed" ? run.error : undefined) || run.answer || run.error || "本次工作未产生回答。"} />
         </section>
       )}
       {!active && <ChangePanel delta={run.changes} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />}

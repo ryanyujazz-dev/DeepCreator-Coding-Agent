@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { RunRegistry } from "../server/app/runRegistry";
 import { runAgent } from "../server/app/runner";
+import { finishRun } from "../server/app/runLifecycle";
 import { defaultContextConfig } from "../server/app/contextBuilder";
 import { Database } from "../server/infra/database";
 import { ContextStore } from "../server/infra/contextStore";
@@ -12,6 +13,7 @@ import { EventStore } from "../server/infra/eventStore";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 import { SessionStore } from "../server/infra/sessionStore";
 import { toolHost } from "../server/infra/tools";
+import { commandManager } from "../server/infra/commandManager";
 import { createHttp } from "../server/transport/http";
 import { emptyCapabilitySource } from "../shared/contracts/capability";
 import { emptyRuleSource } from "../shared/contracts/rules";
@@ -222,6 +224,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
   };
   const app = createHttp({
     capabilities: emptyCapabilitySource,
+    commands: commandManager,
     config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
     providerFor: () => ({ model: "mock-agent", provider }),
     registry,
@@ -266,6 +269,14 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     assert.equal(app.hasRoute({ method: "PUT", url: "/api/sessions/:sessionId/plans/:planId/revisions/:revision" }), true);
     assert.equal(app.hasRoute({ method: "POST", url: "/api/sessions/:sessionId/plans/:planId/revisions/:revision/resolve" }), true);
     assert.equal(app.hasRoute({ method: "POST", url: "/api/sessions/:sessionId/questions/:interactionId/answer" }), true);
+    assert.equal(app.hasRoute({ method: "POST", url: "/api/commands/:commandId/stop" }), true);
+    const missingCommand = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      url: "/api/commands/command_missing/stop"
+    });
+    assert.equal(missingCommand.statusCode, 404);
+    assert.deepEqual(missingCommand.json(), { ok: false });
     const workspace = await app.inject({ headers: { authorization: "Bearer runtime-test-token" }, method: "GET", url: "/api/sessions/session_http/workspace" });
     assert.equal(workspace.statusCode, 200);
     assert.equal(workspace.json().workspace.exists, true);
@@ -273,5 +284,72 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     await app.close();
     store.close();
     rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("cancel endpoint waits until the interrupted run has closed its context", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-cancel-drain-"));
+  const store = new RuntimeStore(directory);
+  const registry = new RunRegistry();
+  let cleanupFinished = false;
+  const provider: Provider = {
+    capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: true, supportsThinking: true, supportsTools: true },
+    async stream() {
+      return { answer: "", continuationMessage: { role: "assistant", text: "" }, finishCause: "complete", thinking: "", toolCalls: [] };
+    }
+  };
+  const app = createHttp({
+    capabilities: emptyCapabilitySource,
+    commands: commandManager,
+    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
+    providerFor: () => ({ model: "mock-agent", provider }),
+    registry,
+    resolveProjectRoot: async () => directory,
+    rules: emptyRuleSource,
+    run: async (input) => new Promise<void>((resolve) => {
+      input.signal?.addEventListener("abort", () => {
+        setTimeout(() => {
+          finishRun({
+            answer: "运行已取消。",
+            error: "用户取消了运行。",
+            failureType: "cancelled",
+            projectRoot: input.projectRoot,
+            runId: input.runId,
+            sessionId: input.sessionId,
+            status: "cancelled",
+            store
+          });
+          cleanupFinished = true;
+          resolve();
+        }, 25);
+      }, { once: true });
+    }),
+    store,
+    tools: toolHost.specs,
+    workspaceInfo: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot })
+  });
+
+  try {
+    const created = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      payload: { accessMode: "full_access", model: "mock-agent", prompt: "执行任务" },
+      url: "/api/sessions/session_cancel_drain/runs"
+    });
+    const runId = (created.json() as { run: { runId: string } }).run.runId;
+    const cancelled = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      url: `/api/runs/${runId}/cancel`
+    });
+
+    assert.equal(cancelled.statusCode, 200);
+    assert.deepEqual(cancelled.json(), { ok: true, settled: true });
+    assert.equal(cleanupFinished, true);
+    assert.equal(store.getRun(runId)?.status, "cancelled");
+  } finally {
+    await app.close();
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
   }
 });

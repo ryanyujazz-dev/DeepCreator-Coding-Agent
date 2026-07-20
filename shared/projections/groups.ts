@@ -97,7 +97,7 @@ function summarize(group: MutableGroup, changes: Changes): string {
     group.changes = delta;
     const count = delta.fileCount || group.uniqueTargets.length || group.totalCalls;
     const prefix = active ? "正在修改" : "已修改";
-    const diff = active || (delta.additions === 0 && delta.deletions === 0)
+    const diff = delta.additions === 0 && delta.deletions === 0
       ? ""
       : ` +${delta.additions} -${delta.deletions}`;
     if (!active && group.totalCalls === 1 && group.failureCount === 1) return "文件修改失败";

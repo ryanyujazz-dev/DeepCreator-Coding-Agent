@@ -10,6 +10,7 @@ import { RuleSource } from "../../shared/contracts/rules";
 import {
   accessInputSchema,
   approvalInputSchema,
+  commandParamsSchema,
   eventQuerySchema,
   modeInputSchema,
   runInputSchema,
@@ -23,6 +24,7 @@ import { RunRegistry } from "../app/runRegistry";
 import { answerQuestion, resolvePlan, ResumeRun, revisePlan } from "../app/planReview";
 import { RuntimeStore } from "../infra/runtimeStore";
 import { WorkspaceInfo } from "../infra/workspace";
+import { CommandManager } from "../infra/commandManager";
 
 export type HttpConfig = {
   authToken?: string;
@@ -36,6 +38,7 @@ export type HttpConfig = {
 
 export type HttpDeps = {
   capabilities: CapabilitySource;
+  commands: CommandManager;
   config: HttpConfig;
   providerFor: (model: string) => { model: string; provider: Provider };
   registry: RunRegistry;
@@ -48,7 +51,7 @@ export type HttpDeps = {
 };
 
 export function createHttp(deps: HttpDeps): FastifyInstance {
-  const { capabilities, config, providerFor, registry, resolveProjectRoot, rules, run, store, tools, workspaceInfo } = deps;
+  const { capabilities, commands, config, providerFor, registry, resolveProjectRoot, rules, run, store, tools, workspaceInfo } = deps;
   const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, workspaceRoot } = config;
   const app = Fastify({ logger: false });
   const frontendOrigin = new URL(frontendUrl).origin;
@@ -449,8 +452,19 @@ app.get<{
 });
 
 app.post<{ Params: { runId: string } }>("/api/runs/:runId/cancel", { schema: runParamsSchema }, async (request, reply) => {
+  const drained = registry.waitForRun(request.params.runId);
   const cancelled = registry.cancelRun(request.params.runId);
-  return reply.code(cancelled ? 200 : 404).send({ ok: cancelled });
+  if (!cancelled) return reply.code(404).send({ ok: false });
+  const [settled] = await Promise.all([
+    drained,
+    commands.stopRun(request.params.runId).then(() => true)
+  ]);
+  return reply.send({ ok: true, settled });
+});
+
+app.post<{ Params: { commandId: string } }>("/api/commands/:commandId/stop", { schema: commandParamsSchema }, async (request, reply) => {
+  const stopped = await commands.stop(request.params.commandId);
+  return reply.code(stopped ? 200 : 404).send({ command: stopped, ok: Boolean(stopped) });
 });
 
 app.put<{

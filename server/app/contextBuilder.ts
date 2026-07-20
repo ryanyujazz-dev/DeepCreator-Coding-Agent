@@ -8,10 +8,10 @@ import {
   ContextStats,
   ContextInput,
   renderCheckpoint,
-  contextFingerprint,
-  modelMessageFromEntry
+  contextFingerprint
 } from "../../shared/contracts/context";
 import { emptyRuleSource, ResolvedRule, RuleSource } from "../../shared/contracts/rules";
+import { protocolSafeModelMessages } from "../../shared/domain/toolProtocol";
 import { prompts } from "./prompts";
 import { ModelMessage, ToolSpec } from "../../shared/contracts/provider";
 
@@ -378,7 +378,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
     { role: "system", text: blueprint.text },
     { role: "user", text: frozenEnvelope },
     ...(prior.checkpoint ? [{ role: "user" as const, text: renderCheckpoint(prior.checkpoint) }] : []),
-    ...afterCheckpoint.map(modelMessageFromEntry).filter((message): message is ModelMessage => Boolean(message)),
+    ...protocolSafeModelMessages(afterCheckpoint),
     ...(recoveryEnvelope ? [{ role: "user" as const, text: recoveryEnvelope }] : []),
     ...(modeEnvelope ? [{ role: "user" as const, text: modeEnvelope }] : []),
     ...(input.latestUserInRecords ? [] : [{ role: "user" as const, text: input.prompt }])
@@ -406,7 +406,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
   // Root guidance is frozen until compaction. A successful compaction starts a new frozen prefix.
   const sessionEnvelopeText = dropped.length > 0 ? stableEnvelope(input, startupGuidance) : frozenEnvelope;
   const checkpointMessage = checkpoint ? renderCheckpoint(checkpoint) : undefined;
-  const historyMessages = retainedRecords.map(modelMessageFromEntry).filter((message): message is ModelMessage => Boolean(message));
+  const historyMessages = protocolSafeModelMessages(retainedRecords);
   const messages: ModelMessage[] = [
     { role: "system", text: blueprint.text },
     { role: "user", text: sessionEnvelopeText },
@@ -431,9 +431,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
     metric("memory_index", "StableSessionEnvelope.memory_index", memoryIndexText, "session_stable", { role: "user", survivesCompaction: true }),
     metric("capability_index", "StableSessionEnvelope.capability_index", capabilityIndexText, "session_stable", { role: "user", survivesCompaction: true }),
     ...(checkpointMessage ? [metric("checkpoint", "Checkpoint", checkpointMessage, "compaction_stable", { role: "user", survivesCompaction: true })] : []),
-    metric("recent_history", `${trajectoryRecords.length} records`, trajectoryRecords
-      .map(modelMessageFromEntry)
-      .filter((message): message is ModelMessage => Boolean(message))
+    metric("recent_history", `${trajectoryRecords.length} records`, protocolSafeModelMessages(trajectoryRecords)
       .map((message) => JSON.stringify(message))
       .join("\n"), "dynamic", { survivesCompaction: false }),
     ...updateRecords.map((record) => metric("context_update", String(record.metadata?.sourceFile ?? record.recordId), record.text ?? "", "dynamic", {

@@ -210,6 +210,14 @@ export function useWorkspace() {
     }
   }, [activeRun]);
 
+  const stopCommand = useCallback(async (commandId: string) => {
+    try {
+      await runtimeApi.stopCommand(commandId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, []);
+
   const resolveApproval = useCallback(async (decision: ApprovalChoice) => {
     if (!pendingApproval) return;
     try {
@@ -307,6 +315,7 @@ export function useWorkspace() {
     session,
     sessions,
     startRun,
+    stopCommand,
     workspace
   };
 }

@@ -46,6 +46,10 @@ test("reports only changes made after the work-run baseline", async () => {
       );
       assert.ok(!delta.files.some((file) => file.path === "untouched-dirty.ts"));
       assert.equal(delta.fileCount, 3);
+      assert.equal(delta.files.find((file) => file.path === "already-dirty.ts")?.additions, 1);
+      assert.equal(delta.files.find((file) => file.path === "already-dirty.ts")?.deletions, 1);
+      assert.equal(delta.files.find((file) => file.path === "created-during-run.ts")?.additions, 1);
+      assert.match(delta.files.find((file) => file.path === "created-during-run.ts")?.patch ?? "", /\+export const created = true/);
     } finally {
       const snapshotDirectory = baseline.snapshotDirectory;
       await releaseBaseline(baseline);
@@ -73,6 +77,8 @@ test("checkpoints clean direct file targets before mutation", async () => {
       const delta = await collectChanges(directory, baseline);
       assert.deepEqual(delta.files.map((file) => file.path), ["clean.ts"]);
       assert.equal(delta.files[0].operation, "edited");
+      assert.equal(delta.files[0].additions, 1);
+      assert.equal(delta.files[0].deletions, 1);
       assert.ok(delta.files[0].patch?.includes("export const value = 1"));
       assert.ok(delta.files[0].patch?.includes("export const value = 2"));
     } finally {

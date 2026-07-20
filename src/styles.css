@@ -709,6 +709,101 @@ textarea:disabled {
   gap: 0;
 }
 
+.display-segment {
+  display: grid;
+  min-width: 0;
+  gap: 0;
+}
+
+.display-segment-primary {
+  min-width: 0;
+}
+
+.display-segment-activity {
+  min-width: 0;
+}
+
+.display-activity-slot.is-empty strong {
+  color: var(--process-muted-color);
+}
+
+.activity-slot-label {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.activity-slot-label-text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-slot-elapsed {
+  flex: 0 0 auto;
+  color: #a1a8ab;
+  font-variant-numeric: tabular-nums;
+  font-weight: 450;
+}
+
+.activity-slot-command {
+  min-width: 0;
+}
+
+.activity-slot-toggle {
+  display: inline-grid;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  align-items: center;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  gap: 4px;
+  text-align: left;
+}
+
+.activity-slot-toggle svg {
+  color: #a8afb2;
+  transition: transform 160ms ease;
+}
+
+.activity-slot-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.activity-slot-command-detail {
+  width: min(760px, calc(100vw - 330px));
+  max-width: 100%;
+}
+
+.command-stop-button {
+  margin-top: 7px;
+  padding: 4px 9px;
+  border: 1px solid rgba(183, 75, 63, 0.22);
+  border-radius: 5px;
+  background: rgba(183, 75, 63, 0.06);
+  color: #a7473c;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.command-stop-button:hover,
+.command-stop-button:focus-visible {
+  border-color: rgba(183, 75, 63, 0.42);
+  background: rgba(183, 75, 63, 0.1);
+}
+
+.activity-aggregate .operation-group-action {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .work-step {
   position: relative;
   display: block;
@@ -896,6 +991,23 @@ textarea:disabled {
   font-style: normal;
   font-weight: inherit;
   transition: color 120ms ease;
+}
+
+.operation-diff-metrics.is-live b {
+  color: #159447;
+}
+
+.operation-diff-metrics.is-live i {
+  color: #db4b46;
+}
+
+.display-activity-slot .operation-modification-file {
+  min-width: 0;
+}
+
+.display-activity-slot .operation-file-detail-expander {
+  width: min(760px, calc(100vw - 330px));
+  max-width: 100%;
 }
 
 .operation-summary-chevron {

@@ -12,8 +12,9 @@ import {
 import { createSession, rebuildSession, reduceEvent } from "../../shared/domain/reducer";
 import { assertEventTransition } from "../../shared/domain/state";
 import { decodeEvent } from "../../shared/legacy/decoder";
-import { finishRun } from "../app/runLifecycle";
+import { appendInterruptedToolResults, finishRun } from "../app/runLifecycle";
 import { ContextEntry, ContextStats, MemoryFact, ContextInput, createContextEntry } from "../../shared/contracts/context";
+import { missingToolResults } from "../../shared/domain/toolProtocol";
 import { ContextStore } from "./contextStore";
 import { Database } from "./database";
 import { EventStore } from "./eventStore";
@@ -50,6 +51,7 @@ export class RuntimeStore implements RuntimeRepo {
     for (const session of this.sessionStore.all()) this.sessions.set(session.sessionId, session);
     this.importLegacyLogs();
     this.finishInterruptedRuns();
+    this.repairTerminalToolProtocols();
   }
 
   createSession(input: Omit<SessionInput, "createdAt">): Session {
@@ -295,6 +297,24 @@ export class RuntimeStore implements RuntimeRepo {
           sessionId: session.sessionId,
           status: "failed",
           store: this
+        });
+      }
+    }
+  }
+
+  private repairTerminalToolProtocols(): void {
+    for (const session of [...this.sessions.values()]) {
+      const records = this.readContextEntries(session.sessionId);
+      for (const run of session.runs.filter((item) => ["completed", "failed", "cancelled"].includes(item.status))) {
+        const missingResults = missingToolResults(records.filter((record) => record.runId === run.runId));
+        if (missingResults.length === 0) continue;
+        appendInterruptedToolResults({
+          interruptionReason: `历史运行已处于 ${run.status} 状态，但没有留下完整工具结果`,
+          missingResults,
+          runId: run.runId,
+          sessionId: session.sessionId,
+          store: this,
+          terminalPhase: run.status as "completed" | "failed" | "cancelled"
         });
       }
     }

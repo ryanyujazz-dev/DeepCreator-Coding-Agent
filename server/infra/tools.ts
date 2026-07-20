@@ -20,6 +20,12 @@ import { ToolSpec } from "../../shared/contracts/provider";
 import { Baseline, BaselineFile, ToolProgress, ToolResult } from "../../shared/contracts/tool";
 import { ToolHost } from "../app/toolHost";
 import { invokeCapability, searchCapabilities } from "./capabilities";
+import { quoteRuntimeShellArgument, resolveRuntimeShell } from "./shell";
+import { commandManager, CommandSnapshot } from "./commandManager";
+
+const COMMAND_EXIT_DRAIN_MS = 100;
+const COMMAND_TERMINATION_GRACE_MS = 2_500;
+const INTERNAL_SHELL_TIMEOUT_MS = 120_000;
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -206,18 +212,25 @@ function runShell(
   projectRoot: string,
   command: string,
   signal?: AbortSignal,
-  timeoutMs = 120_000,
+  timeoutMs = INTERNAL_SHELL_TIMEOUT_MS,
   onOutput?: (progress: ToolProgress) => void
 ): Promise<{ exitCode: number; output: string; timedOut?: boolean }> {
   return new Promise((resolve, reject) => {
-    const child = spawn("/bin/zsh", ["-lc", `set -o pipefail\n${command}`], {
+    const shell = resolveRuntimeShell();
+    const child = spawn(shell.executable, shell.argsFor(command), {
       cwd: ensureInsideRoot(projectRoot),
-      detached: true,
+      detached: process.platform !== "win32",
       env: process.env,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      windowsVerbatimArguments: process.platform === "win32" && shell.family === "cmd"
     });
     let output = "";
     let timedOut = false;
+    let settled = false;
+    let settleDeadline = Number.POSITIVE_INFINITY;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
     const append = (chunk: Buffer) => {
       const text = chunk.toString();
       output += text;
@@ -226,9 +239,55 @@ function runShell(
     };
     child.stdout.on("data", append);
     child.stderr.on("data", append);
-    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = () => {
+      clearTimeout(timeoutTimer);
+      if (settleTimer) clearTimeout(settleTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      signal?.removeEventListener("abort", abort);
+      child.stdout.off("data", append);
+      child.stderr.off("data", append);
+      child.stdout.destroy();
+      child.stderr.destroy();
+    };
+    const finish = (code: number) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (signal?.aborted) {
+        reject(new DOMException("运行已取消。", "AbortError"));
+        return;
+      }
+      const cleanedOutput = output.trimEnd();
+      if (timedOut) {
+        const timeoutMessage = `命令执行超时（${Math.ceil(timeoutMs / 1_000)} 秒），Runtime 已停止该进程。`;
+        resolve({
+          exitCode: 124,
+          output: redactSensitiveText(cleanedOutput ? `${cleanedOutput}\n\n${timeoutMessage}` : timeoutMessage),
+          timedOut: true
+        });
+        return;
+      }
+      resolve({ exitCode: code, output: redactSensitiveText(cleanedOutput || "命令执行完成，无输出。") });
+    };
+    const scheduleFinish = (code: number, delayMs: number) => {
+      const deadline = Date.now() + delayMs;
+      if (settled || deadline >= settleDeadline) return;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleDeadline = deadline;
+      settleTimer = setTimeout(() => finish(code), delayMs);
+    };
     const terminate = () => {
       if (!child.pid) return;
+      if (process.platform === "win32") {
+        const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true
+        });
+        killer.on("error", () => child.kill());
+        killer.unref();
+        return;
+      }
       try {
         process.kill(-child.pid, "SIGTERM");
       } catch {
@@ -242,41 +301,30 @@ function runShell(
           child.kill("SIGKILL");
         }
       }, 2_000);
+      forceKillTimer.unref?.();
     };
-    const timer = setTimeout(() => {
+    const timeoutTimer = setTimeout(() => {
       timedOut = true;
       onOutput?.({ text: `\n命令执行超过 ${Math.ceil(timeoutMs / 1000)} 秒，正在停止。\n` });
       terminate();
+      scheduleFinish(124, COMMAND_TERMINATION_GRACE_MS);
     }, timeoutMs);
-    const heartbeat = setInterval(() => onOutput?.({ text: "" }), 2_000);
-    heartbeat.unref?.();
-    const abort = terminate;
+    timeoutTimer.unref?.();
+    const abort = () => {
+      terminate();
+      scheduleFinish(1, COMMAND_TERMINATION_GRACE_MS);
+    };
     signal?.addEventListener("abort", abort, { once: true });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      clearInterval(heartbeat);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-      signal?.removeEventListener("abort", abort);
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       reject(error);
     });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      clearInterval(heartbeat);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-      signal?.removeEventListener("abort", abort);
-      if (signal?.aborted) return reject(new DOMException("运行已取消。", "AbortError"));
-      const cleanedOutput = output.trimEnd();
-      if (timedOut) {
-        const timeoutMessage = `命令执行超时（${Math.ceil(timeoutMs / 1000)} 秒），Runtime 已停止该进程。`;
-        resolve({
-          exitCode: 124,
-          output: redactSensitiveText(cleanedOutput ? `${cleanedOutput}\n\n${timeoutMessage}` : timeoutMessage),
-          timedOut: true
-        });
-        return;
-      }
-      resolve({ exitCode: code ?? 1, output: redactSensitiveText(cleanedOutput || "命令执行完成，无输出。") });
-    });
+    // A detached descendant can inherit stdout/stderr after the shell exits. Drain
+    // briefly, then settle without waiting forever for those inherited handles.
+    child.once("exit", (code) => scheduleFinish(code ?? 1, COMMAND_EXIT_DRAIN_MS));
+    child.once("close", (code) => finish(code ?? child.exitCode ?? 1));
   });
 }
 
@@ -295,13 +343,36 @@ function parseStatus(output: string): StatusEntry[] {
 function parseNumstat(output: string): Map<string, { additions: number; deletions: number }> {
   const result = new Map<string, { additions: number; deletions: number }>();
   for (const line of output.split("\n").filter(Boolean)) {
-    const [added, deleted, ...fileParts] = line.split("\t");
-    result.set(fileParts.join("\t"), {
-      additions: Number(added) || 0,
-      deletions: Number(deleted) || 0
+    const match = line.match(/^(\d+|-)\t(\d+|-)\t(.+)$/);
+    if (!match) continue;
+    result.set(match[3], {
+      additions: match[1] === "-" ? 0 : Number(match[1]),
+      deletions: match[2] === "-" ? 0 : Number(match[2])
     });
   }
   return result;
+}
+
+function textLineCount(text: string): number {
+  if (!text) return 0;
+  const lines = text.split(/\r?\n/);
+  return lines.length - (lines.at(-1) === "" ? 1 : 0);
+}
+
+function normalizePatch(
+  output: string,
+  filePath: string,
+  beforeExists: boolean,
+  afterExists: boolean
+): string | undefined {
+  const lines = output.split("\n").filter((line) => !line.startsWith("warning: "));
+  if (lines.length === 0 || !lines.some((line) => line.startsWith("diff --git "))) return undefined;
+  return lines.map((line) => {
+    if (line.startsWith("diff --git ")) return `diff --git a/${filePath} b/${filePath}`;
+    if (line.startsWith("--- ")) return beforeExists ? `--- a/${filePath}` : "--- /dev/null";
+    if (line.startsWith("+++ ")) return afterExists ? `+++ b/${filePath}` : "+++ /dev/null";
+    return line;
+  }).join("\n");
 }
 
 function operationForStatus(code: string): FileChange["operation"] {
@@ -317,7 +388,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 export async function captureBaseline(projectRoot: string): Promise<Baseline> {
   const snapshotDirectory = await fs.mkdtemp(path.join(tmpdir(), "deepseeker-run-"));
-  const baseline: Baseline = { available: false, files: new Map(), snapshotDirectory };
+  const baseline: Baseline = { available: false, files: new Map(), leases: 1, released: false, snapshotDirectory };
   const statusResult = await runShell(
     projectRoot,
     "git -c core.quotepath=false -c status.renames=false status --porcelain=v1 --untracked-files=all"
@@ -359,7 +430,16 @@ export async function checkpointTarget(
 }
 
 export async function releaseBaseline(baseline: Baseline): Promise<void> {
+  if (baseline.released) return;
+  baseline.leases = Math.max(0, baseline.leases - 1);
+  if (baseline.leases > 0) return;
+  baseline.released = true;
   await fs.rm(baseline.snapshotDirectory, { force: true, recursive: true });
+}
+
+export function retainBaseline(baseline: Baseline): void {
+  if (baseline.released) throw new Error("命令无法保留已经释放的工作区基线。");
+  baseline.leases += 1;
 }
 
 async function compareWithBaseline(
@@ -374,18 +454,17 @@ async function compareWithBaseline(
     const [before, after] = await Promise.all([fs.readFile(baselineFile.snapshotPath), fs.readFile(currentPath)]);
     if (before.equals(after)) return undefined;
   }
-  const beforePath = baselineFile.exists && baselineFile.snapshotPath ? baselineFile.snapshotPath : "/dev/null";
-  const afterPath = currentExists ? currentPath : "/dev/null";
+  const nullPath = process.platform === "win32" && resolveRuntimeShell().family !== "bash" ? "NUL" : "/dev/null";
+  const beforePath = baselineFile.exists && baselineFile.snapshotPath ? baselineFile.snapshotPath : nullPath;
+  const afterPath = currentExists ? currentPath : nullPath;
+  const beforeArgument = quoteRuntimeShellArgument(beforePath);
+  const afterArgument = quoteRuntimeShellArgument(afterPath);
   const [numstatResult, patchResult] = await Promise.all([
-    runShell(projectRoot, `git diff --no-index --numstat -- ${JSON.stringify(beforePath)} ${JSON.stringify(afterPath)}`),
-    runShell(projectRoot, `git diff --no-index -- ${JSON.stringify(beforePath)} ${JSON.stringify(afterPath)}`)
+    runShell(projectRoot, `git -c core.autocrlf=false diff --no-index --numstat -- ${beforeArgument} ${afterArgument}`),
+    runShell(projectRoot, `git -c core.autocrlf=false diff --no-index -- ${beforeArgument} ${afterArgument}`)
   ]);
   const counts = [...parseNumstat(numstatResult.output).values()][0] ?? { additions: 0, deletions: 0 };
-  const patch = patchResult.output === "命令执行完成，无输出。"
-    ? undefined
-    : patchResult.output
-        .replaceAll(beforePath, `a/${filePath}`)
-        .replaceAll(afterPath, `b/${filePath}`);
+  const patch = normalizePatch(patchResult.output, filePath, baselineFile.exists, currentExists);
   return {
     ...counts,
     operation: !baselineFile.exists ? "created" : !currentExists ? "deleted" : "edited",
@@ -422,11 +501,12 @@ export async function collectChanges(
         }
         const entry = statusByPath.get(filePath);
         if (!entry) continue;
-        let counts = stats.get(filePath) ?? { additions: 0, deletions: 0 };
         if (entry.code === "??") {
-          const text = await fs.readFile(ensureInsideRoot(projectRoot, filePath), "utf8").catch(() => "");
-          counts = { additions: text ? text.split("\n").length : 0, deletions: 0 };
+          const delta = await compareWithBaseline(projectRoot, filePath, { exists: false });
+          if (delta) files.push(delta);
+          continue;
         }
+        let counts = stats.get(filePath) ?? { additions: 0, deletions: 0 };
         files.push({ ...counts, operation: operationForStatus(entry.code), path: filePath });
       }
     } else {
@@ -434,9 +514,9 @@ export async function collectChanges(
         let counts = stats.get(filePath) ?? { additions: 0, deletions: 0 };
         if (code === "??") {
           const text = await fs.readFile(ensureInsideRoot(projectRoot, filePath), "utf8").catch(() => "");
-          counts = { additions: text ? text.split("\n").length : 0, deletions: 0 };
+          counts = { additions: textLineCount(text), deletions: 0 };
         }
-        const patch = code === "??" ? undefined : (await runShell(projectRoot, `git diff HEAD -- ${JSON.stringify(filePath)}`)).output;
+        const patch = code === "??" ? undefined : (await runShell(projectRoot, `git diff HEAD -- ${quoteRuntimeShellArgument(filePath)}`)).output;
         files.push({ ...counts, operation: operationForStatus(code), patch: patch === "命令执行完成，无输出。" ? undefined : patch, path: filePath });
       }
     }
@@ -472,18 +552,40 @@ export function summarizeToolResult(name: string, args: Record<string, unknown>,
     const count = output.split("\n").filter(Boolean).length;
     return `已列出 ${count} 个项目文件`;
   }
+  if (name === "wait_command") return `已检查命令 ${String(args.commandId ?? "")}`;
+  if (name === "stop_command") return `已停止命令 ${String(args.commandId ?? "")}`;
   return redactSensitiveText(output).slice(0, 2_000);
 }
 
+function managedCommandResult(snapshot: CommandSnapshot, mutatedWorkspace: boolean): ToolResult {
+  return {
+    command: snapshot.command,
+    commandActivityId: snapshot.activityId,
+    commandId: snapshot.commandId,
+    commandRunId: snapshot.runId,
+    commandSessionId: snapshot.sessionId,
+    commandState: snapshot.state,
+    elapsedMs: snapshot.elapsedMs,
+    exitCode: snapshot.exitCode,
+    mutatedWorkspace,
+    output: snapshot.state === "running" ? snapshot.outputDelta : snapshot.output,
+    outputTruncated: snapshot.outputTruncated
+  };
+}
+
 export async function executeTool(input: {
+  activityId?: string;
   projectRoot: string;
   name: string;
   args: Record<string, unknown>;
+  onCommandSettled?: (result: ToolResult) => void;
   signal?: AbortSignal;
   onOutput?: (progress: ToolProgress) => void;
-  commandTimeoutMs?: number;
+  commandCheckpointMs?: number;
+  runId?: string;
+  sessionId?: string;
 }): Promise<ToolResult> {
-  const { projectRoot, name, args, signal, onOutput, commandTimeoutMs } = input;
+  const { projectRoot, name, args, signal, onOutput, commandCheckpointMs } = input;
   if (name === "list_files") return { mutatedWorkspace: false, output: await listFiles(projectRoot, args) };
   if (name === "read_file") return { mutatedWorkspace: false, output: await readFile(projectRoot, args as never) };
   if (name === "git_status") {
@@ -522,8 +624,40 @@ export async function executeTool(input: {
   if (name === "run_command") {
     const command = String(args.command ?? "").trim();
     if (!command) throw new Error("command 不能为空。");
-    const result = await runShell(projectRoot, command, signal, commandTimeoutMs ?? 120_000, onOutput);
-    return { ...result, command, mutatedWorkspace: !analyzeCommand(command).readOnly };
+    if (!input.activityId || !input.runId || !input.sessionId) {
+      throw new Error("run_command 缺少 Runtime 生命周期标识。");
+    }
+    const mutatedWorkspace = !analyzeCommand(command).readOnly;
+    const snapshot = await commandManager.start({
+      activityId: input.activityId,
+      command,
+      onOutput: (text) => onOutput?.({ text }),
+      onSettled: (settled) => input.onCommandSettled?.(managedCommandResult(settled, mutatedWorkspace)),
+      projectRoot,
+      runId: input.runId,
+      sessionId: input.sessionId,
+      signal
+    }, commandCheckpointMs);
+    return managedCommandResult(snapshot, mutatedWorkspace);
+  }
+  if (name === "wait_command") {
+    const commandId = String(args.commandId ?? "").trim();
+    if (!commandId) throw new Error("commandId 不能为空。");
+    const existing = commandManager.get(commandId);
+    if (!existing) throw new Error(`未找到命令：${commandId}`);
+    return managedCommandResult(
+      await commandManager.wait(commandId, commandCheckpointMs, signal),
+      !analyzeCommand(existing.command).readOnly
+    );
+  }
+  if (name === "stop_command") {
+    const commandId = String(args.commandId ?? "").trim();
+    if (!commandId) throw new Error("commandId 不能为空。");
+    const existing = commandManager.get(commandId);
+    if (!existing) throw new Error(`未找到命令：${commandId}`);
+    const stopped = await commandManager.stop(commandId);
+    if (!stopped) throw new Error(`未找到命令：${commandId}`);
+    return managedCommandResult(stopped, !analyzeCommand(existing.command).readOnly);
   }
   throw new Error(`未知工具：${name}`);
 }
@@ -672,7 +806,7 @@ const toolRegistry: ToolRegistration[] = [
   },
   {
     name: "run_command",
-    description: "在项目根目录运行 shell 命令。非安全命令需要用户批准。",
+    description: "在项目根目录运行 shell 命令。最多前台等待 60 秒；若仍在运行会返回 commandId，必须使用 wait_command 继续等待或 stop_command 停止，不要重复启动同一命令。非安全命令需要用户批准。",
     inputSchema: objectSchema({ command: { type: "string" } }, ["command"]),
     presentation: {
       groupMode: "standalone",
@@ -683,6 +817,34 @@ const toolRegistry: ToolRegistration[] = [
       targetKind: "process",
       resolveSemantics: (args) => classifyCommand(String(args.command ?? "")),
       resolveTarget: (args) => String(args.command ?? "")
+    }
+  },
+  {
+    name: "wait_command",
+    description: "等待一个仍在运行的命令，最多等待 60 秒并返回增量输出；命令退出时会提前返回。",
+    inputSchema: objectSchema({ commandId: { type: "string" } }, ["commandId"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "control_only",
+      importance: "routine",
+      action: "execute",
+      targetKind: "process",
+      resolveTarget: (args) => String(args.commandId ?? "")
+    }
+  },
+  {
+    name: "stop_command",
+    description: "停止一个托管命令及其完整进程树。重复停止同一命令是安全的。",
+    inputSchema: objectSchema({ commandId: { type: "string" } }, ["commandId"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "control_only",
+      importance: "notable",
+      action: "execute",
+      targetKind: "process",
+      resolveTarget: (args) => String(args.commandId ?? "")
     }
   },
   {
@@ -789,6 +951,13 @@ export function toolNames(): string[] {
   return toolRegistry.map((tool) => tool.name);
 }
 
+export function toolCanRunInParallel(name: string): boolean {
+  if (name === "run_command") return true;
+  if (name === "search_memory") return false;
+  const registration = toolRegistry.find((tool) => tool.name === name);
+  return registration?.presentation.effect === "read_only";
+}
+
 export function createToolState(input: {
   args?: Record<string, unknown>;
   argumentsPreview?: string;
@@ -862,6 +1031,8 @@ export function toolTitle(name: string): string {
     search_capabilities: "搜索能力",
     search_memory: "检索记忆",
     run_command: "运行命令",
+    wait_command: "等待命令",
+    stop_command: "停止命令",
     submit_plan: "提交实施方案",
     update_tasks: "更新执行任务",
     write_file: "写入文件"
@@ -877,8 +1048,12 @@ export const toolHost: ToolHost = {
   has: hasTool,
   kind: activityKindForTool,
   names: toolNames,
+  parallel: toolCanRunInParallel,
   prepare: createToolState,
+  retain: retainBaseline,
+  runningCommands: (runId) => commandManager.running(runId),
   specs: toolSpecs,
+  stopCommands: (runId) => commandManager.stopRun(runId),
   summarizeArgs: summarizeToolArguments,
   summarizeResult: summarizeToolResult,
   title: toolTitle

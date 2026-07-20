@@ -6,11 +6,13 @@ export function Conversation({
   onOpenFile,
   onOpenPlan,
   onOpenReview,
+  onStopCommand,
   session
 }: {
   onOpenFile: (path: string) => void;
   onOpenPlan: (runId: string, callId: string) => void;
   onOpenReview: (delta: Changes) => void;
+  onStopCommand: (commandId: string) => void;
   session: Session | null;
 }) {
   const scrollRef = useRef<HTMLElement>(null);
@@ -52,6 +54,7 @@ export function Conversation({
                 onOpenFile={onOpenFile}
                 onOpenPlan={onOpenPlan}
                 onOpenReview={onOpenReview}
+                onStopCommand={onStopCommand}
                 plans={session.plans.filter((plan) => plan.runId === run.runId)}
                 onTextFrame={scheduleFollow}
               />

@@ -218,10 +218,15 @@ export type Activity = {
   tool?: ToolState;
   command?: {
     command: string;
+    commandId?: string;
+    elapsedMs?: number;
     exitCode?: number;
+    outputTruncated?: boolean;
+    state?: "running" | "completed" | "failed" | "cancelled";
     timedOut?: boolean;
   };
   files?: FileChange[];
+  liveFiles?: FileChange[];
   error?: string;
 };
 
@@ -267,9 +272,53 @@ export type LiveStep =
       totalCalls: number;
     };
 
+export type ActivityIndicator =
+  | {
+      mode: "thinking";
+      sourceActivityId: string;
+      label: string;
+    }
+  | {
+      mode: "tool";
+      sourceActivityId: string;
+      category: ActionKind;
+      label: string;
+      target?: string;
+    };
+
+export type ActivitySlot = {
+  slotId: string;
+  logicalState: "active" | "empty";
+  visual: ActivityIndicator;
+};
+
+export type ToolAggregate = {
+  aggregateId: string;
+  runId: string;
+  memberActivityIds: string[];
+  totalCalls: number;
+  successCount: number;
+  failureCount: number;
+  cancelledCount: number;
+  status: Exclude<ActivityStatus, "running">;
+  summaryLabel: string;
+};
+
+export type DisplaySegment = {
+  segmentId: string;
+  runId: string;
+  mainActivity?: Activity;
+  aggregate?: ToolAggregate;
+  activitySlots: ActivitySlot[];
+};
+
+export type DisplayTimelineEntry =
+  | { entryId: string; type: "display_segment"; segment: DisplaySegment }
+  | { entryId: string; type: "activity"; activity: Activity };
+
 export type TimelineEntry =
+  | DisplayTimelineEntry
   | { entryId: string; type: "activity_group"; group: ActivityGroup }
-  | { entryId: string; type: "activity"; activity: Activity }
   | { entryId: string; type: "live_step"; liveStep: LiveStep };
 
 export type Run = {
