@@ -58,9 +58,10 @@ function ActivitySlotView({
       ?? activity.files?.[0]
       ?? activity.liveFiles?.[0])
     : undefined;
+  const isThinking = slot.visual.mode === "thinking";
   return (
-    <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}`}>
-      <div className="work-dot">{indicatorIcon(slot.visual)}</div>
+    <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${isThinking ? " is-thinking" : ""}`}>
+      {!isThinking && <div className="work-dot">{indicatorIcon(slot.visual)}</div>}
       <div className="work-body">
         {liveFile
           ? <ModificationFileRow active file={liveFile} onOpenFile={onOpenFile} showIcon={false} />

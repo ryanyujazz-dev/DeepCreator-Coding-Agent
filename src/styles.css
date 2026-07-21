@@ -727,6 +727,30 @@ textarea:disabled {
   color: var(--process-muted-color);
 }
 
+/* 思考槽位:去掉图标后,字体对齐主内容(content),保留 shimmer 动画 */
+.display-activity-slot.is-thinking {
+  /* 覆盖 .tool-step 的两列 grid(16px 图标列 + 1fr 内容列),
+     思考槽位没有图标,用单列 grid 让文字占满宽度,避免被压窄后水平裁切 */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.display-activity-slot.is-thinking .work-body {
+  padding-left: 0;
+}
+
+.display-activity-slot.is-thinking .activity-slot-label {
+  display: inline;
+  max-width: none;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.display-activity-slot.is-thinking .activity-slot-label-text {
+  overflow: visible;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
 .activity-slot-label {
   display: inline-flex;
   max-width: 100%;
@@ -1529,6 +1553,8 @@ textarea:disabled {
   line-height: 1.5;
 }
 
+/* 思考槽位实际渲染成 tool-step + is-thinking(thinking-step 类是 legacy 路径) */
+.work-process .display-activity-slot.is-thinking .work-body strong,
 .work-process .thinking-step .work-body strong {
   color: var(--process-content-color);
   font-size: var(--process-content-size);
