@@ -333,7 +333,11 @@ textarea:disabled {
 .composer {
   /* composer 现在直接是 .conversation-main 的子元素(dock 已删除)。
      宽度跟 .conversation-column 同基准 + 30px(每侧宽 15px)。
-     flex:0 0 auto 保证不被压缩;margin 0 auto 居中;bottom 22px 跟窗口边缘的距离。 */
+     flex:0 0 auto 保证不被压缩;margin 0 auto 居中;bottom 22px 跟窗口边缘的距离。
+     position:relative + z-index:6 让 composer 盖住底部渐变蒙层(z-index:4)和
+     滚动到底部按钮(z-index:5),但仍在弹出菜单(z-index:20+)之下。 */
+  position: relative;
+  z-index: 6;
   flex: 0 0 auto;
   width: min(890px, calc(100vw - 380px));
   max-width: 890px;
