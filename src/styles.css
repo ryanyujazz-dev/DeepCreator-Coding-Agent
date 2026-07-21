@@ -498,21 +498,38 @@ textarea:disabled {
   height: 35px;
   place-items: center;
   border-radius: 50%;
-  background: #9fa2a6;
+  background: var(--theme-blue-muted);   /* 空态:灰蓝 */
   color: #ffffff;
   cursor: pointer;
+  transition: background 160ms ease;
 }
 
 .send-button:hover {
-  background: #777c82;
+  background: var(--theme-blue);
+}
+
+/* 有草稿时发送按钮变主题蓝 */
+.send-button.has-draft {
+  background: var(--theme-blue);
+  box-shadow: 0 2px 8px rgba(49, 136, 244, 0.32);
+}
+
+.send-button.has-draft:hover {
+  background: var(--theme-blue-dark);
+}
+
+.send-button:disabled {
+  background: var(--theme-blue-muted);
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .stop-button {
-  background: #ff6a43;
+  background: var(--theme-blue);
 }
 
 .stop-button:hover {
-  background: #e8552f;
+  background: var(--theme-blue-dark);
 }
 
 .context-row {
@@ -618,6 +635,15 @@ textarea:disabled {
 :root {
   --conversation-bg: #ffffff;
   --conversation-fade-height: 60px;
+
+  /* === 主题蓝色常量(三档:主 / 深 / 浅)===
+     以 #3188f4 鲜亮蓝为主色,衍生深/浅两档,
+     项目内所有蓝色统一引用这三个变量,避免色值漂移。 */
+  --theme-blue: #3188f4;        /* 主蓝:按钮 / 标题 / 强调 */
+  --theme-blue-dark: #2378ec;   /* 深蓝:hover / 边框强调 / 文本链接 */
+  --theme-blue-darker: #164f7a; /* 最深蓝:标题文本 / hover 加深 */
+  --theme-blue-light: #e8f2ff;  /* 浅蓝:底色 / 背景渲染 */
+  --theme-blue-muted: #9fbde6;  /* 灰蓝:未激活 / 占位态 */
 }
 
 /* === 边缘渐变消隐蒙层(Codex 风格)===
@@ -793,9 +819,9 @@ textarea:disabled {
 }
 
 .run-status-pill.is-live {
-  border-color: rgba(50, 132, 255, 0.68);
+  border-color: rgba(49, 136, 244, 0.68);
   color: #6f7b80;
-  box-shadow: 0 0 0 2px rgba(50, 132, 255, 0.08);
+  box-shadow: 0 0 0 2px rgba(49, 136, 244, 0.08);
 }
 
 .run-status-pill svg {
@@ -2053,8 +2079,8 @@ textarea:disabled {
 }
 
 .patch-diff code.is-hunk {
-  background: rgba(57, 123, 206, 0.08);
-  color: #4878a6;
+  background: rgba(49, 136, 244, 0.08);
+  color: var(--theme-blue-dark);
 }
 
 .patch-diff code.is-meta {
@@ -2170,7 +2196,7 @@ textarea:disabled {
 
 .composer-hud.is-thinking,
 .composer-hud.is-running_tool {
-  border-color: rgba(50, 132, 255, 0.28);
+  border-color: rgba(49, 136, 244, 0.28);
 }
 
 .composer-hud.is-cancelled {
@@ -2466,8 +2492,8 @@ textarea:disabled {
 }
 
 .settings-dialog input:focus {
-  border-color: #8ab9d2;
-  box-shadow: 0 0 0 3px rgba(87, 158, 195, 0.12);
+  border-color: var(--theme-blue-muted);
+  box-shadow: 0 0 0 3px rgba(159, 189, 230, 0.32);
 }
 
 .settings-error {
@@ -2494,7 +2520,7 @@ textarea:disabled {
 }
 
 .settings-cancel { background: #ffffff; color: #59666b; }
-.settings-save { border-color: #2f789b !important; background: #2f789b; color: #ffffff; }
+.settings-save { border-color: var(--theme-blue) !important; background: var(--theme-blue); color: #ffffff; }
 .settings-save:disabled { cursor: default; opacity: 0.55; }
 
 .bootstrap-error {
@@ -2512,8 +2538,9 @@ textarea:disabled {
 
 /* Event-driven runtime modules */
 .sidebar-brand {
-  color: #34484f;
+  color: var(--theme-blue);
   font-size: 15px;
+  font-weight: 700;
 }
 
 .sidebar-empty {
@@ -2549,7 +2576,7 @@ textarea:disabled {
   height: 7px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: #3188f4;
+  background: var(--theme-blue);
   box-shadow: 0 0 0 3px rgba(49, 136, 244, 0.1);
 }
 
@@ -2604,7 +2631,7 @@ textarea:disabled {
   gap: 5px;
 }
 
-.inspector-plan-row.is-in_progress { color: #2f6fa9; }
+.inspector-plan-row.is-in_progress { color: var(--theme-blue-dark); }
 .inspector-plan-row.is-completed { color: #528066; }
 .inspector-plan-row.is-blocked { color: #bd5e51; }
 
@@ -2941,7 +2968,7 @@ body.is-resizing-panel * {
   width: 13px;
   height: 13px;
   border-radius: 3px;
-  background: linear-gradient(135deg, #3195ff, #4267e8);
+  background: linear-gradient(135deg, var(--theme-blue), var(--theme-blue-dark));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
 }
 
@@ -3321,7 +3348,7 @@ body.is-resizing-panel * {
   min-width: 2px;
   height: 100%;
   border-radius: inherit;
-  background: #2378ec;
+  background: var(--theme-blue-dark);
 }
 
 .context-category-list {
@@ -4040,7 +4067,7 @@ button.operation-call-row.is-cancelled:focus-visible {
 
 .add-selector > .plain-icon.is-active,
 .mode-indicator {
-  color: #286ea8;
+  color: var(--theme-blue-dark);
 }
 
 .add-menu {
@@ -4099,7 +4126,7 @@ button.operation-call-row.is-cancelled:focus-visible {
 
 .mode-indicator:hover {
   background: #edf4f8;
-  color: #164f7a;
+  color: var(--theme-blue-darker);
 }
 
 .inline-plan-card {
@@ -4517,7 +4544,7 @@ button.operation-call-row.is-cancelled:focus-visible {
 .plan-editor input:focus,
 .plan-editor textarea:focus,
 .plan-question-panel textarea:focus,
-.plan-review-bar > textarea:focus { border-color: rgba(43, 118, 173, 0.35); background: #fff; }
+.plan-review-bar > textarea:focus { border-color: rgba(49, 136, 244, 0.35); background: #fff; }
 
 .plan-editor-actions,
 .plan-review-actions {
@@ -4531,7 +4558,7 @@ button.operation-call-row.is-cancelled:focus-visible {
   margin: 16px 18px 0;
   padding: 14px;
   flex: 0 0 auto;
-  border: 1px solid rgba(45, 91, 122, 0.13);
+  border: 1px solid rgba(35, 120, 236, 0.13);
   border-radius: 8px;
   background: #f6fafc;
 }
@@ -4582,7 +4609,7 @@ button.operation-call-row.is-cancelled:focus-visible {
 
 .plan-question-options button:hover,
 .plan-question-options button.is-selected {
-  border-color: rgba(40, 110, 168, 0.18);
+  border-color: rgba(49, 136, 244, 0.18);
   color: #273338;
 }
 
@@ -4739,13 +4766,13 @@ button.operation-call-row.is-cancelled:focus-visible {
 }
 
 .markdown-content a {
-  color: #2878c8;
+  color: var(--theme-blue);
   text-decoration: none;
 }
 
 .markdown-content a:hover,
 .markdown-content a:focus-visible {
-  color: #165eaa;
+  color: var(--theme-blue-dark);
   text-decoration: underline;
   outline: none;
 }
@@ -5050,7 +5077,7 @@ button.operation-call-row.is-cancelled:focus-visible {
 
 .markdown-content input[type="checkbox"] {
   margin: 0 5px 0 0;
-  accent-color: #4e8fd2;
+  accent-color: var(--theme-blue);
 }
 
 .markdown-content img {

@@ -303,7 +303,7 @@ export function Composer({
               <footer><span>平均缓存命中率</span><strong>{contextSummary.cacheRate === undefined ? "尚无数据" : `${(contextSummary.cacheRate * 100).toFixed(1)}%`}</strong></footer>
             </div>
           </div>
-          <button className="model-button" type="button"><span>{model}</span><ChevronDown size={13} /></button><button className="plain-icon" disabled={isWaiting} type="button" aria-label="语音输入"><Mic size={16} /></button>{isRunning ? <button className="send-button stop-button" onClick={onCancel} type="button" aria-label="停止"><Square size={14} fill="currentColor" /></button> : <button className="send-button" disabled={isWaiting || Boolean(disabledReason)} type="submit" aria-label="发送"><ArrowUp size={18} /></button>}
+          <button className="model-button" type="button"><span>{model}</span><ChevronDown size={13} /></button><button className="plain-icon" disabled={isWaiting} type="button" aria-label="语音输入"><Mic size={16} /></button>{isRunning ? <button className="send-button stop-button" onClick={onCancel} type="button" aria-label="停止"><Square size={14} fill="currentColor" /></button> : <button className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || Boolean(disabledReason)} type="submit" aria-label="发送"><ArrowUp size={18} /></button>}
         </div>
       </div>
     </form>
