@@ -1,32 +1,27 @@
 import { ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Changes, Session } from "../../shared/contracts/runtime";
 import { RunTimeline } from "./RunTimeline";
 
-// === 滚动跟随状态机(第一性设计)===
+// === 滚动跟随状态机 + 边缘渐变消隐(第一性设计)===
 //
-// 核心思路:不依赖任何业务信号(lastOffset / onTextFrame / runCount),
-// 用一个 200ms 定时器在 "follow" 模式下持续把 scrollTop 钉在 scrollHeight。
-// 模式切换完全靠 onScroll 里的纯位置判断 + 滞后阈值。
+// 一、跟随状态机
+//   follow - 定时器每 200ms 把 scrollTop 钉到 scrollHeight
+//   paused - 定时器不做事,用户自由翻历史
+//   转换靠 onScroll 的纯位置判断 + 滞后阈值
 //
-// 状态:
-//   follow  - 定时器每 200ms 把 scrollTop 设到 scrollHeight
-//   paused  - 定时器什么都不做,用户自由翻历史
-//
-// 转换(在 onScroll 里,纯位置判断):
-//   follow + distance > PAUSE_THRESHOLD  → paused(用户明显向上滚)
-//   paused + distance < RESUME_THRESHOLD → follow(用户滚回底部)
-//   中间区间                              → 保持现状(过滤内容增长抖动)
-//
-// 为什么纯位置能工作:
-//   - 程序跟随期间 distance ≈ 0,永远 stay follow
-//   - 用户向上滚 → distance 变大 → 转 paused
-//   - 用户滚回底部 → distance < 8 → 转 follow
-//   - 内容增长瞬时滞后(几十像素)→ 在滞后区间内,不触发转换
+// 二、边缘渐变消隐(Codex 风格)
+//   关键:蒙层必须挂在"不滚动的祖先"上,否则会被 overflow 裁切或跟随内容滚。
+//   所以蒙层用 createPortal 渲染到 .conversation-main(overflow:hidden,不滚动),
+//   而不是挂在 .conversation-scroll(overflow-y:auto,会裁切)内部。
+//   - 顶部蒙层:紧贴 .conversation-main 顶部
+//   - 底部蒙层:紧贴对话框上边缘(bottom = composer-dock 实际高度,用 ResizeObserver 动态测)
 
-const RESUME_THRESHOLD = 8;   // 距底部 ≤ 8px:恢复跟随
-const PAUSE_THRESHOLD = 60;   // 距底部 > 60px(且当前 follow):暂停跟随
-const POLL_INTERVAL_MS = 200; // follow 模式下的轮询间隔
+const RESUME_THRESHOLD = 8;
+const PAUSE_THRESHOLD = 60;
+const POLL_INTERVAL_MS = 200;
+const EDGE_THRESHOLD = 8;
 
 type FollowMode = "follow" | "paused";
 
@@ -45,7 +40,47 @@ export function Conversation({
 }) {
   const scrollRef = useRef<HTMLElement>(null);
   const modeRef = useRef<FollowMode>("follow");
-  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [notAtBottom, setNotAtBottom] = useState(false);
+  const [notAtTop, setNotAtTop] = useState(false);
+  // 底部蒙层的 bottom:从 main 底部到 composer 上沿的距离
+  // (= composer 跟底部的 margin + composer 上方可能出现的 hud/notice 高度 + composer 自身高度)
+  // 用 composer.offsetTop 反推:bottom = main.clientHeight - composer.offsetTop
+  const [composerBottomOffset, setComposerBottomOffset] = useState(0);
+  // 顶部偏移:.conversation-scroll 相对 .conversation-main 的 offsetTop
+  const [scrollOffsetTop, setScrollOffsetTop] = useState(0);
+  // Portal 目标:.conversation-main 元素
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+
+  // 找到 .conversation-main 作为 Portal 目标
+  useLayoutEffect(() => {
+    const parent = scrollRef.current?.parentElement;
+    if (parent && parent.classList.contains("conversation-main")) {
+      setPortalTarget(parent);
+    }
+  }, []);
+
+  // 动态测量:顶部蒙层 top + 底部蒙层 bottom
+  useLayoutEffect(() => {
+    if (!portalTarget || !scrollRef.current) return;
+    const scroll = scrollRef.current;
+    const updateLayout = () => {
+      // 顶部蒙层 top = scroll 相对 main 的 offsetTop
+      setScrollOffsetTop(scroll.offsetTop);
+      // 底部蒙层 bottom = composer 上沿距 main 底部的距离
+      // composer 是 .conversation-main 的直接子元素(dock 已删除)
+      const composer = portalTarget.querySelector(".composer") as HTMLElement | null;
+      if (composer) {
+        setComposerBottomOffset(portalTarget.clientHeight - composer.offsetTop);
+      }
+    };
+    updateLayout();
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(portalTarget);
+    // 观察 composer 以及它的兄弟(hud/notice 等显隐会改变 composer 位置)
+    const composer = portalTarget.querySelector(".composer");
+    if (composer) observer.observe(composer);
+    return () => observer.disconnect();
+  }, [portalTarget]);
 
   const distanceFromBottom = useCallback((el: HTMLElement) => {
     return el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -60,10 +95,9 @@ export function Conversation({
   const setMode = useCallback((next: FollowMode) => {
     if (modeRef.current === next) return;
     modeRef.current = next;
-    setShowScrollButton(next === "paused");
+    setNotAtBottom(next === "paused");
   }, []);
 
-  // 定时轮询:follow 模式下每 200ms 把 scrollTop 钉到底部
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (modeRef.current !== "follow") return;
@@ -72,43 +106,60 @@ export function Conversation({
     return () => window.clearInterval(timer);
   }, [scrollToBottom]);
 
-  // onScroll:纯位置判断决定模式切换
   const handleScroll = useCallback((event: React.BaseSyntheticEvent) => {
     const el = event.currentTarget as HTMLElement;
     const distance = distanceFromBottom(el);
     if (modeRef.current === "follow") {
-      // 跟随中:只有明显远离底部(> 60px)才暂停,容忍内容增长抖动
       if (distance > PAUSE_THRESHOLD) setMode("paused");
     } else {
-      // 暂停中:只有非常接近底部(< 8px)才恢复跟随
       if (distance < RESUME_THRESHOLD) setMode("follow");
     }
+    setNotAtTop(el.scrollTop >= EDGE_THRESHOLD);
+    setNotAtBottom(distance >= EDGE_THRESHOLD);
   }, [distanceFromBottom, setMode]);
 
-  // 切换 session:强制 follow(新会话从头看到底)
   useEffect(() => {
     setMode("follow");
-    // 切换后立即滚到底(不等下一个 200ms tick)
     requestAnimationFrame(scrollToBottom);
   }, [session?.sessionId, setMode, scrollToBottom]);
 
-  // 新 run 开始(用户发了新消息):强制 follow(用户显然想看新输出)
   const runCount = session?.runs.length ?? 0;
   const prevRunCountRef = useRef(runCount);
   useEffect(() => {
     if (runCount > prevRunCountRef.current) {
       setMode("follow");
-      // 新 run 的 DOM 可能要一两帧才渲染出来,延两帧再滚
       requestAnimationFrame(() => requestAnimationFrame(scrollToBottom));
     }
     prevRunCountRef.current = runCount;
   }, [runCount, setMode, scrollToBottom]);
 
-  // 用户点"滚动到底部"按钮
   const handleScrollToBottomClick = useCallback(() => {
     setMode("follow");
     scrollToBottom();
   }, [setMode, scrollToBottom]);
+
+  // 蒙层通过 Portal 渲染到 .conversation-main
+  // - 顶部蒙层:top = scrollOffsetTop(对话区顶部相对 main 的偏移),紧贴对话区上沿
+  // - 底部蒙层:bottom = composerBottomOffset(composer 上沿距 main 底部),紧贴对话框上沿
+  const fades = portalTarget ? createPortal(
+    <>
+      {notAtTop && (
+        <div
+          className="conversation-fade-top"
+          style={{ top: `${scrollOffsetTop}px` }}
+          aria-hidden="true"
+        />
+      )}
+      {notAtBottom && (
+        <div
+          className="conversation-fade-bottom"
+          style={{ bottom: `${composerBottomOffset}px` }}
+          aria-hidden="true"
+        />
+      )}
+    </>,
+    portalTarget
+  ) : null;
 
   return (
     <section
@@ -131,11 +182,13 @@ export function Conversation({
               />
             </div>
           ))}
+          <div className="conversation-column-bottom-spacer" />
         </div>
       ) : (
         <div className="conversation-empty-state"><h1>我们该构建什么？</h1></div>
       )}
-      {showScrollButton && (
+      {fades}
+      {notAtBottom && (
         <button
           aria-label="滚动到底部"
           className="scroll-to-bottom-button"
