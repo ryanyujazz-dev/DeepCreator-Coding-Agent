@@ -334,7 +334,7 @@ textarea:disabled {
   width: min(890px, 100%);
   overflow: visible;
   border: 1px solid rgba(52, 64, 68, 0.08);
-  border-radius: 22px;
+  border-radius: 28px;
   background: #ffffff;
   box-shadow:
     0 24px 58px rgba(39, 45, 46, 0.08),
@@ -592,6 +592,36 @@ textarea:disabled {
   scrollbar-width: thin;
 }
 
+/* 滚动到底部按钮:悬浮粘在对话区底部居中(紧贴 Composer 上边缘) */
+.scroll-to-bottom-button {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  margin: 0 auto;
+  padding: 0;
+  border: 1px solid rgba(44, 57, 62, 0.12);
+  border-radius: 50%;
+  background: #ffffff;
+  color: #4f5b60;
+  cursor: pointer;
+  place-items: center;
+  box-shadow: 0 4px 14px rgba(39, 45, 46, 0.14);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.scroll-to-bottom-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(39, 45, 46, 0.2);
+  color: #1f2b30;
+}
+
+.scroll-to-bottom-button:active {
+  transform: translateY(0);
+}
+
 .conversation-column {
   width: min(860px, calc(100vw - 410px));
   margin: 0 auto;
@@ -688,10 +718,6 @@ textarea:disabled {
 
 .run-status-pill svg {
   transition: transform 160ms ease;
-}
-
-.run-status-pill.is-expanded svg {
-  transform: rotate(180deg);
 }
 
 .run-status-group {

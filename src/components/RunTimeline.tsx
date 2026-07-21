@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { projectDisplayTimeline } from "../../shared/projections/displaySegments";
 import { Run, Changes, Plan, isRunDone } from "../../shared/contracts/runtime";
@@ -49,7 +49,7 @@ export function RunTimeline({
         <span>{active
           ? (run.status === "waiting" ? "等待批准" : "正在工作")
           : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
-        <span>{elapsed(run)}</span><ChevronDown size={13} />
+        <span>{elapsed(run)}</span>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
       </button>
       {expanded && timelineEntries.length > 0 && (
         <section className="work-process" aria-label="工作过程">

@@ -4,6 +4,7 @@ import { Activity, Plan } from "../../shared/contracts/runtime";
 import { useStreamText } from "../stream/useStreamText";
 import { MarkdownContent } from "./MarkdownContent";
 import { InlinePlanCard } from "./InlinePlanCard";
+import { ThinkingLoader } from "./ThinkingLoader";
 
 function iconFor(activity: Activity) {
   if (activity.kind === "command") return <TerminalSquare size={13} />;
@@ -83,7 +84,10 @@ export function ActivityView({
     return (
       <article className="work-step thinking-step is-expanded">
         <div className="work-body">
-          <strong className="working-glow">正在思考</strong>
+          <strong className="working-glow">
+            <ThinkingLoader size={16} />
+            正在思考
+          </strong>
         </div>
       </article>
     );

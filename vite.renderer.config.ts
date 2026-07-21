@@ -7,7 +7,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: (id) => (id.includes("node_modules/mermaid") ? "mermaid" : undefined)
+        manualChunks: (id) => {
+          if (id.includes("node_modules/mermaid")) return "mermaid";
+          if (id.includes("node_modules/lottie-react") || id.includes("node_modules/lottie-web")) return "lottie";
+          return undefined;
+        }
       }
     }
   }

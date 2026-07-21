@@ -19,6 +19,7 @@ import { runningCommandElapsed } from "../../shared/projections/activityTiming";
 import { useStreamText } from "../stream/useStreamText";
 import { ActivityAggregateRenderer, ModificationFileRow } from "./ActivityGroupRenderer";
 import { MarkdownContent } from "./MarkdownContent";
+import { ThinkingLoader } from "./ThinkingLoader";
 
 function indicatorIcon(indicator: ActivityIndicator) {
   if (indicator.mode === "thinking") return <CircleDot size={13} />;
@@ -94,6 +95,7 @@ function ActivitySlotView({
               )
           : (
               <strong className={`activity-slot-label ${slot.logicalState === "active" ? "working-glow" : ""}`}>
+                {isThinking && <ThinkingLoader size={16} />}
                 <span className="activity-slot-label-text">{slot.visual.label}</span>
                 {commandElapsed && <span className="activity-slot-elapsed">{commandElapsed}</span>}
               </strong>
