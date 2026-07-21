@@ -342,9 +342,10 @@ textarea:disabled {
   border: 1px solid rgba(52, 64, 68, 0.08);
   border-radius: 28px;
   background: #ffffff;
+  /* 柔和淡阴影:小偏移 + 中等模糊 + 低透明度,不压迫圆角,像 ChatGPT/Claude 那种悬浮感 */
   box-shadow:
-    0 24px 58px rgba(39, 45, 46, 0.08),
-    0 2px 8px rgba(42, 46, 47, 0.04);
+    0 4px 20px rgba(39, 45, 46, 0.06),
+    0 1px 3px rgba(42, 46, 47, 0.04);
 }
 
 .composer textarea {
@@ -361,6 +362,9 @@ textarea:disabled {
   color: #293136;
   font-size: 15px;
   line-height: 1.5;
+  /* 跟随 .composer 的圆角(28px),否则 textarea 的矩形白色背景会盖住顶部圆角,
+     让对话框看起来是方的、阴影不跟随圆角。顶部用大圆角,底部直角(由 composer-row 接管)。 */
+  border-radius: 28px 28px 0 0;
 }
 
 .composer textarea::placeholder {
@@ -375,6 +379,8 @@ textarea:disabled {
   min-height: 47px;
   padding: 0 13px 8px 17px;
   background: #ffffff;
+  /* 底部圆角跟随 .composer,顶部直角接 textarea。否则矩形背景会盖住底部圆角 */
+  border-radius: 0 0 28px 28px;
 }
 
 .composer-left,
@@ -3112,10 +3118,10 @@ body.is-resizing-panel * {
 }
 
 .composer {
-  border-radius: 15px;
+  border-radius: 28px;
   box-shadow:
-    0 12px 32px rgba(39, 45, 46, 0.08),
-    0 1px 5px rgba(42, 46, 47, 0.05);
+    0 4px 16px rgba(39, 45, 46, 0.06),
+    0 1px 3px rgba(42, 46, 47, 0.04);
 }
 
 .composer-dock .composer {
