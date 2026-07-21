@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
-import { CSSProperties, FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 
@@ -45,6 +45,22 @@ export function Composer({
   mode: Mode;
 }) {
   const [draft, setDraft] = useState("");
+  // textarea 自适应高度:初始 2 行,随内容增长最高到 8 行,超过 8 行内部滚动。
+  // CSS 里 min-height/max-height 已经把范围限定到 2~8 行,JS 只需根据 scrollHeight 设置 height。
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const COMPOSER_MIN_HEIGHT = 78;   // ≈ 2 行(2 × 22.5 行高 + 30 padding)
+  const COMPOSER_MAX_HEIGHT = 210;  // ≈ 8 行(8 × 22.5 + 30)
+  const autoGrow = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    // 先重置为 auto,让 scrollHeight 反映真实内容高度(否则 height 会卡在上次值)
+    el.style.height = "auto";
+    const next = Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, el.scrollHeight));
+    el.style.height = `${next}px`;
+  }, []);
+  useEffect(() => {
+    autoGrow();
+  }, [draft, autoGrow]);
   const [accessMenuOpen, setAccessMenuOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
@@ -101,6 +117,9 @@ export function Composer({
     const prompt = draft.trim();
     if (!prompt || isRunning || isWaiting || disabledReason) return;
     setDraft("");
+    // 发送后 textarea 高度回到 2 行(清空内容后 autoGrow 会通过 useEffect 触发,
+    // 但 inline style.height 可能卡在大值,这里显式重置让 useEffect 立即生效)
+    if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
     onSubmit(prompt);
   }
   function submit(event: FormEvent) {
@@ -191,7 +210,7 @@ export function Composer({
   }
   return (
     <form className="composer" onSubmit={submit}>
-      <textarea aria-label="输入任务" disabled={isRunning || isWaiting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "Agent 正在处理" : "随心输入")} value={draft} />
+      <textarea aria-label="输入任务" disabled={isRunning || isWaiting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "Agent 正在处理" : "随心输入")} ref={textareaRef} value={draft} />
       <div className="composer-row">
         <div className="composer-left">
           <div className="add-selector">

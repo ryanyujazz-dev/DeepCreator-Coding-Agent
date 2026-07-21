@@ -355,10 +355,13 @@ textarea:disabled {
 .composer textarea {
   display: block;
   width: 100%;
-  height: 78px;
+  /* 高度由 JS 的 autoGrow 函数控制(inline style.height),CSS 只设上下限。
+     min=78px ≈ 2 行(2 × 22.5 行高 + 30 padding),
+     max=210px ≈ 8 行(8 × 22.5 + 30),超过 8 行用滚动条。 */
   min-height: 78px;
-  max-height: 220px;
+  max-height: 210px;
   resize: none;
+  overflow-y: auto;
   padding: 24px 20px 6px;
   border: 0;
   outline: 0;

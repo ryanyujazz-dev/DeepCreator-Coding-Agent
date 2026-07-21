@@ -111,11 +111,14 @@ export function Conversation({
     const distance = distanceFromBottom(el);
     if (modeRef.current === "follow") {
       if (distance > PAUSE_THRESHOLD) setMode("paused");
+      // 跟随模式下强制认为在底部(蒙层/按钮都不显示),避免 distance 在阈值附近
+      // 抖动导致 notAtBottom 在 true/false 之间反复切换 → 蒙层挂载/卸载 → 布局变化 → 抖动
+      setNotAtBottom(false);
     } else {
       if (distance < RESUME_THRESHOLD) setMode("follow");
+      setNotAtBottom(distance >= EDGE_THRESHOLD);
     }
     setNotAtTop(el.scrollTop >= EDGE_THRESHOLD);
-    setNotAtBottom(distance >= EDGE_THRESHOLD);
   }, [distanceFromBottom, setMode]);
 
   useEffect(() => {
