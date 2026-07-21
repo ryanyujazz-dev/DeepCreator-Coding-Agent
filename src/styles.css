@@ -4612,7 +4612,7 @@ button.operation-call-row.is-cancelled:focus-visible {
   margin: 4px 0;
   border: 0;
   border-radius: 8px;
-  background: #eef4f7;
+  background: #f5f7f9;
 }
 
 .markdown-code-block > header {
@@ -4726,7 +4726,7 @@ button.operation-call-row.is-cancelled:focus-visible {
   overflow: auto;
   max-height: min(420px, 45vh);
   padding: 24px 16px;
-  background: #ffffff;
+  background: #f5f7f9;
   cursor: zoom-in;
   scrollbar-color: rgba(85, 113, 126, 0.32) transparent;
   scrollbar-width: thin;

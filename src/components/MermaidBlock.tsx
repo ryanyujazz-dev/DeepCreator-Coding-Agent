@@ -15,24 +15,24 @@ function loadMermaid(): Promise<MermaidApi> {
         startOnLoad: false,
         theme: "base",
         themeVariables: {
-          background: "#ffffff",
+          background: "transparent",
           fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
           fontSize: "14px",
-          primaryColor: "#f5f5f5",
+          primaryColor: "#ffffff",
           primaryTextColor: "#1a1a1a",
           primaryBorderColor: "#2a2a2a",
           lineColor: "#3a3a3a",
-          secondaryColor: "#ededed",
-          tertiaryColor: "#f0f0f0",
+          secondaryColor: "#f0f2f4",
+          tertiaryColor: "#f5f7f9",
           textColor: "#1a1a1a",
           nodeBorder: "#2a2a2a",
-          clusterBkg: "#fafafa",
+          clusterBkg: "transparent",
           clusterBorder: "#bfbfbf",
           edgeLabelBackground: "#ffffff",
-          mainBkg: "#f5f5f5",
-          secondBkg: "#ededed",
-          oddColor: "#f7f7f7",
-          evenColor: "#ffffff",
+          mainBkg: "#ffffff",
+          secondBkg: "#f0f2f4",
+          oddColor: "#fafbfc",
+          evenColor: "transparent",
           // sequence diagram
           actorBkg: "#f5f5f5",
           actorBorder: "#2a2a2a",
@@ -98,11 +98,15 @@ function normalizeSvgForDisplay(originalSvg: string): string {
   svgEl.setAttribute("shape-rendering", "geometricPrecision");
   svgEl.setAttribute("text-rendering", "geometricPrecision");
   const style = svgEl.getAttribute("style");
-  if (style && /max-width\s*:/i.test(style)) {
-    svgEl.setAttribute(
-      "style",
-      style.replace(/max-width\s*:[^;]+;?/gi, "")
-    );
+  if (style) {
+    // 移除 mermaid 注入的 max-width 和任何 background-color,
+    // 让 SVG 背景透明,继承容器(代码块)的主题色
+    const cleaned = style
+      .replace(/max-width\s*:[^;]+;?/gi, "")
+      .replace(/background(-color)?\s*:[^;]+;?/gi, "")
+      .trim();
+    if (cleaned) svgEl.setAttribute("style", cleaned);
+    else svgEl.removeAttribute("style");
   }
   return new XMLSerializer().serializeToString(svgEl);
 }
