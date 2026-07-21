@@ -4,6 +4,7 @@ import { ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { StreamFragment } from "../stream/textFlow";
+import { MermaidBlock } from "./MermaidBlock";
 
 type FadeRange = {
   end: number;
@@ -87,6 +88,7 @@ function CodeBlock({ children, followOutput }: { children: ReactNode; followOutp
     jsx: "JSX",
     markdown: "Markdown",
     md: "Markdown",
+    mermaid: "Mermaid",
     python: "Python",
     py: "Python",
     shell: "Shell",
@@ -98,6 +100,9 @@ function CodeBlock({ children, followOutput }: { children: ReactNode; followOutp
     yaml: "YAML",
     yml: "YAML"
   };
+  if (language === "mermaid") {
+    return <MermaidBlock code={code} followOutput={followOutput} />;
+  }
   useEffect(() => {
     const output = outputRef.current;
     if (!followOutput || !stickToEnd.current || !output) return;

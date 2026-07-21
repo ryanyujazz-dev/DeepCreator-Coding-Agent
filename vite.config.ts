@@ -9,5 +9,12 @@ export default defineConfig({
       "/api": "http://127.0.0.1:8787"
     },
     strictPort: false
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => (id.includes("node_modules/mermaid") ? "mermaid" : undefined)
+      }
+    }
   }
 });
