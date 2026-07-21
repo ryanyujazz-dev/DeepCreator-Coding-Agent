@@ -489,11 +489,11 @@ textarea:disabled {
 }
 
 .stop-button {
-  background: #1f2427;
+  background: #ff6a43;
 }
 
 .stop-button:hover {
-  background: #3a4145;
+  background: #e8552f;
 }
 
 .context-row {
@@ -1522,12 +1522,18 @@ textarea:disabled {
   line-height: 1.62;
 }
 
-.work-process .thinking-step .work-body strong,
 .work-process .tool-step .work-body strong {
   color: var(--process-muted-color);
   font-size: var(--process-meta-size);
   font-weight: 500;
   line-height: 1.5;
+}
+
+.work-process .thinking-step .work-body strong {
+  color: var(--process-content-color);
+  font-size: var(--process-content-size);
+  font-weight: 500;
+  line-height: 1.62;
 }
 
 .thinking-step.is-collapsed .work-body strong,

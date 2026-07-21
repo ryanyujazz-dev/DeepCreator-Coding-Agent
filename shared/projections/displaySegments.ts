@@ -101,8 +101,17 @@ function compareTransitions(left: Transition, right: Transition): number {
 
 function projectActivitySlots(transients: IndexedActivity[]): ActivitySlot[] {
   if (transients.length === 0) return [];
+  // 规则:只要有任何工具正在调用(status === "running"),正在思考就让位给工具;
+  // 工具结束后,思考可以重新回到活动槽位。
+  const hasRunningTool = transients.some(
+    (entry) => entry.activity.kind !== "thinking" && entry.activity.status === "running"
+  );
+  const filteredTransients = hasRunningTool
+    ? transients.filter((entry) => entry.activity.kind !== "thinking")
+    : transients;
+  if (filteredTransients.length === 0) return [];
   const transitions: Transition[] = [];
-  for (const transient of transients) {
+  for (const transient of filteredTransients) {
     transitions.push({ activity: transient.activity, at: transient.activity.startedAt, index: transient.index, type: "start" });
     if (transient.activity.status !== "running") {
       transitions.push({

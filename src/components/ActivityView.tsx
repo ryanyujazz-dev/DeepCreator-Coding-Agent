@@ -79,7 +79,7 @@ export function ActivityView({
   const [commandExpanded, setCommandExpanded] = useState(false);
   if (activity.audience === "internal") return null;
   if (activity.kind === "thinking") {
-    if (!runActive || activity.status !== "running") return null;
+    if (!runActive || (activity.status !== "running" && activity.status !== "suspended")) return null;
     return (
       <article className="work-step thinking-step is-expanded">
         <div className="work-body">

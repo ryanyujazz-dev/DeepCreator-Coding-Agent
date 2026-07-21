@@ -107,7 +107,7 @@ export function finishRun(input: {
     terminalPhase: status
   });
 
-  for (const activity of run.activities.filter((item) => item.status === "running")) {
+  for (const activity of run.activities.filter((item) => item.status === "running" || item.status === "suspended")) {
     input.store.append({
       runId: input.runId,
       data: {

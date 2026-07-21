@@ -39,6 +39,6 @@ export function assertEventTransition(session: Session, draft: EventDraft): void
   if (ACTIVITY_UPDATE_TYPES.has(draft.type)) {
     const activity = run.activities.find((item) => item.activityId === draft.scope.activityId);
     if (!activity) throw new Error(`${draft.type} requires an existing Activity.`);
-    if (activity.status !== "running") throw new Error(`Cannot append ${draft.type} to a finished Activity.`);
+    if (activity.status !== "running" && activity.status !== "suspended") throw new Error(`Cannot append ${draft.type} to a finished Activity.`);
   }
 }
