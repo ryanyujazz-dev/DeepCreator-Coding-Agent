@@ -141,10 +141,12 @@ export function Conversation({
     scrollToBottom();
   }, [setMode, scrollToBottom]);
 
-  // 蒙层通过 Portal 渲染到 .conversation-main
+  // 蒙层 + 滚动按钮通过 Portal 渲染到 .conversation-main
   // - 顶部蒙层:top = scrollOffsetTop(对话区顶部相对 main 的偏移),紧贴对话区上沿
   // - 底部蒙层:bottom = composerBottomOffset(composer 上沿距 main 底部),紧贴对话框上沿
-  const fades = portalTarget ? createPortal(
+  // - 滚动按钮:跟底部蒙层同 bottom,水平居中。用 absolute 而非 sticky,不占文档流空间,
+  //   避免 sticky 占位导致 scrollHeight 变化引起滚到最末端时的抖动。
+  const overlays = portalTarget ? createPortal(
     <>
       {notAtTop && (
         <div
@@ -159,6 +161,18 @@ export function Conversation({
           style={{ bottom: `${composerBottomOffset}px` }}
           aria-hidden="true"
         />
+      )}
+      {notAtBottom && (
+        <button
+          aria-label="滚动到底部"
+          className="scroll-to-bottom-button"
+          onClick={handleScrollToBottomClick}
+          style={{ bottom: `${composerBottomOffset + 12}px` }}
+          title="滚动到底部"
+          type="button"
+        >
+          <ChevronDown size={18} />
+        </button>
       )}
     </>,
     portalTarget
@@ -190,18 +204,7 @@ export function Conversation({
       ) : (
         <div className="conversation-empty-state"><h1>我们该构建什么？</h1></div>
       )}
-      {fades}
-      {notAtBottom && (
-        <button
-          aria-label="滚动到底部"
-          className="scroll-to-bottom-button"
-          onClick={handleScrollToBottomClick}
-          title="滚动到底部"
-          type="button"
-        >
-          <ChevronDown size={18} />
-        </button>
-      )}
+      {overlays}
     </section>
   );
 }
