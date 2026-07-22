@@ -253,41 +253,39 @@ export function App() {
             <div className="window-actions"><button className="icon-button" aria-label="视图设置"><SlidersHorizontal size={14} /></button><button className="icon-button" aria-label="工作区面板"><PanelRight size={14} /></button></div>
             <Inspector onOpenReview={openReviewSurface} session={session} workspace={workspace} />
             <Conversation onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
-            <div className="composer-dock">
-              {currentRun && (
-                <div
-                  aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
-                  className={`composer-hud is-${currentRun.status} ${activeRun && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}
-                >
-                  <span className={agentRunning ? "working-glow" : ""}>{waitingRun ? "等待决定" : activeRun ? "正在执行" : "最近工作"}</span>
-                  <strong className={agentRunning ? "working-glow" : ""}>{workLabel}</strong>
-                  <span>{currentDelta.fileCount} 个文件已更改 <b>+{currentDelta.additions}</b> <i>-{currentDelta.deletions}</i></span>
-                </div>
-              )}
-              {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
-              {window.deepseeker && !session && projectRoot && <div className="composer-notice">新任务将运行在 <strong>{projectRoot}</strong></div>}
-              {workspace?.exists === false && <div className="composer-error">项目目录不存在，请新建任务并重新选择项目。</div>}
-              {error && <div className="composer-error">{error}</div>}
-              <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
-              <Composer
-                contextConfig={config}
-                contextObserver={contextObserver}
-                disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : projectRoot ? undefined : "请先选择项目文件夹"}
-                isRunning={agentRunning}
-                isWaiting={Boolean(waitingRun)}
-                model={model}
-                onCancel={() => void cancelRun()}
-                onAccessModeChange={(mode) => void setAccessMode(mode)}
-                onModeChange={(nextMode) => void setMode(nextMode)}
-                onAnswerQuestion={answerQuestion}
-                onResolvePlan={resolvePlan}
-                onSubmit={(prompt) => void startRun(prompt)}
-                pendingPlan={pendingPlan}
-                pendingQuestion={pendingQuestion}
-                accessMode={accessMode}
-                mode={mode}
-              />
-            </div>
+            {currentRun && (
+              <div
+                aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
+                className={`composer-hud is-${currentRun.status} ${activeRun && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}
+              >
+                <span className={agentRunning ? "working-glow" : ""}>{waitingRun ? "等待决定" : activeRun ? "正在执行" : "最近工作"}</span>
+                <strong className={agentRunning ? "working-glow" : ""}>{workLabel}</strong>
+                <span>{currentDelta.fileCount} 个文件已更改 <b>+{currentDelta.additions}</b> <i>-{currentDelta.deletions}</i></span>
+              </div>
+            )}
+            {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
+            {window.deepseeker && !session && projectRoot && <div className="composer-notice">新任务将运行在 <strong>{projectRoot}</strong></div>}
+            {workspace?.exists === false && <div className="composer-error">项目目录不存在，请新建任务并重新选择项目。</div>}
+            {error && <div className="composer-error">{error}</div>}
+            <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
+            <Composer
+              contextConfig={config}
+              contextObserver={contextObserver}
+              disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : projectRoot ? undefined : "请先选择项目文件夹"}
+              isRunning={agentRunning}
+              isWaiting={Boolean(waitingRun)}
+              model={model}
+              onCancel={() => void cancelRun()}
+              onAccessModeChange={(mode) => void setAccessMode(mode)}
+              onModeChange={(nextMode) => void setMode(nextMode)}
+              onAnswerQuestion={answerQuestion}
+              onResolvePlan={resolvePlan}
+              onSubmit={(prompt) => void startRun(prompt)}
+              pendingPlan={pendingPlan}
+              pendingQuestion={pendingQuestion}
+              accessMode={accessMode}
+              mode={mode}
+            />
           </div>
           <SurfacePane
             activeSurfaceId={activeSurface?.id ?? null}

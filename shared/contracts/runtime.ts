@@ -1,7 +1,7 @@
 export const EVENT_VERSION = "deepseeker.events/v2" as const;
 
 export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
-export type ActivityStatus = "running" | "completed" | "failed" | "cancelled";
+export type ActivityStatus = "running" | "suspended" | "completed" | "failed" | "cancelled";
 export type Audience = "user" | "debug" | "internal";
 export type Mode = "work" | "plan";
 export type PlanEntry = "manual" | "suggest" | "auto";

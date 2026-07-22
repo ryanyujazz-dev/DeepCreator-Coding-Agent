@@ -446,7 +446,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       throw new ModelProtocolError(response.protocolIssue.message);
     }
 
-    if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "completed" });
+    if (thinkingActivity) finishActivity(input, thinkingActivity, { status: response.toolCalls.length > 0 ? "suspended" : "completed" });
     if (answerActivity) finishActivity(input, answerActivity, { status: "completed" });
     if (response.answer.trim()) answer = response.answer.trim();
     messages.push(response.continuationMessage);

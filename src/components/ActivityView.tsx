@@ -4,6 +4,7 @@ import { Activity, Plan } from "../../shared/contracts/runtime";
 import { useStreamText } from "../stream/useStreamText";
 import { MarkdownContent } from "./MarkdownContent";
 import { InlinePlanCard } from "./InlinePlanCard";
+import { ThinkingLoader } from "./ThinkingLoader";
 
 function iconFor(activity: Activity) {
   if (activity.kind === "command") return <TerminalSquare size={13} />;
@@ -36,6 +37,8 @@ function fileActionLabel(activity: Activity): string {
   if (activity.status === "failed") return "失败";
   if (activity.status === "cancelled") return "已取消";
   if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
+  if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "已搜索";
+  if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "已匹配";
   if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
   if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
   return activity.status === "running" ? "正在处理" : "已处理";
@@ -79,11 +82,14 @@ export function ActivityView({
   const [commandExpanded, setCommandExpanded] = useState(false);
   if (activity.audience === "internal") return null;
   if (activity.kind === "thinking") {
-    if (!runActive || activity.status !== "running") return null;
+    if (!runActive || (activity.status !== "running" && activity.status !== "suspended")) return null;
     return (
       <article className="work-step thinking-step is-expanded">
         <div className="work-body">
-          <strong className="working-glow">正在思考</strong>
+          <strong className="working-glow">
+            <ThinkingLoader size={16} />
+            正在思考
+          </strong>
         </div>
       </article>
     );

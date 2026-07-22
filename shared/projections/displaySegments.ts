@@ -68,6 +68,8 @@ function toolStartLabel(activity: Activity): string {
   let action = "正在执行";
   if (activity.tool?.toolName === "read_file") action = "正在读取";
   else if (activity.tool?.toolName === "list_files") action = "正在列出";
+  else if (activity.tool?.toolName === "grep") action = "正在搜索";
+  else if (activity.tool?.toolName === "glob") action = "正在匹配";
   else if (activity.tool?.toolName === "write_file") action = "正在创建";
   else if (activity.tool?.toolName === "edit_file") action = "正在编辑";
   else if (activity.tool?.toolName === "delete_file") action = "正在删除";
@@ -101,8 +103,17 @@ function compareTransitions(left: Transition, right: Transition): number {
 
 function projectActivitySlots(transients: IndexedActivity[]): ActivitySlot[] {
   if (transients.length === 0) return [];
+  // 规则:只要有任何工具正在调用(status === "running"),正在思考就让位给工具;
+  // 工具结束后,思考可以重新回到活动槽位。
+  const hasRunningTool = transients.some(
+    (entry) => entry.activity.kind !== "thinking" && entry.activity.status === "running"
+  );
+  const filteredTransients = hasRunningTool
+    ? transients.filter((entry) => entry.activity.kind !== "thinking")
+    : transients;
+  if (filteredTransients.length === 0) return [];
   const transitions: Transition[] = [];
-  for (const transient of transients) {
+  for (const transient of filteredTransients) {
     transitions.push({ activity: transient.activity, at: transient.activity.startedAt, index: transient.index, type: "start" });
     if (transient.activity.status !== "running") {
       transitions.push({

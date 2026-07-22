@@ -47,6 +47,8 @@ function memberLabel(activity: Activity): string {
   if (activity.tool?.toolName === "run_command") return `${activity.status === "running" ? "正在运行" : "已运行"} ${target}`;
   if (activity.tool?.toolName === "read_file") return `${activity.status === "running" ? "正在读取" : "已读取"} ${target}`;
   if (activity.tool?.toolName === "list_files") return `${activity.status === "running" ? "正在列出" : "已列出"} ${target}`;
+  if (activity.tool?.toolName === "grep") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
+  if (activity.tool?.toolName === "glob") return `${activity.status === "running" ? "正在匹配" : "已匹配"} ${target}`;
   if (activity.tool?.action === "search") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
   if (activity.tool?.action === "modify") return `${activity.status === "running" ? "正在修改" : "已修改"} ${target}`;
   return `${activity.status === "running" ? "正在执行" : "已完成"} ${target}`;
@@ -56,6 +58,8 @@ function fileActionLabel(activity: Activity): string {
   if (activity.status === "failed") return "失败";
   if (activity.status === "cancelled") return "已取消";
   if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
+  if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "已搜索";
+  if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "已匹配";
   if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
   if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
   return activity.status === "running" ? "正在处理" : "已处理";
@@ -66,6 +70,8 @@ function directActionLabel(activity: Activity): string {
   if (activity.status === "failed") {
     if (activity.tool?.action === "modify") return "修改失败";
     if (activity.tool?.toolName === "read_file") return "读取失败";
+    if (activity.tool?.toolName === "grep") return "搜索失败";
+    if (activity.tool?.toolName === "glob") return "匹配失败";
     return "执行失败";
   }
   if (activity.status === "cancelled") return "已取消";
@@ -73,6 +79,8 @@ function directActionLabel(activity: Activity): string {
   if (activity.tool?.toolName === "edit_file") return active ? "正在编辑" : "已编辑";
   if (activity.tool?.toolName === "delete_file") return active ? "正在删除" : "已删除";
   if (activity.tool?.toolName === "read_file") return active ? "正在读取" : "已读取";
+  if (activity.tool?.toolName === "grep") return active ? "正在搜索" : "已搜索";
+  if (activity.tool?.toolName === "glob") return active ? "正在匹配" : "已匹配";
   if (activity.tool?.action === "search") return active ? "正在搜索" : "已搜索";
   return active ? "正在处理" : "已处理";
 }
@@ -82,6 +90,8 @@ function expandedActionLabel(group: ActivityGroup, members: Activity[]): string 
   if (group.category === "execute") return group.status === "failed" ? "运行失败的命令" : "已运行的命令";
   if (group.category === "verify") return group.status === "failed" ? "验证失败的命令" : "已验证的命令";
   if (members.every((activity) => activity.tool?.toolName === "read_file")) return "已读取的文件";
+  if (members.every((activity) => activity.tool?.toolName === "grep")) return group.status === "failed" ? "失败的搜索" : "搜索记录";
+  if (members.every((activity) => activity.tool?.toolName === "glob")) return group.status === "failed" ? "失败的匹配" : "匹配记录";
   if (members.every((activity) => activity.tool?.action === "search")) return "搜索记录";
   return "检查记录";
 }
@@ -113,6 +123,8 @@ function commandOutput(activity: Activity): string {
 
 function detailTitle(activity: Activity): string {
   if (activity.tool?.toolName === "run_command") return "Shell";
+  if (activity.tool?.toolName === "grep") return "grep";
+  if (activity.tool?.toolName === "glob") return "glob";
   if (activity.tool?.toolName === "read_file") return activity.tool.displayTarget || "文件内容";
   if (activity.tool?.toolName === "list_files") return "目录内容";
   if (activity.tool?.action === "search") return "搜索结果";

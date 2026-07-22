@@ -219,14 +219,22 @@ export function reduceEvent(current: Session, event: Event): Session {
       run.finishedAt = data.finishedAt;
       run.resume = clone(data.resume);
       run.status = data.status;
-      run.activities = run.activities.map((activity) => activity.status === "running"
-        ? {
+      run.activities = run.activities.map((activity) => {
+        if (activity.status === "running") {
+          return {
             ...activity,
             error: data.error,
             finishedAt: data.finishedAt,
             status: data.status === "cancelled" ? "cancelled" : "failed"
-          }
-        : activity);
+          };
+        }
+        // 挂起的思考(thinking suspended)在 run 结束时归到 completed:
+        // run 都结束了,思考不可能再恢复。
+        if (activity.status === "suspended") {
+          return { ...activity, finishedAt: data.finishedAt, status: "completed" };
+        }
+        return activity;
+      });
       run.approvals = run.approvals.map((approval) => approval.state === "pending"
         ? { ...approval, state: "dismissed" }
         : approval);
