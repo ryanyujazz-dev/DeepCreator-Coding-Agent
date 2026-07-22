@@ -184,6 +184,20 @@ app.get("/api/config", async () => ({
   workspaceRoot
 }));
 
+// 查询账户余额。前端 60s 轮询一次,用于在 context-meter popover 显示剩余额度。
+// 复用 providerFor 闭包拿到 provider(已持有解密后的 apiKey)。
+// 失败静默:前端 catch 后显示"尚无数据",不打扰用户。
+app.get("/api/balance", async (_request, reply) => {
+  try {
+    if (!hasApiKey) return reply.code(400).send({ error: "未配置 API Key。" });
+    const { provider } = providerFor(defaultModel);
+    if (!provider.getBalance) return reply.code(501).send({ error: "当前 provider 不支持余额查询。" });
+    return await provider.getBalance();
+  } catch (error) {
+    return reply.code(502).send({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 app.get<{ Querystring: { query?: string } }>("/api/sessions", async (request) => ({
   sessions: store.listSessions(request.query.query ?? "")
 }));

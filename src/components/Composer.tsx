@@ -1,7 +1,7 @@
 import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
 import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
-import { RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
+import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 
 const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
   { description: "外部访问和有风险的操作会先询问", icon: ShieldAlert, key: "request_approval", label: "请求批准" },
@@ -10,6 +10,7 @@ const accessOptions: Array<{ description: string; icon: typeof Shield; key: Acce
 ];
 
 export function Composer({
+  balance,
   contextConfig,
   contextObserver,
   disabledReason,
@@ -27,6 +28,7 @@ export function Composer({
   accessMode,
   mode
 }: {
+  balance?: RuntimeBalance | null;
   contextConfig: RuntimeConfig | null;
   contextObserver: RuntimeContextObserver | null;
   disabledReason?: string;
@@ -302,6 +304,7 @@ export function Composer({
                 <span>本轮加载 <b>{contextSummary.guidanceLoaded}</b> 项规范 · <b>{contextSummary.skillsLoaded}</b> 个技能 · <b>{contextSummary.capabilitiesLoaded}</b> 个能力 · 裁剪 <b>{contextSummary.evidenceTrimmed}</b> 项证据</span>
                 <span>有效预算 {formatTokens(contextSummary.effectiveBudget)} · 压缩阈值 {formatTokens(contextSummary.compactThreshold)}{contextSummary.compacted ? " · 已压缩" : ""}</span>
               </div>
+              <footer><span>账户余额</span><strong>{formatBalance(balance)}</strong></footer>
               <footer><span>平均缓存命中率</span><strong>{contextSummary.cacheRate === undefined ? "尚无数据" : `${(contextSummary.cacheRate * 100).toFixed(1)}%`}</strong></footer>
             </div>
           </div>
@@ -317,4 +320,17 @@ function formatTokens(value: number): string {
   if (value >= 10_000) return `${(value / 10_000).toFixed(1)}万`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
   return String(value);
+}
+
+// 格式化账户余额。参考 cacheRate === undefined ? "尚无数据" 的现有风格:
+// - balance 为 null(未配置 key 或查询失败)→ "尚无数据"
+// - isAvailable: false(账户被禁用)→ "不可用"
+// - 正常 → "¥9.23" / "$1.50"(按 currency 判断货币符号)
+function formatBalance(value: RuntimeBalance | null | undefined): string {
+  if (!value) return "尚无数据";
+  if (!value.isAvailable) return "不可用";
+  const info = value.balanceInfos[0];
+  if (!info) return "尚无数据";
+  const symbol = info.currency === "CNY" ? "¥" : info.currency === "USD" ? "$" : "";
+  return `${symbol}${info.totalBalance.toFixed(2)}`;
 }

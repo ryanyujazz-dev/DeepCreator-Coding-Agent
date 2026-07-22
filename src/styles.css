@@ -3438,6 +3438,18 @@ body.is-resizing-panel * {
   border-top: 1px solid #eceeef;
 }
 
+/* 多个 footer 连续出现时(如"账户余额"和"平均缓存命中率"),第一个紧凑、无分隔线;
+   第二个起才显示上方的分隔线和间距,避免两道紧挨的横线 */
+.context-inspector-popover footer + footer {
+  margin-top: 9px;
+  padding-top: 8px;
+}
+.context-inspector-popover footer:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 .context-runtime-details {
   display: grid;
   margin-top: 10px;

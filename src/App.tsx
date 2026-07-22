@@ -59,6 +59,7 @@ export function App() {
     connection,
     contextObserver,
     currentRun,
+    balance,
     error,
     model,
     mode,
@@ -287,6 +288,7 @@ export function App() {
             {error && <div className="composer-error">{error}</div>}
             <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
             <Composer
+              balance={balance}
               contextConfig={config}
               contextObserver={contextObserver}
               disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : projectRoot ? undefined : "请先选择项目文件夹"}
