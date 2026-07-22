@@ -664,17 +664,20 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   const second = prompts.compileSystem("deepseek-v4-flash");
   assert.equal(first.hash, second.hash);
   // 系统提示词已升级为英文(对标 Codex/Claude Code)。
-  // ADR-007: identity 2.1.0(统一 <system-reminder> 标签声明)
-  // 执行叙事: coding_behavior 2.1.0(preamble+progress+双通道引导)
-  // P1/P2: tool_policy 2.1.0(并行示例)、doing_tasks 1.1.0(commit 规范)、output_style 1.3.0(格式粒度+语言+preamble修正)
+  // P0: safety 1.0.0(安全拒绝)、coding_behavior 2.4.0(+reasoning approach)
+  // ADR-007 标签统一: identity 2.1.0、tool_policy 2.2.0、plan_policy 2.1.0
+  // 消除重叠: final_response 2.1.0
+  assert.match(first.version, /safety@1\.0\.0/);
   assert.match(first.version, /identity@2\.1\.0/);
-  assert.match(first.version, /coding_behavior@2\.3\.0/);
-  assert.match(first.version, /tool_policy@2\.1\.0/);
-  assert.match(first.version, /final_response@2\.0\.0/);
+  assert.match(first.version, /coding_behavior@2\.4\.0/);
+  assert.match(first.version, /tool_policy@2\.2\.0/);
+  assert.match(first.version, /plan_policy@2\.1\.0/);
+  assert.match(first.version, /final_response@2\.1\.0/);
   assert.match(first.version, /doing_tasks@1\.1\.0/);
   assert.match(first.version, /output_style@1\.3\.0/);
   assert.match(first.text, /structured tool_calls/);
-  assert.match(first.text, /Do not use emoji/);
+  assert.match(first.text, /Refuse to write or explain code that appears designed for malicious/);
+  assert.match(first.text, /Match your ambition to the context/);
   // 英文化后不应再出现中文提示词原文
   assert.doesNotMatch(first.text, /结构化 tool_calls/);
   assert.doesNotMatch(first.text, /不得使用 Emoji/);
