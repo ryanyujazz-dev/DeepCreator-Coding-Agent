@@ -22,6 +22,7 @@ export function Composer({
   onAccessModeChange,
   onModeChange,
   onAnswerQuestion,
+  onRefreshBalance,
   onResolvePlan,
   onSubmit,
   resetKey,
@@ -41,6 +42,7 @@ export function Composer({
   onAccessModeChange: (mode: AccessMode) => void;
   onModeChange: (mode: Mode) => void;
   onAnswerQuestion: (interactionId: string, answers: Record<string, string>) => Promise<void> | void;
+  onRefreshBalance: () => void;
   onResolvePlan: (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => Promise<void> | void;
   onSubmit: (prompt: string) => Promise<boolean>;
   pendingPlan?: Plan;
@@ -283,7 +285,7 @@ export function Composer({
           {mode === "plan" && <PillButton className="mode-indicator" disabled={isRunning || isWaiting} onClick={() => onModeChange("work")} title="退出计划模式"><Lightbulb size={14} /><span>计划</span></PillButton>}
         </div>
         <div className="composer-right">
-          <div className="context-meter" tabIndex={0} aria-label="上下文用量">
+          <div className="context-meter" tabIndex={0} aria-label="上下文用量" onMouseEnter={onRefreshBalance} onFocus={onRefreshBalance}>
             <span
               className="context-meter-ring"
               style={{ "--context-progress": `${Math.max(2, contextSummary.utilization * 100)}%` } as CSSProperties}

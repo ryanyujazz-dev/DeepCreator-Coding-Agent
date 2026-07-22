@@ -242,7 +242,29 @@ async function prepareRuntimeContext(
 }
 
 async function executeRun(input: RuntimeInput): Promise<void> {
-  const pipeline = new ToolPipeline(input.tools, input.rules);
+  // spawn_agent handler:携带 provider/registry/store 等运行时依赖注入到 pipeline。
+  // 子 Agent 在独立 Session 上运行,复用 runAgent,只返回最终摘要。
+  const spawnAgentHandler = async (args: { description: string; prompt: string; subagentType: "Explore" | "general-purpose" }) => {
+    const { spawnSubAgent } = await import("./subAgent");
+    return spawnSubAgent({
+      description: args.description,
+      prompt: args.prompt,
+      subagentType: args.subagentType,
+      parentRunId: input.runId,
+      parentSessionId: input.sessionId,
+      projectRoot: input.projectRoot,
+      model: input.model,
+      store: input.store,
+      tools: input.tools,
+      provider: input.provider,
+      registry: input.registry,
+      rules: input.rules,
+      capabilities: input.capabilities,
+      context: input.context,
+      signal: input.signal
+    });
+  };
+  const pipeline = new ToolPipeline(input.tools, input.rules, spawnAgentHandler);
   const session = input.store.getSession(input.sessionId);
   if (!session) throw new Error("Session 不存在。");
   const mode = session.mode === "plan" ? "agent" : classifyInteraction(input.prompt, session);

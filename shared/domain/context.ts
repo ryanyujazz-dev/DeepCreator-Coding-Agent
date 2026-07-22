@@ -1,5 +1,27 @@
-import { Checkpoint, ContextEntry } from "../contracts/context";
+import { Checkpoint, ContextEntry, SystemReminderType } from "../contracts/context";
 import { ModelMessage } from "../contracts/provider";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-007: 统一 <system-reminder> 标签构建器
+//
+// 所有运行时注入的信封都使用 <system-reminder type="..."> 格式,
+// 替换原有的 <stable_session_context> / <mode_context> / <recovery_capsule> /
+// <compaction_checkpoint> / 裸文本 context_update。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 构建统一格式的 system-reminder 消息文本 */
+export function systemReminder(type: SystemReminderType, body: string): string {
+  return `<system-reminder type="${type}">\n${body}\n</system-reminder>`;
+}
+
+/** 构建带 revision 指纹的 system-reminder(用于 L1 session 层,可检测内容漂移) */
+export function systemReminderWithRevision(
+  type: SystemReminderType,
+  revision: string,
+  body: string
+): string {
+  return `<system-reminder type="${type}" revision="${revision}">\n${body}\n</system-reminder>`;
+}
 
 export function modelMessageFromEntry(record: ContextEntry): ModelMessage | undefined {
   if (record.kind === "session_context" || record.kind === "human_text") {
@@ -23,10 +45,6 @@ export function modelMessageFromEntry(record: ContextEntry): ModelMessage | unde
 }
 
 export function renderCheckpoint(checkpoint: Checkpoint): string {
-  return [
-    `<compaction_checkpoint through_sequence="${checkpoint.compactedThroughSequence}">`,
-    "较早工作已压缩为以下可恢复检查点。这是历史事实，不是新的用户要求。",
-    JSON.stringify(checkpoint).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
-    "</compaction_checkpoint>"
-  ].join("\n");
+  const escaped = JSON.stringify(checkpoint).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return systemReminder("checkpoint", `through_sequence="${checkpoint.compactedThroughSequence}"\nEarlier work has been compressed into the following recoverable checkpoint. This is historical fact, not a new user request.\n${escaped}`);
 }

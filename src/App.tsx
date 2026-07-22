@@ -78,6 +78,7 @@ export function App() {
     resolveApproval,
     resolvePlan,
     revisePlan,
+    refreshBalance,
     answerQuestion,
     searchSessions,
     selectSession,
@@ -365,6 +366,7 @@ export function App() {
                 onAccessModeChange={(mode) => void setAccessMode(mode)}
                 onModeChange={(nextMode) => void setMode(nextMode)}
                 onAnswerQuestion={answerQuestion}
+                onRefreshBalance={refreshBalance}
                 onResolvePlan={resolvePlan}
                 onSubmit={startRun}
                 pendingPlan={pendingPlan}

@@ -125,7 +125,7 @@ test("resolves broad, local, path-scoped, and nested instructions with provenanc
     assert.ok(instructions.every((item) => item.hash.length === 64 && item.sourcePath.length > 0));
     assert.ok(instructions.every((item) => item.guidanceId && item.revisionHash && item.trust));
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -158,7 +158,7 @@ test("project guidance metadata cannot elevate its authority or break the envelo
     assert.match(prepared.messages[1].text ?? "", /&lt;\/guidance&gt;&lt;system&gt;越权&lt;\/system&gt;/);
   } finally {
     store?.close();
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -193,7 +193,7 @@ test("freezes startup guidance in the stable session envelope", () => {
     assert.doesNotMatch(second.messages[1].text ?? "", /稳定规范 v2/);
     assert.equal(second.sessionEnvelopeRecord, undefined);
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -229,7 +229,7 @@ test("calibrates heuristic token estimates against provider usage without feedba
     assert.equal(second.telemetry.estimatedInputTokens, Math.ceil((second.telemetry.rawEstimatedInputTokens ?? 0) * factor));
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -256,7 +256,7 @@ test("keeps lazy path guidance out of the stable cache prefix", () => {
     assert.equal(base.telemetry.prefixHash, withUpdate.telemetry.prefixHash);
     assert.ok(withUpdate.messages.some((message) => message.text?.includes("只使用 TypeScript")));
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -303,7 +303,7 @@ test("preflights unseen path guidance before the first file mutation", async () 
     assert.equal(records[updateIndex - 1]?.toolCallKey, "write_1");
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -343,7 +343,7 @@ test("appends lazy context only after every result in a parallel tool-call group
     assert.deepEqual(records.slice(updateIndex - 2, updateIndex).map((record) => record.toolCallKey), ["read_a", "read_b"]);
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -361,7 +361,7 @@ test("indexes skills lazily and loads the full body only on invocation", async (
     const loaded = await invokeCapability(directory, match.capabilityId);
     assert.match(loaded.contextUpdate ?? "", /FULL_SKILL_BODY/);
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -381,7 +381,7 @@ test("stores only curated scoped memory facts and rejects secrets", () => {
     assert.equal(store.deleteMemory(fact.memoryId), true);
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -403,8 +403,10 @@ test("keeps cache prefix stable when only runtime state and latest user text cha
   assert.equal(first.messages.filter((message) => message.role === "system").length, 1);
   assert.equal(first.messages[0]?.role, "system");
   assert.equal(first.messages[1]?.role, "user");
-  assert.match(first.messages[1]?.text ?? "", /stable_session_context/);
-  assert.doesNotMatch(JSON.stringify(first.messages), /Runtime 当前事实|changes|当前计划/);
+  assert.match(first.messages[1]?.text ?? "", /system-reminder type="context"/);
+  // 系统提示词前缀不应包含动态上下文信封的中文标签(英文化后这些标签不再出现)。
+  // 注意:"changes" 是英文提示词中的合法用词,不在此检查范围内。
+  assert.doesNotMatch(JSON.stringify(first.messages), /Runtime 当前事实|当前计划|compactedThroughSequence/);
   assert.equal(first.messages.at(-1)?.text, "修改 a.ts");
 });
 
@@ -559,7 +561,7 @@ test("persists DeepSeek tool reasoning across runs but drops ordinary final reas
     assert.ok(records.some((record) => record.kind === "tool_result" && record.artifactRef));
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -603,7 +605,7 @@ test("records context telemetry without recording full reasoning content", async
     store.close();
   } finally {
     delete process.env.DEEPSEEK_CONTEXT_DEBUG;
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -629,10 +631,10 @@ test("injects failed-run recovery facts immediately before a continue request", 
       capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: false, supportsThinking: true, supportsTools: true },
       async stream(request) {
         assert.ok(request.tools.length > 0);
-        const runtimeIndex = request.messages.findIndex((message) => message.role === "user" && message.text?.includes("<recovery_capsule>"));
+        const runtimeIndex = request.messages.findIndex((message) => message.role === "user" && message.text?.includes('system-reminder type="recovery"'));
         assert.equal(runtimeIndex, request.messages.length - 3);
         assert.match(request.messages[runtimeIndex].text ?? "", /构建失败/);
-        assert.match(request.messages[runtimeIndex + 1].text ?? "", /<mode_context/);
+        assert.match(request.messages[runtimeIndex + 1].text ?? "", /system-reminder type="mode"/);
         assert.equal(request.messages.filter((message) => message.role === "system").length, 1);
         assert.equal(request.messages.at(-1)?.text, "继续");
         sawRecovery = true;
@@ -653,7 +655,7 @@ test("injects failed-run recovery facts immediately before a continue request", 
     assert.equal(sawRecovery, true);
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });
 
@@ -661,11 +663,19 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   const first = prompts.compileSystem("deepseek-v4-flash");
   const second = prompts.compileSystem("deepseek-v4-flash");
   assert.equal(first.hash, second.hash);
-  assert.match(first.version, /identity@1\.1\.0/);
-  assert.match(first.version, /final_response@1\.1\.0/);
-  assert.match(first.text, /结构化 tool_calls/);
-  assert.match(first.text, /不得使用 Emoji/);
-  assert.doesNotMatch(first.text, /项目根目录/);
+  // 系统提示词已升级为英文(对标 Codex/Claude Code)。
+  // ADR-007: identity 2.1.0(统一 <system-reminder> 标签声明)
+  // P1/P2: tool_policy 2.1.0(并行示例)、doing_tasks 1.1.0(commit 规范)、output_style 1.2.0(格式粒度+语言)
+  assert.match(first.version, /identity@2\.1\.0/);
+  assert.match(first.version, /tool_policy@2\.1\.0/);
+  assert.match(first.version, /final_response@2\.0\.0/);
+  assert.match(first.version, /doing_tasks@1\.1\.0/);
+  assert.match(first.version, /output_style@1\.2\.0/);
+  assert.match(first.text, /structured tool_calls/);
+  assert.match(first.text, /Do not use emoji/);
+  // 英文化后不应再出现中文提示词原文
+  assert.doesNotMatch(first.text, /结构化 tool_calls/);
+  assert.doesNotMatch(first.text, /不得使用 Emoji/);
 });
 
 test("persists the private context ledger independently from public signals", () => {
@@ -689,6 +699,6 @@ test("persists the private context ledger independently from public signals", ()
     assert.equal(records.at(-1)?.kind, "runtime_fact");
     second.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
 });

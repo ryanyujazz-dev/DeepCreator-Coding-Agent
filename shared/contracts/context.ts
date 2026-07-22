@@ -156,3 +156,33 @@ export type ContextStats = {
     createdAt: string;
   }>;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-007: 上下文分层架构类型
+//
+// 5 层模型: L0 Kernel / L1 Session / L2 Checkpoint / L3 Trajectory / L4 Runtime
+// 每层有独立的 builder、缓存策略和变化频率。
+// 统一 <system-reminder> 标签替换原有 XML 信封标签。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 上下文层标识 — 对应 5 层模型 */
+export type ContextLayerId = "kernel" | "session" | "checkpoint" | "trajectory" | "runtime";
+
+/** 系统提醒标签类型 — 统一替换原有 XML 信封标签 */
+export type SystemReminderType = "context" | "checkpoint" | "mode" | "recovery" | "guidance";
+
+/** 缓存控制标记(预留,当前 DeepSeek 隐式缓存不需要;未来 Anthropic 需要显式 cache_control) */
+export type CacheControl = { type: "ephemeral"; ttl?: "1h" };
+
+/** 单层的构建结果 */
+export type ContextLayerResult = {
+  layer: ContextLayerId;
+  messages: ModelMessage[];
+  cacheClass: "stable" | "session_stable" | "compaction_stable" | "dynamic";
+  /** 预留:未来 Anthropic 接入时在此层打 cache_control 断点 */
+  cacheControl?: CacheControl;
+  survivesCompaction: boolean;
+  estimatedTokens: number;
+  /** 该层的完整内容指纹(用于检测漂移和 frozen 复用验证) */
+  revisionHash?: string;
+};

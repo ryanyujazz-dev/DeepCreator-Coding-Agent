@@ -13,6 +13,7 @@ export function contextConfig(): ContextConfig {
     maxOutputTokens: number("DEEPSEEK_MAX_OUTPUT_TOKENS", defaultContextConfig.maxOutputTokens),
     maxSummaryChars: number("DEEPSEEK_COMPACTION_SUMMARY_MAX_CHARS", defaultContextConfig.maxSummaryChars),
     platform: platform(),
+    locale: process.env.DEEPSEEK_LOCALE ?? Intl.DateTimeFormat().resolvedOptions().locale,
     protocolReserveTokens: number("DEEPSEEK_PROTOCOL_RESERVE_TOKENS", defaultContextConfig.protocolReserveTokens),
     safetyMarginTokens: number("DEEPSEEK_CONTEXT_SAFETY_TOKENS", defaultContextConfig.safetyMarginTokens),
     shellFamily: resolveRuntimeShell().family,

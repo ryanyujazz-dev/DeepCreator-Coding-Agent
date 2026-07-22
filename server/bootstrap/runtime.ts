@@ -68,11 +68,15 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   }
   const registry = new RunRegistry();
   const runner = new Runner(toolHost, ruleSource, capabilitySource, context);
+  // Provider 单例化:DeepSeekProvider 无状态,缓存后避免每次 providerFor 都 new,
+  // 未来也可在单例上加余额缓存/限流等有状态能力。MockProvider 同理。
+  const deepseekProvider = new DeepSeekProvider(apiKey);
+  const mockProvider = new MockProvider();
   const providerFor = (model: string) => {
     const mock = model === "mock-agent" || options.runtimeMode === "mock" || !apiKey;
     return mock
-      ? { model: "mock-agent", provider: new MockProvider() }
-      : { model, provider: new DeepSeekProvider(apiKey) };
+      ? { model: "mock-agent", provider: mockProvider }
+      : { model, provider: deepseekProvider };
   };
   const launcher = new RunLauncher(providerFor, registry, (input) => runner.run(input), store);
   const system = {

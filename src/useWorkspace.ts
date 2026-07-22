@@ -147,33 +147,23 @@ export function useWorkspace() {
   }, [activeRun, session?.sessionId, session?.updatedAt]);
 
   // 余额轮询:账户级数据,与 activeRun 解耦。60s 一次,仅在配置了 API key 时启动。
-  // 查询失败时撤下旧值,避免把过期余额继续展示为当前数据。
-  useEffect(() => {
-    let disposed = false;
-    let refreshing = false;
+  // 余额查询:账户级数据,与 activeRun 解耦。
+  // 不再定时轮询——改为在用户鼠标悬浮上下文图标时按需刷新(refreshBalance)。
+  // 首次配置 API key 时自动获取一次,后续由 UI 悬浮事件触发。
+  // 失败静默,余额是辅助信息,查询失败不打扰用户。
+  const refreshBalance = useCallback(() => {
     if (!config?.hasApiKey) {
       setBalance(null);
       return;
     }
-    const refresh = async () => {
-      if (refreshing) return;
-      refreshing = true;
-      try {
-        const result = await runtimeApi.getBalance();
-        if (!disposed) setBalance(result);
-      } catch {
-        if (!disposed) setBalance(null);
-      } finally {
-        refreshing = false;
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 60_000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
+    void runtimeApi.getBalance()
+      .then((result) => setBalance(result))
+      .catch(() => undefined);
   }, [config?.hasApiKey]);
+
+  useEffect(() => {
+    refreshBalance();
+  }, [refreshBalance]);
 
   useEffect(() => {
     if (!session) return;
@@ -393,6 +383,7 @@ export function useWorkspace() {
     resolveApproval,
     resolvePlan,
     revisePlan,
+    refreshBalance,
     retryRuntime,
     searchSessions: (query: string) => void refreshSessions(query),
     selectSession,

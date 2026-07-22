@@ -8,7 +8,7 @@ import {
   ContextStats,
   ContextInput,
 } from "../../shared/contracts/context";
-import { renderCheckpoint } from "../../shared/domain/context";
+import { renderCheckpoint, systemReminder, systemReminderWithRevision } from "../../shared/domain/context";
 import { contextFingerprint } from "./contextFingerprint";
 import { emptyRuleSource, ResolvedRule, RuleSource } from "../../shared/contracts/rules";
 import { protocolSafeModelMessages } from "../../shared/domain/toolProtocol";
@@ -29,6 +29,7 @@ export type ContextConfig = {
   protocolReserveTokens: number;
   safetyMarginTokens: number;
   shellFamily: string;
+  locale: string;
   windowTokens: number;
 };
 
@@ -36,6 +37,7 @@ export const defaultContextConfig: ContextConfig = {
   compactRatio: DEFAULT_RATIO,
   maxOutputTokens: DEFAULT_MAX_OUTPUT,
   maxSummaryChars: 80_000,
+  locale: "en-US",
   platform: "unknown",
   protocolReserveTokens: DEFAULT_PROTOCOL_RESERVE,
   safetyMarginTokens: DEFAULT_SAFETY_MARGIN,
@@ -268,26 +270,22 @@ function recoveryFor(session: Session, prompt: string): ResumeState | undefined 
 }
 
 function recoveryText(resume: ResumeState): string {
-  return [
-    "<recovery_capsule>",
-    "以下是中断或失败后由 Runtime 证据恢复出的事实，不是新的用户要求。执行前核对工作区，不要重复已经完成的操作。",
-    escapeEnvelopeText(JSON.stringify({
-      changedFiles: resume.changedFiles,
-      completedOperations: resume.completedOperations,
-      error: { message: resume.failureMessage, type: resume.failureType },
-      interruptedOperations: resume.interruptedOperations,
-      lastProgress: resume.lastProgress,
-      plan: resume.plan ? {
-        markdown: resume.plan.markdown,
-        planId: resume.plan.planId,
-        revision: resume.plan.revision,
-        status: resume.plan.status,
-        title: resume.plan.title
-      } : undefined,
-      tasks: resume.tasks
-    })),
-    "</recovery_capsule>"
-  ].join("\n");
+  const body = escapeEnvelopeText(JSON.stringify({
+    changedFiles: resume.changedFiles,
+    completedOperations: resume.completedOperations,
+    error: { message: resume.failureMessage, type: resume.failureType },
+    interruptedOperations: resume.interruptedOperations,
+    lastProgress: resume.lastProgress,
+    plan: resume.plan ? {
+      markdown: resume.plan.markdown,
+      planId: resume.plan.planId,
+      revision: resume.plan.revision,
+      status: resume.plan.status,
+      title: resume.plan.title
+    } : undefined,
+    tasks: resume.tasks
+  }));
+  return systemReminder("recovery", `The following facts were recovered by the Runtime from interrupted or failed work. This is not a new user request. Verify the workspace before proceeding; do not repeat completed operations.\n${body}`);
 }
 
 function escapeEnvelopeText(value: string): string {
@@ -298,37 +296,88 @@ function modeText(session: Session): string {
   const plan = latestPlan(session);
   const mode = session.mode ?? "work";
   const planEntry = session.planEntry ?? "suggest";
-  return [
-    `<mode_context mode="${mode}" plan_entry="${planEntry}">`,
-    "这是 Runtime 当前工作模式，不是新的用户要求。工具是否可执行最终由 Runtime 策略决定。",
-    escapeEnvelopeText(JSON.stringify({
-      mode,
-      plan: plan ? { planId: plan.planId, revision: plan.revision, status: plan.status, title: plan.title } : undefined
-    })),
-    "</mode_context>"
-  ].join("\n");
+  const body = escapeEnvelopeText(JSON.stringify({
+    mode,
+    plan: plan ? { planId: plan.planId, revision: plan.revision, status: plan.status, title: plan.title } : undefined
+  }));
+  return systemReminder("mode", `mode="${mode}" plan_entry="${planEntry}"\nThis is the Runtime's current working mode, not a new user request. Whether a tool may execute is ultimately decided by Runtime policy.\n${body}`);
 }
 
 function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {
   const context = input.context ?? defaultContextConfig;
+  const env = {
+    projectRoot: input.projectRoot,
+    platform: context.platform,
+    shellFamily: context.shellFamily,
+    locale: context.locale,
+    date: new Date().toISOString().slice(0, 10),
+    model: input.model,
+    app: "DeepSeeker CodeAgent"
+  };
+  const guidanceText = (input.rules ?? emptyRuleSource).render(guidance, "stable");
+  const memory = input.memoryIndex?.trim() || "No curated memory facts are active.";
+  const capability = input.capabilityIndex?.trim() || "Long-tail capabilities can be discovered with the stable capability tools.";
+  const skill = input.skillIndex?.trim() || "No project skills are indexed.";
+
   const body = [
-    `<stable_session_context revision="${createHash("sha256").update(guidance.map((activity) => activity.revisionHash).join(":" )).digest("hex")}">`,
-    (input.rules ?? emptyRuleSource).render(guidance, "stable"),
-    `<stable_environment>${escapeEnvelopeText(JSON.stringify({ projectRoot: input.projectRoot, platform: context.platform, shellFamily: context.shellFamily, app: "DeepSeeker CodeAgent" }))}</stable_environment>`,
-    `<memory_index>${escapeEnvelopeText(input.memoryIndex?.trim() || "No curated memory facts are active.")}</memory_index>`,
-    `<capability_index>${escapeEnvelopeText(input.capabilityIndex?.trim() || "Long-tail capabilities can be discovered with the stable capability tools.")}</capability_index>`,
-    `<skill_index>${escapeEnvelopeText(input.skillIndex?.trim() || "No project skills are indexed.")}</skill_index>`,
-    "</stable_session_context>"
-  ];
-  return body.filter(Boolean).join("\n");
+    `<environment>${escapeEnvelopeText(JSON.stringify(env))}</environment>`,
+    guidanceText,
+    `<memory-index>${escapeEnvelopeText(memory)}</memory-index>`,
+    `<capability-index>${escapeEnvelopeText(capability)}</capability-index>`,
+    `<skill-index>${escapeEnvelopeText(skill)}</skill-index>`
+  ].filter(Boolean).join("\n");
+
+  // ADR-007: revision hash 完整化 — 纳入 guidance + environment + indexes 全部可变内容
+  const revision = createHash("sha256").update([
+    guidance.map((activity) => activity.revisionHash).join(":"),
+    JSON.stringify(env),
+    memory, capability, skill
+  ].join("\n")).digest("hex");
+
+  return systemReminderWithRevision("context", revision, body);
 }
 
+/**
+ * 计算给定输入的 session 层 revision hash(用于 frozen 复用验证)。
+ * 与 stableEnvelope 内部的 hash 计算逻辑完全一致。
+ */
+export function sessionRevisionHash(input: BuildInput, guidance: ResolvedRule[]): string {
+  const context = input.context ?? defaultContextConfig;
+  const env = {
+    projectRoot: input.projectRoot,
+    platform: context.platform,
+    shellFamily: context.shellFamily,
+    locale: context.locale,
+    date: new Date().toISOString().slice(0, 10),
+    model: input.model,
+    app: "DeepSeeker CodeAgent"
+  };
+  const memory = input.memoryIndex?.trim() || "No curated memory facts are active.";
+  const capability = input.capabilityIndex?.trim() || "Long-tail capabilities can be discovered with the stable capability tools.";
+  const skill = input.skillIndex?.trim() || "No project skills are indexed.";
+  return createHash("sha256").update([
+    guidance.map((activity) => activity.revisionHash).join(":"),
+    JSON.stringify(env),
+    memory, capability, skill
+  ].join("\n")).digest("hex");
+}
+
+/**
+ * 从已存的 session_context 记录文本中提取 revision 属性。
+ * 兼容新旧两种标签格式(system-reminder 和 stable_session_context)。
+ */
+function extractRevision(envelopeText: string): string | undefined {
+  return envelopeText.match(/revision="([a-f0-9]+)"/)?.[1];
+}
+
+// ADR-007: 兼容新旧标签格式(连字符 memory-index 和下划线 memory_index)
 function envelopeSection(text: string, tag: "memory_index" | "capability_index" | "skill_index"): string {
-  return text.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1]?.trim() ?? "";
+  const hyphenTag = tag.replace(/_/g, "-");
+  return text.match(new RegExp(`<(?:${tag}|${hyphenTag})>([\\s\\S]*?)</(?:${tag}|${hyphenTag})>`))?.[1]?.trim() ?? "";
 }
 
 function envelopeWithoutIndexes(text: string): string {
-  return text.replace(/<(memory_index|capability_index|skill_index)>[\s\S]*?<\/\1>/g, "");
+  return text.replace(/<(?:memory_index|memory-index|capability_index|capability-index|skill_index|skill-index)>[\s\S]*?<\/(?:memory_index|memory-index|capability_index|capability-index|skill_index|skill-index)>/g, "");
 }
 
 function metric(
@@ -575,8 +624,9 @@ export function contextUpdateRecord(
   trigger: "read_result" | "mutation_preflight",
   rules: RuleSource = emptyRuleSource
 ): ContextInput | undefined {
-  const text = rules.render(instructions, "update");
-  if (!text) return undefined;
+  const raw = rules.render(instructions, "update");
+  if (!raw) return undefined;
+  const text = systemReminder("guidance", raw);
   return {
     runId,
     kind: "context_update",

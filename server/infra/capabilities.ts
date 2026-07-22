@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { parseDocument } from "yaml";
 import { CapabilitySource } from "../../shared/contracts/capability";
+import { systemReminder } from "../../shared/domain/context";
 
 export type DeferredCapability = {
   capabilityId: string;
@@ -106,11 +107,7 @@ export async function invokeCapability(
     const result = await provider.invoke({ arguments: argumentsValue, capabilityId, projectRoot, signal });
     return {
       capability,
-      contextUpdate: [
-        `<context_update kind="capability_loaded" capability_id="${escapeXmlAttribute(capability.capabilityId)}" revision="${capability.revisionHash}">`,
-        `能力 ${capability.name} 已按需调用。调用结果位于紧邻的已配对工具结果中；此记录只用于能力激活审计。`,
-        "</context_update>"
-      ].join("\n"),
+      contextUpdate: systemReminder("guidance", `kind="capability_loaded" capability_id="${escapeXmlAttribute(capability.capabilityId)}" revision="${capability.revisionHash}"\nCapability ${capability.name} has been invoked on demand. The result is in the adjacent paired tool result; this record is only for capability activation auditing.`),
       output: result.output
     };
   }
@@ -118,11 +115,7 @@ export async function invokeCapability(
   const maxChars = Number(process.env.DEEPSEEK_SKILL_MAX_CHARS ?? 40_000);
   return {
     capability,
-    contextUpdate: [
-      `<context_update kind="skill" capability_id="${escapeXmlAttribute(capability.capabilityId)}" revision="${capability.revisionHash}">`,
-      JSON.stringify({ instructions: body.slice(0, maxChars) }),
-      "</context_update>"
-    ].join("\n")
+    contextUpdate: systemReminder("guidance", `kind="skill" capability_id="${escapeXmlAttribute(capability.capabilityId)}" revision="${capability.revisionHash}"\n${JSON.stringify({ instructions: body.slice(0, maxChars) })}`)
   };
 }
 

@@ -77,10 +77,17 @@ function finishActivity(
   });
 }
 
+export type SpawnAgentHandler = (args: {
+  description: string;
+  prompt: string;
+  subagentType: "Explore" | "general-purpose";
+}) => Promise<string>;
+
 export class ToolPipeline {
   constructor(
     private readonly host: ToolHost,
-    private readonly rules: RuleSource = emptyRuleSource
+    private readonly rules: RuleSource = emptyRuleSource,
+    private readonly spawnAgent?: SpawnAgentHandler
   ) {}
 
   stepRejection(calls: ToolCall[], modelStepId: string, projectRoot: string): string | undefined {
@@ -165,6 +172,7 @@ export class ToolPipeline {
       if (call.name === "submit_plan") return this.submitPlan(input, call, modelStepId, activityId, args, prepared);
       if (call.name === "update_tasks") return this.updateTasks(input, call, modelStepId, activityId, args, argsSummary);
       if (call.name === "search_memory") return this.searchMemory(input, call, modelStepId, activityId, args, prepared);
+      if (call.name === "spawn_agent") return await this.spawnAgentTask(input, call, modelStepId, activityId!, args, prepared);
 
       const target = prepared.normalizedTarget;
       const preflight = ["write_file", "edit_file", "delete_file"].includes(call.name) && target
@@ -687,5 +695,58 @@ export class ToolPipeline {
     finishActivity(input, activityId, { body: summary, status: "completed", tool: { ...prepared, resultSummary: summary } });
     this.record(input, call, modelStepId, text, { action: "search", target: "Memory" });
     return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "Memory" };
+  }
+
+  /**
+   * spawn_agent:启动隔离子 Agent 执行任务,返回最终摘要。
+   * 子 Agent 在独立 Session 上运行,中间过程不写入父 Session。
+   * 需要 spawnAgent handler 由 Runner 注入(携带 provider/registry/store 等依赖)。
+   */
+  private async spawnAgentTask(
+    input: ToolContext,
+    call: ToolCall,
+    modelStepId: string,
+    activityId: string,
+    args: Record<string, unknown>,
+    prepared: ReturnType<ToolHost["prepare"]>
+  ): Promise<ToolOutcome> {
+    if (!this.spawnAgent) {
+      const text = "spawn_agent 需要运行时注入处理函数,当前环境不支持子 Agent。";
+      finishActivity(input, activityId, { body: text, status: "failed", tool: { ...prepared, resultSummary: text } });
+      this.record(input, call, modelStepId, text, { action: "execute", target: "子 Agent" }, true);
+      return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
+    }
+    const description = String(args.description ?? "子 Agent 任务").trim();
+    const prompt = String(args.prompt ?? "").trim();
+    const subagentType = (args.subagentType === "Explore" || args.subagentType === "general-purpose")
+      ? args.subagentType
+      : "Explore";
+    if (!prompt) {
+      const text = "prompt 不能为空。";
+      finishActivity(input, activityId, { body: text, status: "failed", tool: { ...prepared, resultSummary: text } });
+      this.record(input, call, modelStepId, text, { action: "execute", target: description }, true);
+      return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
+    }
+    const summary = `正在执行子 Agent(${subagentType}):${description}`;
+    input.store.append({
+      activityId,
+      data: { kind: this.host.kind(prepared), title: description, tool: { ...prepared, resultSummary: summary } },
+      runId: input.runId,
+      sessionId: input.sessionId,
+      type: "activity.updated"
+    });
+    let output: string;
+    try {
+      output = await this.spawnAgent({ description, prompt, subagentType });
+    } catch (error) {
+      output = `子 Agent 执行失败:${error instanceof Error ? error.message : String(error)}`;
+      finishActivity(input, activityId, { body: output, status: "failed", tool: { ...prepared, resultSummary: output } });
+      this.record(input, call, modelStepId, output, { action: "execute", target: description }, true);
+      return { contextRecords: [], message: { role: "tool", text: output, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
+    }
+    const finishSummary = `子 Agent 完成:${description}`;
+    finishActivity(input, activityId, { body: finishSummary, status: "completed", tool: { ...prepared, resultSummary: finishSummary } });
+    this.record(input, call, modelStepId, output, { action: "execute", target: description });
+    return { contextRecords: [], message: { role: "tool", text: output, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
   }
 }

@@ -29,7 +29,7 @@ import {
 } from "./tools/security";
 import { summarizeToolArguments, summarizeToolResult } from "./tools/summaries";
 import { runShell } from "./tools/shellExecution";
-import { deleteFile, editFile, listFiles, readFile, writeFile } from "./tools/files";
+import { deleteFile, editFile, listFiles, multiEdit, readFile, writeFile } from "./tools/files";
 
 export { redactSensitiveText } from "./tools/security";
 export { summarizeToolArguments, summarizeToolResult } from "./tools/summaries";
@@ -712,6 +712,180 @@ function managedCommandResult(snapshot: CommandSnapshot, mutatedWorkspace: boole
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Web 工具:fetch_url + web_search
+//
+// 设计要点:
+//   - fetch_url:用 Node 内置 fetch 抓取 HTML,用轻量 regex 转 Markdown 风格文本。
+//     不引入 turndown 等外部依赖,保持项目自包含。
+//   - web_search:支持可配置的搜索后端(SEARCH_API_URL + SEARCH_API_KEY 环境变量),
+//     无 key 时返回可操作的错误引导用户配置。
+//   - 两者均走 redactSensitiveText 脱敏,防止抓取到的页面里含有敏感信息泄漏。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FETCH_URL_TIMEOUT_MS = 30_000;
+const FETCH_URL_MAX_BYTES = 1_000_000;
+
+/**
+ * 将 HTML 转为可读的 Markdown 风格纯文本。
+ */
+function htmlToReadableText(html: string): string {
+  let text = html;
+  text = text.replace(/<!--[\s\S]*?-->/g, "");
+  text = text.replace(/<script[\s\S]*?<\/script>/gi, "");
+  text = text.replace(/<style[\s\S]*?<\/style>/gi, "");
+  text = text.replace(/<nav[\s\S]*?<\/nav>/gi, "");
+  text = text.replace(/<footer[\s\S]*?<\/footer>/gi, "");
+  text = text.replace(/<header[\s\S]*?<\/header>/gi, "");
+  text = text.replace(/<noscript[\s\S]*?<\/noscript>/gi, "");
+  text = text.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n");
+  text = text.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n");
+  text = text.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n");
+  text = text.replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, "\n#### $1\n");
+  text = text.replace(/<h5[^>]*>([\s\S]*?)<\/h5>/gi, "\n##### $1\n");
+  text = text.replace(/<h6[^>]*>([\s\S]*?)<\/h6>/gi, "\n###### $1\n");
+  text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "- $1\n");
+  text = text.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, "\n```\n$1\n```\n");
+  text = text.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, "`$1`");
+  text = text.replace(/<a\s[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)");
+  text = text.replace(/<br\s*\/?>/gi, "\n");
+  text = text.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, "$1\n\n");
+  text = text.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, "\n> $1\n");
+  text = text.replace(/<[^>]+>/g, "");
+  text = text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ");
+  text = text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  return text;
+}
+
+async function fetchUrl(
+  input: { url: string; maxChars?: number; format?: "markdown" | "text" },
+  signal?: AbortSignal
+): Promise<string> {
+  const url = String(input.url ?? "").trim();
+  if (!url) throw new Error("url 不能为空。");
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`无效的 URL:${url}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`只支持 http 和 https 协议(收到 ${parsed.protocol})。`);
+  }
+  const maxChars = Math.min(Math.max(1000, input.maxChars ?? 20_000), 200_000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_URL_TIMEOUT_MS);
+  signal?.addEventListener("abort", () => controller.abort());
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "DeepSeeker-CodeAgent/1.0", Accept: "text/html,application/json,text/plain,*/*" },
+      redirect: "follow",
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`抓取失败:HTTP ${response.status} ${response.statusText}`);
+    const contentType = response.headers.get("content-type") ?? "";
+    let raw = await response.text();
+    if (raw.length > FETCH_URL_MAX_BYTES) raw = raw.slice(0, FETCH_URL_MAX_BYTES);
+    const format = input.format ?? "markdown";
+    let body: string;
+    if (contentType.includes("application/json")) {
+      body = raw;
+    } else if (contentType.includes("text/plain")) {
+      body = raw;
+    } else {
+      body = format === "text" ? htmlToReadableText(raw).replace(/[*#`>\[\]()_-]/g, "") : htmlToReadableText(raw);
+    }
+    body = redactSensitiveText(body);
+    if (body.length > maxChars) {
+      body = `${body.slice(0, maxChars)}\n\n[已截断:原文 ${body.length} 字符,保留 ${maxChars} 字符]`;
+    }
+    return body;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`抓取超时(${FETCH_URL_TIMEOUT_MS / 1000}s):${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+interface SearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+async function webSearch(
+  input: { query: string; limit?: number; allowedDomains?: string[]; blockedDomains?: string[] },
+  signal?: AbortSignal
+): Promise<string> {
+  const query = String(input.query ?? "").trim();
+  if (!query) throw new Error("query 不能为空。");
+  const apiUrl = process.env.SEARCH_API_URL;
+  const apiKey = process.env.SEARCH_API_KEY;
+  if (!apiUrl || !apiKey) {
+    throw new Error("未配置搜索后端。请在环境变量中设置 SEARCH_API_URL 和 SEARCH_API_KEY(支持 Brave/Bing/SerpAPI 兼容端点)。");
+  }
+  const limit = Math.min(Math.max(1, input.limit ?? 5), 20);
+  const allowedDomains = input.allowedDomains ?? [];
+  const blockedDomains = input.blockedDomains ?? [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_URL_TIMEOUT_MS);
+  signal?.addEventListener("abort", () => controller.abort());
+  try {
+    const separator = apiUrl.includes("?") ? "&" : "?";
+    const searchUrl = `${apiUrl}${separator}q=${encodeURIComponent(query)}&count=${limit}`;
+    const response = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`搜索 API 返回 HTTP ${response.status}`);
+    const data = await response.json() as Record<string, unknown>;
+    const rawResults: unknown[] =
+      Array.isArray(data.results) ? data.results
+      : Array.isArray((data.web as { results?: unknown[] })?.results) ? (data.web as { results: unknown[] }).results
+      : Array.isArray(data.organic) ? data.organic
+      : [];
+    let results: SearchResult[] = rawResults
+      .filter((item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null && typeof (item as Record<string, unknown>).url === "string")
+      .map((item) => ({
+        snippet: String(item.snippet ?? item.description ?? ""),
+        title: String(item.title ?? "Untitled"),
+        url: String(item.url)
+      }));
+    if (allowedDomains.length > 0) {
+      results = results.filter((item) => allowedDomains.some((domain) => domainMatches(item.url, domain)));
+    }
+    results = results.filter((item) => !blockedDomains.some((domain) => domainMatches(item.url, domain)));
+    results = results.slice(0, limit);
+    if (results.length === 0) return `未找到匹配 "${query}" 的结果。`;
+    const lines = results.map((item, index) =>
+      `${index + 1}. ${item.title}\n   ${item.url}\n   ${redactSensitiveText(item.snippet)}`
+    );
+    return lines.join("\n\n");
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`搜索超时(${FETCH_URL_TIMEOUT_MS / 1000}s)`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function domainMatches(url: string, domain: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    const cleanDomain = domain.replace(/^\*\./, "").toLowerCase();
+    return host === cleanDomain || host.endsWith(`.${cleanDomain}`);
+  } catch {
+    return false;
+  }
+}
+
 export async function executeTool(input: {
   activityId?: string;
   projectRoot: string;
@@ -761,7 +935,10 @@ export async function executeTool(input: {
   }
   if (name === "write_file") return { mutatedWorkspace: true, output: await writeFile(projectRoot, args as never) };
   if (name === "edit_file") return { mutatedWorkspace: true, output: await editFile(projectRoot, args as never) };
+  if (name === "multi_edit") return { mutatedWorkspace: true, output: await multiEdit(projectRoot, args as never) };
   if (name === "delete_file") return { mutatedWorkspace: true, output: await deleteFile(projectRoot, args as never) };
+  if (name === "fetch_url") return { mutatedWorkspace: false, output: await fetchUrl(args as never, signal) };
+  if (name === "web_search") return { mutatedWorkspace: false, output: await webSearch(args as never, signal) };
   if (name === "run_command") {
     const command = String(args.command ?? "").trim();
     if (!command) throw new Error("command 不能为空。");
@@ -810,11 +987,27 @@ const objectSchema = (properties: Record<string, unknown>, required: string[] = 
   type: "object"
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 工具注册表。
+//
+// 描述编写规范(对标 Anthropic 官方工具描述指南 + Claude Code / Codex 最佳实践):
+//   1. 每个描述至少 3-4 句:what it does / when to use / when NOT to use / caveats
+//   2. 使用 "When to use" / "When NOT to use" 双向引导(防止工具误选)
+//   3. 关键工具附 Example(对标 Codex apply_patch / Claude Code Bash)
+//   4. 硬性规则用 IMPORTANT / MUST / NEVER 强调
+//   5. inputSchema 每个字段带 description(传给模型的 JSON Schema)
+//   6. 全部使用英文(模型遵循度最高);中文含义在代码注释中保留
+// ─────────────────────────────────────────────────────────────────────────────
+
 const toolRegistry: ToolRegistration[] = [
   {
+    // 搜索项目 Skill / MCP / 长尾能力(渐进式披露)
     name: "search_capabilities",
-    description: "搜索未前置加载的项目 Skill、MCP 或长尾能力。返回简短元数据，不加载完整说明。",
-    inputSchema: objectSchema({ query: { type: "string" }, limit: { type: "number" } }, ["query"]),
+    description: "Search for project Skills, MCP tools, or other long-tail capabilities that are not pre-loaded into the system prompt. Returns short metadata entries; use invoke_capability to load the full body.\n\nWhen to use: You need a specialized workflow (e.g. PDF processing, Android dev, iOS dev) that may be available as a Skill. You are unsure what capabilities exist in this project.\n\nWhen NOT to use: You already know the capabilityId (use invoke_capability directly). You need project source code (use grep/glob/read_file).\n\nExample:\n  search_capabilities(query=\"pdf\")\n  search_capabilities(query=\"android emulator\", limit=5)",
+    inputSchema: objectSchema({
+      query: { type: "string", description: "Search query — keywords describing the capability you need (e.g. 'pdf', 'android', 'code review')" },
+      limit: { type: "number", description: "Maximum number of results to return (default 10)" }
+    }, ["query"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -822,13 +1015,17 @@ const toolRegistry: ToolRegistration[] = [
       importance: "routine",
       action: "search",
       targetKind: "workspace",
-      resolveTarget: (args) => String(args.query ?? "能力目录")
+      resolveTarget: (args) => String(args.query ?? "capability index")
     }
   },
   {
+    // 按 capabilityId 启用长尾能力
     name: "invoke_capability",
-    description: "按 capabilityId 启用一个已发现的长尾能力。Skill 正文会作为独立 ContextUpdate 注入。",
-    inputSchema: objectSchema({ capabilityId: { type: "string" }, arguments: { additionalProperties: true, type: "object" } }, ["capabilityId"]),
+    description: "Activate a discovered long-tail capability by its capabilityId. For Skills, the full SKILL.md body is injected as an independent ContextUpdate that you must read and follow.\n\nWhen to use: You found a relevant capability via search_capabilities and need its full instructions or tool access.\n\nWhen NOT to use: You have not searched yet (call search_capabilities first). The capability is already loaded in the current context.\n\nExample:\n  invoke_capability(capabilityId=\"skill:pdf\")\n  invoke_capability(capabilityId=\"mcp:github\", arguments={owner: \"octocat\", repo: \"Hello-World\"})",
+    inputSchema: objectSchema({
+      capabilityId: { type: "string", description: "The capability identifier returned by search_capabilities (e.g. 'skill:pdf', 'mcp:github')" },
+      arguments: { type: "object", additionalProperties: true, description: "Optional arguments to pass to the capability" }
+    }, ["capabilityId"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -836,13 +1033,17 @@ const toolRegistry: ToolRegistration[] = [
       importance: "notable",
       action: "inspect",
       targetKind: "workspace",
-      resolveTarget: (args) => String(args.capabilityId ?? "能力")
+      resolveTarget: (args) => String(args.capabilityId ?? "capability")
     }
   },
   {
+    // 按关键词读取已确认的结构化记忆事实
     name: "search_memory",
-    description: "按关键词读取经过用户确认的结构化 MemoryFact。只读，不会自动创建记忆。",
-    inputSchema: objectSchema({ query: { type: "string" }, limit: { type: "number" } }, ["query"]),
+    description: "Read user-confirmed structured MemoryFacts by keyword. These are curated facts the user or a previous session saved (e.g. 'this project uses pnpm', 'tests run with vitest'). Read-only — never auto-creates memories.\n\nWhen to use: At the start of a task, check if the user or project has saved preferences or conventions. Before asking the user something they may have already told you.\n\nWhen NOT to use: You need the current codebase state (use read_file/grep). You want to save a new fact (there is no save tool yet — mention it to the user).\n\nExample:\n  search_memory(query=\"package manager\")\n  search_memory(query=\"test framework\", limit=5)",
+    inputSchema: objectSchema({
+      query: { type: "string", description: "Keyword or phrase to search saved memory facts" },
+      limit: { type: "number", description: "Maximum number of facts to return (default 10)" }
+    }, ["query"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -850,13 +1051,16 @@ const toolRegistry: ToolRegistration[] = [
       importance: "routine",
       action: "search",
       targetKind: "workspace",
-      resolveTarget: (args) => String(args.query ?? "Memory")
+      resolveTarget: (args) => String(args.query ?? "memory")
     }
   },
   {
+    // 列出项目文件树
     name: "list_files",
-    description: "列出项目文件，忽略依赖、Git 和构建目录。",
-    inputSchema: objectSchema({ maxFiles: { type: "number" } }),
+    description: "List project files as a tree, automatically skipping dependency directories (node_modules, dist, .git, .venv), build output, and sensitive files.\n\nWhen to use: You need a broad overview of the project structure at the start of a task. You want to understand the directory layout before diving into specific files.\n\nWhen NOT to use: You need files matching a specific pattern (use glob). You need to search file contents (use grep). The project is large and you only need a subset.\n\nCaveat: Results are capped at maxFiles (default 200). For large projects, prefer glob with a specific pattern.\n\nExample:\n  list_files()\n  list_files(maxFiles=500)",
+    inputSchema: objectSchema({
+      maxFiles: { type: "number", description: "Maximum number of file entries to return (default 200, hard cap enforced)" }
+    }),
     presentation: {
       groupMode: "consecutive",
       detail: COLLAPSED_FILE_DETAIL,
@@ -868,9 +1072,13 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 读取文件内容
     name: "read_file",
-    description: "读取项目根目录内的 UTF-8 文本文件。",
-    inputSchema: objectSchema({ path: { type: "string" }, maxChars: { type: "number" } }, ["path"]),
+    description: "Read a UTF-8 text file from inside the project root. Returns the file content; large files are truncated at maxChars with a notice.\n\nWhen to use: You need to inspect or modify a file's content. You are about to edit a file and must read it first. It is always better to speculatively read multiple potentially-useful files as a batch in a single message so they load in parallel.\n\nWhen NOT to use: You only need to know which files exist (use glob or list_files). You need to search for a pattern across many files (use grep). The file is an image or binary (not supported).\n\nIMPORTANT: Before editing a file with edit_file or write_file, you MUST read it first to understand its current content. Attempting to edit without reading leads to incorrect oldText matches.\n\nExample:\n  read_file(path=\"src/App.tsx\")\n  read_file(path=\"package.json\")\n  # Batch read in ONE message (parallel):\n  #   read_file(path=\"src/App.tsx\"), read_file(path=\"src/main.tsx\"), read_file(path=\"vite.config.ts\")",
+    inputSchema: objectSchema({
+      path: { type: "string", description: "Workspace-relative path to the file (e.g. 'src/App.tsx', 'package.json')" },
+      maxChars: { type: "number", description: "Maximum characters to read before truncating (default 200000). Reduce this if you only need the start of a large file." }
+    }, ["path"]),
     presentation: {
       groupMode: "consecutive",
       detail: COLLAPSED_FILE_DETAIL,
@@ -884,17 +1092,18 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 内容搜索(结构化扫描,跨平台稳定)
     name: "grep",
-    description: "基于结构化扫描的快速内容搜索工具,适配大型代码库,跨平台稳定(Windows/Linux/macOS 行为一致)。\nALWAYS use grep for search tasks. NEVER 用 run_command 跑 rg/grep/findstr/find —— 这些命令在 Windows+Git Bash 环境会因 shell 方言差异频繁失败,且会绕过本工具的依赖目录过滤与敏感文件保护。\n用法:\n- 需要找代码/字符串/标记(如 TODO、函数名、调用点、错误日志)时必用此工具\n- pattern 支持 JavaScript 正则(如 \"log.*Error\"、\"function\\s+\\w+\");危险正则会被拒绝,PCRE 的 (?i) 内联标志会被自动归一化\n- output_mode:files_with_matches 默认(只返回工作区相对路径,推荐先用这个看哪些文件命中)、content(path:line:content)、count(每文件命中数)、json(结构化字段)\n- 用 glob 过滤文件类型(如 \"**/*.ts\"),用 path 限定子目录,context 取上下文行(0-3)\n- 搜索含正则元字符的字面量(URL、API key)设 fixed_strings=true\n- 自动跳过 node_modules/dist/.git、超过 2 MiB 的单文件和二进制文件;自动排除 .env/*.key/id_rsa 等敏感文件,输出脱敏",
+    description: "Fast structured content search across the project, cross-platform stable (identical behavior on Windows/Linux/macOS). Searches file contents using JavaScript regex. Dangerous regex patterns are rejected; files over 2 MiB and binary files are skipped.\n\nWhen to use: ALWAYS use grep to search for code, strings, or markers (TODO comments, function names, call sites, error logs). This is the primary content search tool.\n\nWhen NOT to use: You need to find files by name/extension (use glob). You need a broad project overview (use list_files). You need to run a shell command (use run_command).\n\nIMPORTANT: NEVER use run_command to run rg/grep/findstr/find — these shell commands fail frequently on Windows+Git Bash due to dialect differences, and they bypass this tool's dependency filtering and sensitive-file protection.\n\nFeatures:\n- pattern: full JavaScript regex (e.g. 'log.*Error', 'function\\\\s+\\\\w+')\n- output_mode: 'files_with_matches' (default, returns only workspace-relative paths — saves tokens, recommended first pass), 'content' (path:line:content), 'count', 'json'\n- Use glob to filter file types (e.g. '**/*.ts'), path to scope a subdirectory, context for surrounding lines (0-3)\n- Set fixed_strings=true when searching for literals containing regex metacharacters (URLs, API keys)\n- Automatically skips node_modules/dist/.git; automatically excludes .env/*.key/id_rsa; output is redacted\n\nExample:\n  grep(pattern=\"TODO\", glob=\"**/*.ts\", output_mode=\"content\", context=2)\n  grep(pattern=\"api.deepseek.com\", fixed_strings=true)",
     inputSchema: objectSchema({
-      pattern: { type: "string" },
-      path: { type: "string" },
-      glob: { type: "string" },
-      output_mode: { type: "string", enum: ["files_with_matches", "content", "count", "json"] },
-      case_sensitive: { type: "boolean" },
-      fixed_strings: { type: "boolean" },
-      context: { type: "number" },
-      max_results: { type: "number" }
+      pattern: { type: "string", description: "JavaScript (ECMAScript) regex pattern to search for. Do NOT use PCRE inline flags like (?i) — use case_sensitive=false instead." },
+      path: { type: "string", description: "Optional subdirectory to scope the search (workspace-relative, e.g. 'src/')" },
+      glob: { type: "string", description: "Optional minimatch pattern to filter file types (e.g. '**/*.ts', '**/*.{tsx,ts}')" },
+      output_mode: { type: "string", enum: ["files_with_matches", "content", "count", "json"], description: "Result format: 'files_with_matches' (paths only, default), 'content' (path:line:content), 'count' (hits per file), 'json' (structured fields)" },
+      case_sensitive: { type: "boolean", description: "Whether the search is case-sensitive (default true). Set to false instead of writing (?i)." },
+      fixed_strings: { type: "boolean", description: "Treat pattern as a literal string, escaping regex metacharacters (default false). Use when searching for URLs, API keys, or strings containing special characters." },
+      context: { type: "number", description: "Number of context lines to show around each match, 0-3 (default 0)" },
+      max_results: { type: "number", description: "Maximum number of matches to return (default 200)" }
     }, ["pattern"]),
     presentation: {
       groupMode: "consecutive",
@@ -904,18 +1113,19 @@ const toolRegistry: ToolRegistration[] = [
       action: "search",
       targetKind: "workspace",
       resolveTarget: (args, projectRoot) => args.path
-        ? `${String(args.pattern ?? "搜索")} @ ${workspaceRelativeTarget(projectRoot, String(args.path))}`
-        : String(args.pattern ?? "搜索")
+        ? `${String(args.pattern ?? "search")} @ ${workspaceRelativeTarget(projectRoot, String(args.path))}`
+        : String(args.pattern ?? "search")
     }
   },
   {
+    // 文件路径匹配(minimatch,跨平台稳定)
     name: "glob",
-    description: "基于 minimatch 的快速文件路径匹配工具,跨平台稳定(Windows/Linux/macOS 行为一致)。\nALWAYS use glob for file search tasks. NEVER 用 run_command 跑 find/ls/Get-ChildItem/dir/where —— 这些命令在 Windows+Git Bash 环境会因 shell 方言差异频繁失败,且会绕过本工具的依赖目录过滤与敏感文件保护。\n用法:\n- 需要按文件名/扩展名/路径模式找文件(如所有 .tsx 组件、tests 下的测试文件、配置文件)时必用此工具\n- pattern 语法:** 跨目录、* 单段、{a,b} 枚举、? 单字符(如 \"src/**/*.tsx\"、\"**/*.test.ts\"、\"*.{json,md}\")\n- 结果返回工作区相对路径,并按修改时间倒序排列(最近改过的文件排前面)\n- 可用 path 限定子目录,detail=true 附加 size/mtime,limit 截断(默认 200)\n- 自动跳过 node_modules/dist/.git/.deepseeker 等,自动排除 .env/*.key/id_rsa 等敏感文件\n- 与 grep 配合形成 \"找文件 → 看内容\" 标准动作链",
+    description: "Fast file-path matching using minimatch patterns, cross-platform stable (identical behavior on Windows/Linux/macOS). Returns matching workspace-relative file paths sorted by modification time (most recently edited first).\n\nWhen to use: ALWAYS use glob to find files by name, extension, or path pattern (e.g. all .tsx components, test files, config files). This is the primary file-discovery tool.\n\nWhen NOT to use: You need to search file contents (use grep). You need a broad project overview (use list_files). You need to run a shell command (use run_command).\n\nIMPORTANT: NEVER use run_command to run find/ls/Get-ChildItem/dir/where — these shell commands fail frequently on Windows+Git Bash due to dialect differences, and they bypass this tool's dependency filtering.\n\nPattern syntax: ** (cross-directory), * (single segment), {a,b} (enumeration), ? (single char)\n\nExample:\n  glob(pattern=\"src/components/**/*.tsx\")\n  glob(pattern=\"**/*.test.ts\")\n  glob(pattern=\"*.{json,md,yaml}\")\n\nPairs with grep to form the standard 'find files → read content' workflow.",
     inputSchema: objectSchema({
-      pattern: { type: "string" },
-      path: { type: "string" },
-      detail: { type: "boolean" },
-      limit: { type: "number" }
+      pattern: { type: "string", description: "Minimatch glob pattern (e.g. 'src/**/*.tsx', '**/*.test.ts', '*.{json,md}')" },
+      path: { type: "string", description: "Optional subdirectory to scope the search (workspace-relative)" },
+      detail: { type: "boolean", description: "If true, append file size and modification time to each result (default false)" },
+      limit: { type: "number", description: "Maximum number of paths to return (default 200)" }
     }, ["pattern"]),
     presentation: {
       groupMode: "consecutive",
@@ -925,13 +1135,14 @@ const toolRegistry: ToolRegistration[] = [
       action: "inspect",
       targetKind: "directory",
       resolveTarget: (args, projectRoot) => args.path
-        ? `${String(args.pattern ?? "匹配")} @ ${workspaceRelativeTarget(projectRoot, String(args.path))}`
-        : String(args.pattern ?? "匹配")
+        ? `${String(args.pattern ?? "match")} @ ${workspaceRelativeTarget(projectRoot, String(args.path))}`
+        : String(args.pattern ?? "match")
     }
   },
   {
+    // 读取 Git 工作区状态
     name: "git_status",
-    description: "读取工作区 Git 状态和差异摘要。",
+    description: "Read the current Git working-tree status and a diff summary. Returns staged/unstaged/untracked file lists and a concise diff.\n\nWhen to use: Before committing, you need to know what changed. After edits, to verify the real diff matches your intent. When the user asks 'what did you change?'.\n\nWhen NOT to use: You need to run arbitrary git commands like commit/push/log (use run_command). You only need to read a specific file (use read_file).\n\nExample:\n  git_status()",
     inputSchema: objectSchema({}),
     presentation: {
       groupMode: "consecutive",
@@ -940,13 +1151,56 @@ const toolRegistry: ToolRegistration[] = [
       importance: "routine",
       action: "inspect",
       targetKind: "workspace",
-      resolveTarget: () => "Git 工作区"
+      resolveTarget: () => "Git working tree"
     }
   },
   {
+    // 联网搜索
+    name: "web_search",
+    description: "Search the web for current information (new SDKs, error messages, API specs, library docs). Returns a list of results with title, URL, and snippet.\n\nWhen to use: The model's knowledge may be outdated — for new library versions, recent API changes, unfamiliar error messages, or version-specific behavior. The user asks about something recent.\n\nWhen NOT to use: You can find the answer in the local codebase (use grep/glob/read_file). The information is stable and within your training data. You need the full page content (use fetch_url on a specific URL).\n\nIMPORTANT: Web search requires a configured search backend (SEARCH_API_URL + SEARCH_API_KEY environment variables). If unconfigured, the error will guide the user to set it up. Results pass through secret redaction.\n\nWorkflow: web_search to find relevant pages → fetch_url to read the full content of the best result.\n\nExample:\n  web_search(query=\"DeepSeek V4 function calling spec\", limit=5)\n  web_search(query=\"npm ERR! ERESOLVE peer dependency\", allowedDomains=[\"stackoverflow.com\", \"docs.npmjs.com\"])",
+    inputSchema: objectSchema({
+      query: { type: "string", description: "The search query" },
+      limit: { type: "number", description: "Maximum results to return (default 5, max 20)" },
+      allowedDomains: { type: "array", items: { type: "string" }, description: "Optional: restrict results to these domains (e.g. ['docs.python.org', 'stackoverflow.com'])" },
+      blockedDomains: { type: "array", items: { type: "string" }, description: "Optional: exclude results from these domains" }
+    }, ["query"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "process_side_effect",
+      importance: "notable",
+      action: "search",
+      targetKind: "workspace",
+      resolveTarget: (args) => String(args.query ?? "web search")
+    }
+  },
+  {
+    // 抓取网页内容
+    name: "fetch_url",
+    description: "Fetch a URL and return its content as Markdown (HTML is converted; JSON and plain text pass through). Large pages are truncated to maxChars.\n\nWhen to use: After web_search identifies a relevant page, use fetch_url to read its full content. You need to read API documentation, a Stack Overflow answer, or a blog post.\n\nWhen NOT to use: You are searching for something but don't have a specific URL yet (use web_search first). The content is in the local project (use read_file).\n\nFeatures:\n- HTML → Markdown conversion (headings, links, lists, code blocks, blockquotes preserved)\n- script/style/nav/footer stripped as noise\n- maxChars truncation (default 20000, max 200000) with a truncation notice\n- Only http/https URLs supported\n- 30-second timeout\n- Output passes through secret redaction\n\nExample:\n  fetch_url(url=\"https://docs.example.com/api/v2\", format=\"markdown\", maxChars=20000)",
+    inputSchema: objectSchema({
+      url: { type: "string", description: "The http or https URL to fetch" },
+      maxChars: { type: "number", description: "Maximum characters to return before truncating (default 20000, max 200000)" },
+      format: { type: "string", enum: ["markdown", "text"], description: "Output format: 'markdown' (default, preserves structure) or 'text' (strips markdown syntax)" }
+    }, ["url"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "process_side_effect",
+      importance: "notable",
+      action: "inspect",
+      targetKind: "workspace",
+      resolveTarget: (args) => String(args.url ?? "URL")
+    }
+  },
+  {
+    // 创建/覆盖文件
     name: "write_file",
-    description: "创建文件或用完整内容覆盖现有文件。",
-    inputSchema: objectSchema({ path: { type: "string" }, content: { type: "string" } }, ["path", "content"]),
+    description: "Create a new file or overwrite an existing file with the given complete content.\n\nWhen to use: Creating a new file that does not exist yet. Completely replacing a file's content (e.g. a config rewrite). The file is small enough to output in full.\n\nWhen NOT to use: Modifying part of an existing file (use edit_file — it is cheaper and safer). The file already exists and you have not read it yet.\n\nIMPORTANT: If the file already exists, you MUST read it with read_file first. Overwriting without reading risks losing important content you were not aware of. Prefer edit_file for partial changes — it produces smaller, more reviewable diffs.\n\nExample:\n  write_file(path=\"src/utils/helpers.ts\", content=\"export const add = (a: number, b: number) => a + b;\\n\")",
+    inputSchema: objectSchema({
+      path: { type: "string", description: "Workspace-relative path to create or overwrite (e.g. 'src/utils/helpers.ts')" },
+      content: { type: "string", description: "The complete file content to write" }
+    }, ["path", "content"]),
     presentation: {
       groupMode: "workspace_delta",
       detail: COLLAPSED_FILE_DETAIL,
@@ -960,9 +1214,15 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 精确文本替换编辑
     name: "edit_file",
-    description: "通过精确文本替换编辑现有文件。",
-    inputSchema: objectSchema({ path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" }, replaceAll: { type: "boolean" } }, ["path", "oldText", "newText"]),
+    description: "Edit an existing file by performing an exact text replacement of oldText with newText.\n\nWhen to use: Modifying a specific part of an existing file. The preferred tool for partial edits — produces minimal, reviewable diffs.\n\nWhen NOT to use: Creating a new file (use write_file). The file does not exist yet.\n\nIMPORTANT: The edit FAILS if oldText is not unique in the file. If it appears multiple times, either provide more surrounding context to make it unique, or set replaceAll=true to replace every occurrence.\n\nExample:\n  edit_file(path=\"src/App.tsx\", oldText=\"const foo = 1;\", newText=\"const foo = 2;\")",
+    inputSchema: objectSchema({
+      path: { type: "string", description: "Workspace-relative path to the file to edit" },
+      oldText: { type: "string", description: "The exact text to find. MUST be unique in the file unless replaceAll is true. Include enough surrounding context to ensure uniqueness." },
+      newText: { type: "string", description: "The replacement text" },
+      replaceAll: { type: "boolean", description: "If true, replace every occurrence of oldText (default false)" }
+    }, ["path", "oldText", "newText"]),
     presentation: {
       groupMode: "workspace_delta",
       detail: COLLAPSED_FILE_DETAIL,
@@ -976,9 +1236,41 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 批量原子编辑(多个 oldText→newText,单次写盘)
+    name: "multi_edit",
+    description: "Apply multiple exact-text replacements to a single file in one atomic operation. All edits are applied to the in-memory content; the file is written only once after every edit succeeds.\n\nWhen to use: Refactoring a file that needs 3+ coordinated edits (renaming a symbol + updating imports + fixing call sites). Prefer this over multiple sequential edit_file calls — it is faster and produces a single, clean diff.\n\nWhen NOT to use: A single change (use edit_file). Creating a new file (use write_file).\n\nAtomicity guarantee: If ANY oldText fails to match (not found, or ambiguous without replaceAll), the ENTIRE batch is rolled back — no changes are written to disk. The error response lists all failed edits with their index and reason.\n\nIMPORTANT: Each edit's oldText must be unique in the ORIGINAL file content (unless replaceAll is true for that edit). Edits are applied sequentially to the same content buffer, so earlier replacements are visible to later ones — account for this when ordering.\n\nExample:\n  multi_edit(path=\"src/App.tsx\", edits=[\n    {oldText: \"const foo = 1;\", newText: \"const foo = 2;\"},\n    {oldText: \"return null;\", newText: \"return <App/>;\"},\n    {oldText: \"import React\", newText: \"import React, { useState }\"}\n  ])",
+    inputSchema: objectSchema({
+      path: { type: "string", description: "Workspace-relative path to the file to edit" },
+      edits: {
+        type: "array",
+        minItems: 1,
+        description: "Array of edits to apply atomically. All must succeed or none are written.",
+        items: objectSchema({
+          oldText: { type: "string", description: "The exact text to find. MUST be unique in the file unless replaceAll is true." },
+          newText: { type: "string", description: "The replacement text" },
+          replaceAll: { type: "boolean", description: "If true, replace every occurrence of oldText (default false)" }
+        }, ["oldText", "newText"])
+      }
+    }, ["path", "edits"]),
+    presentation: {
+      groupMode: "workspace_delta",
+      detail: COLLAPSED_FILE_DETAIL,
+      effect: "workspace_write",
+      importance: "notable",
+      action: "modify",
+      targetKind: "file",
+      resolveTarget: (args, projectRoot) => args.path
+        ? workspaceRelativeTarget(projectRoot, String(args.path))
+        : ""
+    }
+  },
+  {
+    // 删除文件(危险操作)
     name: "delete_file",
-    description: "删除项目根目录内的单个文件，需要用户批准。",
-    inputSchema: objectSchema({ path: { type: "string" } }, ["path"]),
+    description: "Delete a single file inside the project root. This is a destructive, irreversible operation that requires user approval.\n\nWhen to use: The user explicitly asks to delete a file. A generated file needs to be removed as part of a refactor.\n\nWhen NOT to use: You want to clear a file's content but keep the file (use write_file with empty content, or edit_file). The user did not ask for deletion.\n\nIMPORTANT: Deletion requires user approval and cannot be undone outside of Git. Always confirm the path is correct before calling.\n\nExample:\n  delete_file(path=\"src/legacy/old-module.ts\")",
+    inputSchema: objectSchema({
+      path: { type: "string", description: "Workspace-relative path to the file to delete" }
+    }, ["path"]),
     presentation: {
       groupMode: "standalone",
       detail: { ...COLLAPSED_FILE_DETAIL, defaultCollapsed: false },
@@ -992,9 +1284,12 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 执行 shell 命令(托管对象)
     name: "run_command",
-    description: "在项目根目录运行 shell 命令(构建/测试/git/启动进程等)。最多前台等待 60 秒；若仍在运行会返回 commandId，必须使用 wait_command 继续等待或 stop_command 停止，不要重复启动同一命令。非安全命令需要用户批准。【本工具只用于执行真实 shell 命令,不要用它搜索代码/文件——搜内容用 grep 工具,找文件用 glob 工具,list_files 列文件树,read_file 读文件。用 run_command 跑 rg/grep/findstr/find/cat 在 Windows+Git Bash 环境会因 shell 方言差异频繁失败】",
-    inputSchema: objectSchema({ command: { type: "string" } }, ["command"]),
+    description: "Execute a shell command in the project root (builds, tests, git operations, starting processes). This is a managed object: the command runs with a 60-second foreground wait; if still running, it returns a commandId and you MUST use wait_command to continue waiting or stop_command to stop it.\n\nWhen to use: ONLY for genuine shell execution — builds (npm run build), tests (npm test), git operations (git commit), starting dev servers, running scripts.\n\nWhen NOT to use: Searching for code or files — use grep (content search), glob (file search), list_files (file tree), or read_file (read a file) instead.\n\nIMPORTANT: NEVER use run_command to run rg/grep/findstr/find/cat/head/tail/ls — these shell commands fail frequently on Windows+Git Bash due to dialect differences, and they bypass the dedicated tools' dependency filtering and sensitive-file protection.\n\nManaged-command rules:\n- If a command is still running after 60s, you receive a commandId. Use wait_command to continue, or stop_command to terminate it.\n- Do NOT re-run the same long command to poll it — that creates a duplicate. Use wait_command on the existing commandId.\n- A run cannot finish while a managed command is still running. Always wait_command or stop_command before ending.\n\nNon-safe commands (mutations, network access) require user approval.\n\nExample:\n  run_command(command=\"npm run build\")\n  run_command(command=\"npm test\")\n  run_command(command=\"git add -A && git commit -m 'feat: add login page'\")",
+    inputSchema: objectSchema({
+      command: { type: "string", description: "The shell command to execute (e.g. 'npm run build', 'git status', 'npx tsc --noEmit')" }
+    }, ["command"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -1007,9 +1302,12 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 等待托管命令
     name: "wait_command",
-    description: "等待一个仍在运行的命令，最多等待 60 秒并返回增量输出；命令退出时会提前返回。",
-    inputSchema: objectSchema({ commandId: { type: "string" } }, ["commandId"]),
+    description: "Wait for a still-running managed command. Returns incremental output (stdout/stderr since the last poll) and blocks up to 60 seconds; returns early if the command exits.\n\nWhen to use: A run_command returned a commandId because the command was still running after 60 seconds. You need to collect more output or confirm the command finished.\n\nWhen NOT to use: The command already exited (its result was returned directly). You want to stop a command instead of waiting (use stop_command).\n\nIMPORTANT: Do NOT re-run the original command to poll it. That creates a duplicate managed object. Always wait_command on the existing commandId.\n\nExample:\n  wait_command(commandId=\"cmd_a1b2c3\")",
+    inputSchema: objectSchema({
+      commandId: { type: "string", description: "The commandId returned by run_command when the command was still running" }
+    }, ["commandId"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -1021,9 +1319,12 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 停止托管命令
     name: "stop_command",
-    description: "停止一个托管命令及其完整进程树。重复停止同一命令是安全的。",
-    inputSchema: objectSchema({ commandId: { type: "string" } }, ["commandId"]),
+    description: "Stop a managed command and its full process tree. Safe to call on an already-stopped or exited command (idempotent).\n\nWhen to use: A long-running command (e.g. a dev server) is no longer needed and you want to terminate it. The run cannot finish while a command is still running, and you do not want to wait for it.\n\nWhen NOT to use: You want to keep waiting for the command (use wait_command).\n\nExample:\n  stop_command(commandId=\"cmd_a1b2c3\")",
+    inputSchema: objectSchema({
+      commandId: { type: "string", description: "The commandId of the managed command to stop" }
+    }, ["commandId"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -1035,9 +1336,12 @@ const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 请求进入计划模式
     name: "enter_plan",
-    description: "在实施尚未产生副作用时请求进入计划模式。仅用于复杂、含重大取舍或难以回滚的工作。",
-    inputSchema: objectSchema({ reason: { type: "string" } }, ["reason"]),
+    description: "Request entering plan mode, before any side effects have been produced. Plan mode restricts you to read-only operations (read, search, ask questions, form a proposal) — no workspace modifications or external side effects.\n\nWhen to use: The task is complex, cross-module, involves significant tradeoffs, a migration, security risk, or is hard to roll back. The user explicitly asked for a plan.\n\nWhen NOT to use: The task is simple and unambiguous — just do it. You have already started modifying files (plan mode is for pre-implementation only).\n\nIMPORTANT: enter_plan may suspend the run until the user confirms. It MUST be called alone (not batched with other tools).\n\nExample:\n  enter_plan(reason=\"This refactor touches 12 files across 3 modules and has migration risk\")",
+    inputSchema: objectSchema({
+      reason: { type: "string", description: "Why plan mode is warranted for this task (e.g. 'This refactor touches 12 files across 3 modules and has migration risk')" }
+    }, ["reason"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -1045,23 +1349,25 @@ const toolRegistry: ToolRegistration[] = [
       importance: "notable",
       action: "plan",
       targetKind: "plan",
-      resolveTarget: () => "计划模式"
+      resolveTarget: () => "plan mode"
     }
   },
   {
+    // 在计划模式中向用户提问
     name: "ask_user",
-    description: "在计划模式中提出一至三个会实质影响方案的简短问题，并等待用户回答。",
+    description: "Ask the user 1-3 short questions that materially affect the plan, then wait for their answers. Each question can offer 2-3 options or be open-ended.\n\nWhen to use: In plan mode, you have gathered enough context to form a proposal but need key decisions from the user before the plan is complete (e.g. 'Which library: A or B?', 'Should we migrate now or keep backward compatibility?').\n\nWhen NOT to use: You already have enough information to submit the plan (use submit_plan). You are in work mode (ask_user is plan-mode only). The question is trivial and does not affect the plan.\n\nIMPORTANT: Only ask questions whose answers change the plan. Do not ask for information you could find yourself with tools.\n\nExample:\n  ask_user(questions=[\n    {questionId: \"q1\", label: \"Library\", prompt: \"Which state management library should we use?\", options: [\"Zustand\", \"Redux\", \"Jotai\"]},\n    {questionId: \"q2\", label: \"Migration\", prompt: \"Should we migrate now or keep backward compatibility?\"}\n  ])",
     inputSchema: objectSchema({
       questions: {
-        items: objectSchema({
-          questionId: { type: "string" },
-          label: { type: "string" },
-          prompt: { type: "string" },
-          options: { items: { type: "string" }, maxItems: 3, minItems: 2, type: "array" }
-        }, ["questionId", "label", "prompt"]),
-        maxItems: 3,
+        type: "array",
         minItems: 1,
-        type: "array"
+        maxItems: 3,
+        items: objectSchema({
+          questionId: { type: "string", description: "Unique identifier for this question (used in the answer mapping)" },
+          label: { type: "string", description: "Short label shown as a chip/header (max 12 chars)" },
+          prompt: { type: "string", description: "The full question text" },
+          options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 3, description: "2-3 predefined options. Omit for an open-ended question." }
+        }, ["questionId", "label", "prompt"]),
+        description: "1-3 questions for the user. Each must have a material impact on the plan."
       }
     }, ["questions"]),
     presentation: {
@@ -1071,13 +1377,17 @@ const toolRegistry: ToolRegistration[] = [
       importance: "notable",
       action: "plan",
       targetKind: "plan",
-      resolveTarget: () => "方案问题"
+      resolveTarget: () => "plan questions"
     }
   },
   {
+    // 提交实施方案
     name: "submit_plan",
-    description: "提交一份决策完整、可供用户审阅的 Markdown 实施方案。提交后等待用户决定，不会自行开始实施。",
-    inputSchema: objectSchema({ title: { type: "string" }, markdown: { type: "string" } }, ["title", "markdown"]),
+    description: "Submit a decision-complete implementation plan as Markdown for the user to review. After submission, the run suspends and waits for the user's decision — you MUST NOT start implementation on your own.\n\nWhen to use: In plan mode, your proposal is decision-complete (all key choices are made, no open questions). You have finished ask_user rounds and are ready for approval.\n\nWhen NOT to use: You still have open questions (use ask_user first). You are in work mode (just do the work). The task is simple enough that a plan is unnecessary.\n\nIMPORTANT: The plan must be a complete, actionable Markdown document — not a vague outline. Include: what changes, why, file-level steps, risks, and verification commands.\n\nExample:\n  submit_plan(title=\"Add JWT authentication\", markdown=\"## Objective\\nSecure the API with JWT...\\n## Steps\\n1. Install jsonwebtoken\\n2. Create auth middleware\\n3. Add login route\\n## Verification\\n- npm test\\n- curl localhost:3000/login\")",
+    inputSchema: objectSchema({
+      title: { type: "string", description: "Short title for the plan (e.g. 'Add user authentication with JWT')" },
+      markdown: { type: "string", description: "Full plan body in Markdown — include objective, approach, file-level steps, risks, and verification" }
+    }, ["title", "markdown"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -1085,25 +1395,27 @@ const toolRegistry: ToolRegistration[] = [
       importance: "notable",
       action: "plan",
       targetKind: "plan",
-      resolveTarget: () => "实施方案"
+      resolveTarget: () => "implementation plan"
     }
   },
   {
+    // 执行期任务清单(对标 Claude Code TodoWrite / Codex update_plan)
     name: "update_tasks",
-    description: "建立或替换当前运行的执行任务清单。简单问答不要调用。",
+    description: "Create or replace the execution task list for the current run. Tasks track progress in work mode — they are for your own execution tracking, not for user plan approval.\n\nWhen to use: The task has 3+ discrete steps that span multiple files or phases (e.g. 'rename symbol across codebase' = read usages → edit imports → edit call sites → run typecheck). You want to show the user your progress as you work. A complex bug fix with multiple investigation steps.\n\nWhen NOT to use: Simple Q&A or single-file edits (just do the work). A 1-2 step task. You are in plan mode (use submit_plan instead).\n\nIMPORTANT: Call update_tasks at the START of a complex task to lay out the steps, then update each task's status as you complete it. Keep exactly one task 'running' at a time. This is not for plan approval — it is for execution transparency.\n\nExample (high-quality task list for 'add dark mode'):\n  update_tasks(tasks=[\n    {taskId:'t1', label:'Read current theme system', status:'running'},\n    {taskId:'t2', label:'Add CSS variables for dark palette', status:'pending'},\n    {taskId:'t3', label:'Wire theme toggle in Settings', status:'pending'},\n    {taskId:'t4', label:'Verify with build + manual test', status:'pending'}\n  ])",
     inputSchema: objectSchema(
       {
         tasks: {
+          type: "array",
+          minItems: 1,
           items: objectSchema(
             {
-              label: { type: "string" },
-              status: { enum: ["pending", "running", "completed", "blocked"], type: "string" },
-              taskId: { type: "string" }
+              label: { type: "string", description: "Human-readable description of this task step" },
+              status: { type: "string", enum: ["pending", "running", "completed", "blocked"], description: "Current status: 'pending' (not started), 'running' (in progress — keep exactly one at a time), 'completed', 'blocked'" },
+              taskId: { type: "string", description: "Unique identifier for this task" }
             },
             ["taskId", "label", "status"]
           ),
-          minItems: 1,
-          type: "array"
+          description: "The full task list — replaces any previous list. Include all steps, not just changed ones."
         }
       },
       ["tasks"]
@@ -1115,7 +1427,26 @@ const toolRegistry: ToolRegistration[] = [
       importance: "routine",
       action: "task",
       targetKind: "task",
-      resolveTarget: () => "执行任务"
+      resolveTarget: () => "execution tasks"
+    }
+  },
+  {
+    // 子 Agent 任务委派(对标 Claude Code Task / Codex sub-agent)
+    name: "spawn_agent",
+    description: "Launch a new agent to handle complex, multi-step tasks. The sub-agent runs in an isolated session — only its final summary enters the parent conversation, not its intermediate steps.\n\nWhen to use: Searching across many files for a keyword or pattern (the sub-agent explores without polluting your context). Exploring an unfamiliar codebase area. Multi-directional research that can run in parallel (e.g. 'find test patterns AND routing structure AND DB schema'). Any task where the intermediate exploration would consume too much context.\n\nWhen NOT to use: Reading a specific known file (use read_file). A simple single-pattern search (use grep). Any task solvable in 1-2 tool calls. You need the user to see every step (sub-agent steps are hidden).\n\nSub-agent types:\n- 'Explore' (read-only: read_file, grep, glob, list_files, git_status, search_memory) — for investigation and research\n- 'general-purpose' (full toolset except spawn_agent) — for tasks that need edits or command execution\n\nReturns: Only the sub-agent's final text summary. Intermediate tool calls and reasoning do NOT enter the parent conversation.\n\nParallelism: Multiple spawn_agent calls in a single message run concurrently — use this for independent research tasks.\n\nIMPORTANT: Sub-agents cannot spawn further sub-agents (no recursion). The sub-agent's prompt should be self-contained — include all context it needs, since it starts fresh.\n\nExample:\n  spawn_agent(description='Find all uncaught promise rejections', prompt='Scan all .ts files under src/ for .then() chains without .catch(). Report file:line for each finding.', subagentType='Explore')",
+    inputSchema: objectSchema({
+      description: { type: "string", description: "Short 3-5 word description of the task (for logging and the activity timeline)" },
+      prompt: { type: "string", description: "The complete, self-contained task prompt for the sub-agent. Include all necessary context — the sub-agent does not see the parent conversation." },
+      subagentType: { type: "string", enum: ["Explore", "general-purpose"], description: "'Explore' = read-only research tools; 'general-purpose' = full toolset (can edit files, run commands)" }
+    }, ["description", "prompt", "subagentType"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "control_only",
+      importance: "notable",
+      action: "execute",
+      targetKind: "workspace",
+      resolveTarget: (args) => String(args.description ?? "子 Agent")
     }
   }
 ];
@@ -1224,7 +1555,11 @@ export function toolTitle(name: string): string {
     stop_command: "停止命令",
     submit_plan: "提交实施方案",
     update_tasks: "更新执行任务",
-    write_file: "写入文件"
+    write_file: "写入文件",
+    multi_edit: "批量编辑文件",
+    fetch_url: "抓取网页",
+    web_search: "联网搜索",
+    spawn_agent: "启动子 Agent"
   } as Record<string, string>)[name] ?? name;
 }
 

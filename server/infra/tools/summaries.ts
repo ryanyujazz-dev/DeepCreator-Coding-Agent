@@ -9,6 +9,13 @@ export function summarizeToolArguments(name: string, args: Record<string, unknow
     if (typeof safe.oldText === "string") safe.oldText = `[原文本已省略，共 ${safe.oldText.length} 字符]`;
     if (typeof safe.newText === "string") safe.newText = `[新文本已省略，共 ${safe.newText.length} 字符]`;
   }
+  if (name === "multi_edit" && Array.isArray(safe.edits)) {
+    safe.edits = (safe.edits as Array<Record<string, unknown>>).map((edit) => ({
+      ...edit,
+      newText: typeof edit.newText === "string" ? `[新文本已省略，共 ${edit.newText.length} 字符]` : edit.newText,
+      oldText: typeof edit.oldText === "string" ? `[原文本已省略，共 ${edit.oldText.length} 字符]` : edit.oldText
+    }));
+  }
   return redactSensitiveText(JSON.stringify(safe));
 }
 
@@ -30,5 +37,7 @@ export function summarizeToolResult(name: string, args: Record<string, unknown>,
   }
   if (name === "wait_command") return `已检查命令 ${String(args.commandId ?? "")}`;
   if (name === "stop_command") return `已停止命令 ${String(args.commandId ?? "")}`;
+  if (name === "web_search") return `搜索 ${String(args.query ?? "")}`;
+  if (name === "fetch_url") return `已抓取 ${String(args.url ?? "URL")}`;
   return redactSensitiveText(output).slice(0, 2_000);
 }
