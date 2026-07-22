@@ -108,7 +108,8 @@ export class DeepSeekProvider implements Provider {
 
   constructor(
     private readonly apiKey: string,
-    private readonly apiUrl = process.env.DEEPSEEK_API_URL ?? DEFAULT_API_URL
+    private readonly apiUrl = process.env.DEEPSEEK_API_URL ?? DEFAULT_API_URL,
+    private readonly balanceRequestTimeoutMs = 10_000
   ) {}
 
   // 查询账户余额(GET https://api.deepseek.com/user/balance)。
@@ -117,10 +118,20 @@ export class DeepSeekProvider implements Provider {
   async getBalance(): Promise<ProviderBalance> {
     if (!this.apiKey) throw new Error("缺少 DEEPSEEK_API_KEY,无法查询余额。");
     const balanceUrl = new URL("/user/balance", new URL(this.apiUrl).origin).toString();
-    const response = await fetch(balanceUrl, {
-      headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
-      method: "GET"
-    });
+    const signal = AbortSignal.timeout(this.balanceRequestTimeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(balanceUrl, {
+        headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
+        method: "GET",
+        signal
+      });
+    } catch (error) {
+      if (signal.aborted) {
+        throw new Error(`DeepSeek 余额查询超时:超过 ${this.balanceRequestTimeoutMs}ms。`);
+      }
+      throw error;
+    }
     if (!response.ok) throw new Error(`DeepSeek 余额查询失败:HTTP ${response.status}`);
     const data = await response.json() as {
       is_available: boolean;

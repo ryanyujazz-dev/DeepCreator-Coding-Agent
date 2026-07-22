@@ -138,18 +138,28 @@ export function useWorkspace() {
   }, [activeRun, session?.sessionId, session?.updatedAt]);
 
   // 余额轮询:账户级数据,与 activeRun 解耦。60s 一次,仅在配置了 API key 时启动。
-  // 失败静默(.catch(() => undefined)),余额是辅助信息,查询失败不打扰用户。
+  // 查询失败时撤下旧值,避免把过期余额继续展示为当前数据。
   useEffect(() => {
     let disposed = false;
+    let refreshing = false;
     if (!config?.hasApiKey) {
       setBalance(null);
       return;
     }
-    const refresh = () => void runtimeApi.getBalance()
-      .then((result) => { if (!disposed) setBalance(result); })
-      .catch(() => undefined);
-    refresh();
-    const timer = window.setInterval(refresh, 60_000);
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const result = await runtimeApi.getBalance();
+        if (!disposed) setBalance(result);
+      } catch {
+        if (!disposed) setBalance(null);
+      } finally {
+        refreshing = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 60_000);
     return () => {
       disposed = true;
       window.clearInterval(timer);

@@ -3444,7 +3444,7 @@ body.is-resizing-panel * {
   margin-top: 9px;
   padding-top: 8px;
 }
-.context-inspector-popover footer:first-child {
+.context-inspector-popover footer:first-of-type {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
