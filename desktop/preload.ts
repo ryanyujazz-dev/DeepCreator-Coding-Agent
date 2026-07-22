@@ -7,8 +7,12 @@ const bridge: DesktopBridge = {
     reveal: (filePath) => ipcRenderer.invoke("desktop:reveal", filePath)
   },
   projects: {
+    open: (projectPath) => ipcRenderer.invoke("desktop:open-project", projectPath),
     pick: () => ipcRenderer.invoke("desktop:pick-project"),
-    recent: () => ipcRenderer.invoke("desktop:recent-projects")
+    pin: (projectPath, pinned) => ipcRenderer.invoke("desktop:pin-project", projectPath, pinned),
+    recent: () => ipcRenderer.invoke("desktop:recent-projects"),
+    remove: (projectPath) => ipcRenderer.invoke("desktop:remove-project", projectPath),
+    rename: (projectPath, name) => ipcRenderer.invoke("desktop:rename-project", projectPath, name)
   },
   runtime: {
     connection: () => ipcRenderer.invoke("runtime:connection"),

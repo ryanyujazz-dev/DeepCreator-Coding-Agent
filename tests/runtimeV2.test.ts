@@ -179,7 +179,7 @@ test("runs ordered migrations idempotently", () => {
     const second = new Database(file);
     const repeated = Number((second.raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count);
     second.close();
-    assert.equal(count, 3);
+    assert.equal(count, 4);
     assert.equal(repeated, count);
   } finally {
     rmSync(directory, { force: true, recursive: true });

@@ -128,6 +128,8 @@ export function Composer({
   }
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Enter 发送,Shift+Enter 换行;Cmd/Ctrl+Enter 不触发(留给未来可能的强制发送)
+    // 中文/日文输入法用 Enter 确认候选词时不能提交当前草稿。
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       sendDraft();

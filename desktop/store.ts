@@ -36,14 +36,44 @@ export class DesktopStore {
 
   addProject(projectPath: string): ProjectRef {
     const resolved = path.resolve(projectPath);
-    const project = { lastOpenedAt: new Date().toISOString(), name: path.basename(resolved), path: resolved };
+    const existing = this.state.recentProjects.find((item) => item.path === resolved);
+    const project = {
+      lastOpenedAt: new Date().toISOString(),
+      name: existing?.name ?? path.basename(resolved),
+      path: resolved,
+      pinned: existing?.pinned
+    };
     this.state.recentProjects = [project, ...this.state.recentProjects.filter((item) => item.path !== resolved)].slice(0, 20);
     this.write();
     return project;
   }
 
   recentProjects(): ProjectRef[] {
-    return this.state.recentProjects.filter((project) => existsSync(project.path));
+    return this.state.recentProjects
+      .filter((project) => existsSync(project.path))
+      .sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned)) || right.lastOpenedAt.localeCompare(left.lastOpenedAt));
+  }
+
+  renameProject(projectPath: string, name: string): ProjectRef[] {
+    const resolved = path.resolve(projectPath);
+    const nextName = name.trim();
+    if (!nextName) throw new Error("项目名称不能为空。");
+    if (nextName.length > 80) throw new Error("项目名称不能超过 80 个字符。");
+    this.updateProject(resolved, (project) => ({ ...project, name: nextName }));
+    return this.recentProjects();
+  }
+
+  pinProject(projectPath: string, pinned: boolean): ProjectRef[] {
+    const resolved = path.resolve(projectPath);
+    this.updateProject(resolved, (project) => ({ ...project, pinned }));
+    return this.recentProjects();
+  }
+
+  removeProject(projectPath: string): ProjectRef[] {
+    const resolved = path.resolve(projectPath);
+    this.state.recentProjects = this.state.recentProjects.filter((project) => project.path !== resolved);
+    this.write();
+    return this.recentProjects();
   }
 
   settings(): DesktopSettings {
@@ -87,5 +117,12 @@ export class DesktopStore {
 
   private write(): void {
     writeFileSync(this.filePath, `${JSON.stringify(this.state, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  }
+
+  private updateProject(projectPath: string, update: (project: ProjectRef) => ProjectRef): void {
+    const index = this.state.recentProjects.findIndex((project) => project.path === projectPath);
+    if (index < 0) throw new Error("项目不在最近项目列表中。");
+    this.state.recentProjects[index] = update(this.state.recentProjects[index]);
+    this.write();
   }
 }

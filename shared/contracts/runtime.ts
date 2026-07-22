@@ -375,6 +375,7 @@ export type SessionSummary = Pick<
 > & {
   runCount: number;
   active: boolean;
+  pinned?: boolean;
 };
 
 export type EventBatch = {

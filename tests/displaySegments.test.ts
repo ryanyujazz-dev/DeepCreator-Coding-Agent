@@ -40,7 +40,9 @@ function activity(index: number, overrides: Partial<Activity> = {}): Activity {
 function thinking(index: number, status: Activity["status"] = "running"): Activity {
   return activity(index, {
     audience: "debug",
-    finishedAt: status === "running" ? undefined : `2026-07-20T10:00:${String(index).padStart(2, "0")}.500Z`,
+    finishedAt: status === "running" || status === "suspended"
+      ? undefined
+      : `2026-07-20T10:00:${String(index).padStart(2, "0")}.500Z`,
     kind: "thinking",
     modelStepId: `step_${index}`,
     status,
@@ -93,6 +95,17 @@ test("keeps later thinking in the activity slot after content exists", () => {
   assert.equal(segment.mainActivity?.activityId, "activity_1");
   assert.equal(segment.activitySlots[0]?.logicalState, "active");
   assert.equal(segment.activitySlots[0]?.visual.label, "正在思考");
+});
+
+test("holds suspended thinking visually without treating it as terminal", () => {
+  const held = onlySegment(run([thinking(1, "suspended")]));
+  assert.equal(held.activitySlots[0]?.logicalState, "empty");
+  assert.equal(held.activitySlots[0]?.visual.label, "正在思考");
+
+  const runningRead = activity(2, { finishedAt: undefined, status: "running" });
+  const active = onlySegment(run([thinking(1, "suspended"), runningRead]));
+  assert.equal(active.activitySlots[0]?.logicalState, "active");
+  assert.equal(active.activitySlots[0]?.visual.label, "正在读取 src/App.tsx");
 });
 
 test("creates no empty aggregate on tool start and creates it immediately on done", () => {

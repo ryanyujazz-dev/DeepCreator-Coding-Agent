@@ -15,6 +15,7 @@ export type ProjectRef = {
   lastOpenedAt: string;
   name: string;
   path: string;
+  pinned?: boolean;
 };
 
 export type DesktopSettings = {
@@ -33,8 +34,12 @@ export type DesktopBridge = {
     reveal: (filePath: string) => Promise<void>;
   };
   projects: {
+    open: (projectPath: string) => Promise<void>;
     pick: () => Promise<ProjectRef | null>;
+    pin: (projectPath: string, pinned: boolean) => Promise<ProjectRef[]>;
     recent: () => Promise<ProjectRef[]>;
+    remove: (projectPath: string) => Promise<ProjectRef[]>;
+    rename: (projectPath: string, name: string) => Promise<ProjectRef[]>;
   };
   runtime: {
     connection: () => Promise<RuntimeConnection>;

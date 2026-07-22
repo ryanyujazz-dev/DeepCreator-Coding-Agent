@@ -188,6 +188,30 @@ app.get<{ Querystring: { query?: string } }>("/api/sessions", async (request) =>
   sessions: store.listSessions(request.query.query ?? "")
 }));
 
+app.put<{
+  Params: { sessionId: string };
+  Body: { archived?: boolean; pinned?: boolean };
+}>("/api/sessions/:sessionId/sidebar", { schema: sessionParamsSchema }, async (request, reply) => {
+  const session = store.getSession(request.params.sessionId);
+  if (!session) return reply.code(404).send({ error: "session not found" });
+  if (request.body.archived && session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued")) {
+    return reply.code(409).send({ error: "正在执行的任务不能归档" });
+  }
+  store.updateSessionSidebar(request.params.sessionId, request.body);
+  return { ok: true };
+});
+
+app.post<{
+  Body: { projectRoot?: string };
+}>("/api/projects/archive-sessions", async (request, reply) => {
+  const projectRoot = request.body.projectRoot?.trim();
+  if (!projectRoot) return reply.code(400).send({ error: "projectRoot is required" });
+  if (store.listSessions().some((session) => session.projectRoot === projectRoot && session.active)) {
+    return reply.code(409).send({ error: "项目中仍有正在执行的任务" });
+  }
+  return { archived: store.archiveProjectSessions(projectRoot) };
+});
+
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId", { schema: sessionParamsSchema }, async (request, reply) => {
   const session = store.getSession(request.params.sessionId);
   if (!session) return reply.code(404).send({ error: "session not found" });

@@ -139,6 +139,12 @@ export class RuntimeClient {
   };
   cancelRun = (runId: string) => this.request<{ ok: boolean }>(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
   stopCommand = (commandId: string) => this.request<{ ok: boolean }>(`/api/commands/${encodeURIComponent(commandId)}/stop`, { method: "POST" });
+  setSessionSidebar = (sessionId: string, input: { archived?: boolean; pinned?: boolean }) => this.request<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(sessionId)}/sidebar`, {
+    body: JSON.stringify(input), method: "PUT"
+  });
+  archiveProjectSessions = (projectRoot: string) => this.request<{ archived: number }>("/api/projects/archive-sessions", {
+    body: JSON.stringify({ projectRoot }), method: "POST"
+  });
   setAccessMode = (sessionId: string, accessMode: AccessMode) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/access-mode`, {
     body: JSON.stringify({ accessMode }), method: "PUT"
   });

@@ -155,6 +155,14 @@ export class RuntimeStore implements RuntimeRepo {
     return this.sessionStore.list(query);
   }
 
+  archiveProjectSessions(projectRoot: string): number {
+    return this.sessionStore.archiveProject(projectRoot);
+  }
+
+  updateSessionSidebar(sessionId: string, input: { archived?: boolean; pinned?: boolean }): boolean {
+    return this.sessionStore.updateSidebarState(sessionId, input);
+  }
+
   readEvents(sessionId: string, afterOffset = 0): Event[] {
     return this.events.read(sessionId, afterOffset);
   }

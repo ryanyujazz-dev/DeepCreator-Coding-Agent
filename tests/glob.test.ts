@@ -50,10 +50,10 @@ test("glob: 限定 path 子目录", async () => {
       name: "glob",
       projectRoot: directory
     });
-    assert.match(result.output, /Header\.tsx/);
-    assert.match(result.output, /Footer\.tsx/);
-    // 路径应以 src/components 开头(相对 path 根)
-    assert.ok(!result.output.includes("src/components"), "path 限定后,相对路径从该子目录算起");
+    assert.match(result.output, /src\/components\/Header\.tsx/);
+    assert.match(result.output, /src\/components\/Footer\.tsx/);
+    // 返回值必须保持工作区相对路径，才能直接传给 read_file/edit_file。
+    assert.ok(result.output.includes("src/components"));
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
@@ -180,6 +180,35 @@ test("glob: 按 mtime 倒序排列(最近改过的文件在前)", async () => {
     assert.equal(lines[0], "new.ts");
     assert.equal(lines[1], "mid.ts");
     assert.equal(lines[2], "old.ts");
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("glob: limit 在全量匹配后选出最近修改的文件", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-latest-limit-"));
+  try {
+    const now = Date.now() / 1000;
+    writeFileSync(path.join(directory, "a-old.ts"), "old\n");
+    writeFileSync(path.join(directory, "z-new.ts"), "new\n");
+    utimesSync(path.join(directory, "a-old.ts"), now - 3_600, now - 3_600);
+    utimesSync(path.join(directory, "z-new.ts"), now, now);
+
+    const result = await executeTool({ args: { pattern: "*.ts", limit: 1 }, name: "glob", projectRoot: directory });
+    const lines = result.output.split("\n").filter((line) => line && !line.startsWith("("));
+    assert.deepEqual(lines, ["z-new.ts"]);
+    assert.match(result.output, /已截断/);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("glob: 命中数刚好等于 limit 时不误报截断", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-exact-limit-"));
+  try {
+    writeFileSync(path.join(directory, "only.ts"), "only\n");
+    const result = await executeTool({ args: { pattern: "*.ts", limit: 1 }, name: "glob", projectRoot: directory });
+    assert.equal(result.output, "only.ts");
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }

@@ -218,6 +218,43 @@ export function useWorkspace() {
     }
   }, []);
 
+  const pinSession = useCallback(async (sessionId: string, pinned: boolean) => {
+    try {
+      await runtimeApi.setSessionSidebar(sessionId, { pinned });
+      await refreshSessions();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, [refreshSessions]);
+
+  const archiveSession = useCallback(async (sessionId: string) => {
+    try {
+      await runtimeApi.setSessionSidebar(sessionId, { archived: true });
+      if (session?.sessionId === sessionId) {
+        setSession(null);
+        setWorkspace(null);
+      }
+      await refreshSessions();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      throw nextError;
+    }
+  }, [refreshSessions, session?.sessionId]);
+
+  const archiveProjectSessions = useCallback(async (root: string) => {
+    try {
+      await runtimeApi.archiveProjectSessions(root);
+      if (session?.projectRoot === root) {
+        setSession(null);
+        setWorkspace(null);
+      }
+      await refreshSessions();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      throw nextError;
+    }
+  }, [refreshSessions, session?.projectRoot]);
+
   const resolveApproval = useCallback(async (decision: ApprovalChoice) => {
     if (!pendingApproval) return;
     try {
@@ -292,6 +329,8 @@ export function useWorkspace() {
     activeRun,
     accessMode: draftAccessMode,
     answerQuestion,
+    archiveProjectSessions,
+    archiveSession,
     cancelRun,
     config,
     connection,
@@ -302,6 +341,7 @@ export function useWorkspace() {
     mode: draftMode,
     newSession,
     pendingApproval,
+    pinSession,
     planEntry: draftPlanEntry,
     projectRoot,
     resolveApproval,

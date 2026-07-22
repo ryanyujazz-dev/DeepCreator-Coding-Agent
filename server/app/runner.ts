@@ -78,6 +78,16 @@ function finishActivity(input: RuntimeInput, activityId: string, data: Record<st
   });
 }
 
+function suspendActivity(input: RuntimeInput, activityId: string): void {
+  input.store.append({
+    runId: input.runId,
+    data: { status: "suspended" as const },
+    sessionId: input.sessionId,
+    type: "activity.updated",
+    activityId
+  });
+}
+
 function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -446,7 +456,10 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       throw new ModelProtocolError(response.protocolIssue.message);
     }
 
-    if (thinkingActivity) finishActivity(input, thinkingActivity, { status: response.toolCalls.length > 0 ? "suspended" : "completed" });
+    if (thinkingActivity) {
+      if (response.toolCalls.length > 0) suspendActivity(input, thinkingActivity);
+      else finishActivity(input, thinkingActivity, { status: "completed" });
+    }
     if (answerActivity) finishActivity(input, answerActivity, { status: "completed" });
     if (response.answer.trim()) answer = response.answer.trim();
     messages.push(response.continuationMessage);

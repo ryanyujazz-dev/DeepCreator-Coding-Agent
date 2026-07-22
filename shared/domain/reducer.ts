@@ -172,6 +172,7 @@ export function reduceEvent(current: Session, event: Event): Session {
         files?: Activity["files"];
         kind?: Activity["kind"];
         liveFiles?: Activity["liveFiles"];
+        status?: Extract<Activity["status"], "running" | "suspended">;
         title?: string;
         tool?: Partial<ToolState>;
       };
@@ -180,6 +181,7 @@ export function reduceEvent(current: Session, event: Event): Session {
       if (data.argumentsDelta && activity.tool) activity.tool.argumentsPreview += data.argumentsDelta;
       if (data.files) activity.files = clone(data.files);
       if (data.liveFiles) activity.liveFiles = clone(data.liveFiles);
+      if (data.status) activity.status = data.status;
       if (data.tool && activity.tool) Object.assign(activity.tool, clone(data.tool));
       if (data.kind) activity.kind = data.kind;
       if (data.title) activity.title = data.title;

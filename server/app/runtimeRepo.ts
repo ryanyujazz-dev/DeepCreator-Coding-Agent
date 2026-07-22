@@ -19,6 +19,7 @@ export interface RuntimeRepo {
     type: Exclude<EventType, "session.created">;
   }>): Event[];
   appendContextEntry(input: ContextInput): ContextEntry;
+  archiveProjectSessions(projectRoot: string): number;
   close(): void;
   createSession(input: Omit<SessionInput, "createdAt">): Session;
   deleteMemory(memoryId: string): boolean;
@@ -35,6 +36,7 @@ export interface RuntimeRepo {
   saveMemory(input: Omit<MemoryFact, "createdAt" | "lastConfirmedAt" | "memoryId"> & Partial<Pick<MemoryFact, "createdAt" | "lastConfirmedAt" | "memoryId">>): MemoryFact;
   storeEvidence(sessionId: string, recordId: string, text: string): string;
   subscribe(sessionId: string, subscriber: EventSubscriber): () => void;
+  updateSessionSidebar(sessionId: string, input: { archived?: boolean; pinned?: boolean }): boolean;
   updateMetricUsage(metricId: string, usage: Pick<ContextStats, "actualInputTokens" | "outputTokens" | "cacheHitTokens" | "cacheMissTokens">): void;
   writeDebugSnapshot(sessionId: string, runId: string, value: unknown): void;
 }

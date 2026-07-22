@@ -86,6 +86,21 @@ test("grep: glob 过滤文件类型", async () => {
   }
 });
 
+test("grep: path 限定后仍返回工作区相对路径", async () => {
+  const directory = setupProject();
+  try {
+    const result = await executeTool({
+      args: { pattern: "TODO", path: "src", output_mode: "content" },
+      name: "grep",
+      projectRoot: directory
+    });
+    assert.match(result.output, /src\/a\.ts:/);
+    assert.match(result.output, /src\/sub\/b\.ts:/);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
 test("grep: output_mode=json 返回结构化字段", async () => {
   const directory = setupProject();
   try {
@@ -176,6 +191,32 @@ test("grep: 无效正则抛错", async () => {
       executeTool({ args: { pattern: "[" }, name: "grep", projectRoot: directory }),
       /无效的正则表达式/
     );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("grep: 拒绝可能产生灾难性回溯的正则", async () => {
+  const directory = setupProject();
+  try {
+    await assert.rejects(
+      executeTool({ args: { pattern: "(a+)+$" }, name: "grep", projectRoot: directory }),
+      /灾难性回溯/
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("grep: 跳过大文件和二进制文件并返回提示", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-bounds-"));
+  try {
+    writeFileSync(path.join(directory, "large.txt"), `needle${"x".repeat(2 * 1024 * 1024)}`);
+    writeFileSync(path.join(directory, "binary.bin"), Buffer.from([0, 110, 101, 101, 100, 108, 101]));
+    const result = await executeTool({ args: { pattern: "needle", output_mode: "content" }, name: "grep", projectRoot: directory });
+    assert.match(result.output, /^未找到匹配内容。/);
+    assert.match(result.output, /已跳过 1 个超过 2 MiB 的文件/);
+    assert.match(result.output, /已跳过 1 个二进制文件/);
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }

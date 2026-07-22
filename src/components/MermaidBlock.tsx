@@ -1,6 +1,6 @@
 import { Check, Code2, Copy, Download, Eye, LoaderCircle, Maximize2, Minus, Plus, RotateCcw, X } from "lucide-react";
 import { Highlight, themes } from "prism-react-renderer";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type MermaidApi = typeof import("mermaid")["default"];
@@ -389,10 +389,9 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
     };
   }, [code]);
 
-  const headerActions = useMemo(
-    () => (
-      <span className="markdown-code-actions">
-        <button
+  const headerActions = (
+    <span className="markdown-code-actions">
+      <button
           aria-label={view === "render" ? "查看源码" : "查看渲染图"}
           className={view === "code" ? "is-active" : ""}
           onClick={() => setView(view === "render" ? "code" : "render")}
@@ -400,8 +399,8 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
           type="button"
         >
           {view === "render" ? <Code2 size={13} /> : <Eye size={13} />}
-        </button>
-        <button
+      </button>
+      <button
           aria-label="放大查看"
           disabled={!svg || view !== "render"}
           onClick={() => setShowLightbox(true)}
@@ -409,8 +408,8 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
           type="button"
         >
           <Maximize2 size={13} />
-        </button>
-        <button
+      </button>
+      <button
           aria-label="下载 PNG"
           disabled={!svg || downloading}
           onClick={async () => {
@@ -426,8 +425,8 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
           type="button"
         >
           {downloading ? <LoaderCircle size={13} className="spin" /> : <Download size={13} />}
-        </button>
-        <button
+      </button>
+      <button
           aria-label="复制源码"
           onClick={() => {
             void navigator.clipboard.writeText(code).then(() => {
@@ -439,10 +438,8 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
           type="button"
         >
           {copied ? <Check size={13} /> : <Copy size={13} />}
-        </button>
-      </span>
-    ),
-    [copied, downloading, svg, view]
+      </button>
+    </span>
   );
 
   return (

@@ -21,6 +21,25 @@ function registerIpc(): void {
   ipcMain.handle("runtime:connection", (event) => { trusted(event); return runtime.connection(); });
   ipcMain.handle("runtime:retry", (event) => { trusted(event); return runtime.restart(); });
   ipcMain.handle("desktop:recent-projects", (event) => { trusted(event); return store.recentProjects(); });
+  ipcMain.handle("desktop:pin-project", (event, projectPath: string, pinned: boolean) => {
+    trusted(event);
+    return store.pinProject(projectPath, Boolean(pinned));
+  });
+  ipcMain.handle("desktop:rename-project", (event, projectPath: string, name: string) => {
+    trusted(event);
+    return store.renameProject(projectPath, name);
+  });
+  ipcMain.handle("desktop:remove-project", (event, projectPath: string) => {
+    trusted(event);
+    return store.removeProject(projectPath);
+  });
+  ipcMain.handle("desktop:open-project", async (event, projectPath: string) => {
+    trusted(event);
+    const resolved = path.resolve(projectPath);
+    if (!store.recentProjects().some((project) => project.path === resolved)) throw new Error("只能打开最近项目列表中的目录。");
+    const error = await shell.openPath(resolved);
+    if (error) throw new Error(error);
+  });
   ipcMain.handle("desktop:pick-project", async (event) => {
     trusted(event);
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ["openDirectory", "createDirectory"], title: "选择项目文件夹" });
@@ -52,11 +71,19 @@ function registerIpc(): void {
 function createWindow(): BrowserWindow {
   const bounds = store.windowBounds();
   const window = new BrowserWindow({
+    autoHideMenuBar: true,
+    backgroundColor: "#f2f4f5",
     height: bounds?.height ?? 900,
     minHeight: 620,
     minWidth: 940,
     show: false,
     title: "DeepSeeker",
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hiddenInset" as const }
+      : {
+          titleBarOverlay: { color: "#f2f4f5", height: 42, symbolColor: "#5f6a70" },
+          titleBarStyle: "hidden" as const
+        }),
     width: bounds?.width ?? 1440,
     x: bounds?.x,
     y: bounds?.y,
@@ -67,6 +94,7 @@ function createWindow(): BrowserWindow {
       sandbox: true
     }
   });
+  if (process.platform !== "darwin") window.removeMenu();
   window.once("ready-to-show", () => window.show());
   window.on("close", () => store.saveWindowBounds(window.getBounds()));
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));

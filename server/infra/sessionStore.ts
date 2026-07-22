@@ -69,17 +69,51 @@ export class SessionStore {
   list(query = ""): SessionSummary[] {
     const normalized = query.trim().toLowerCase();
     const rows = normalized
-      ? this.database.raw.prepare("SELECT session_json FROM sessions WHERE lower(search_text) LIKE ? ORDER BY updated_at DESC").all(`%${normalized}%`)
-      : this.database.raw.prepare("SELECT session_json FROM sessions ORDER BY updated_at DESC").all();
-    return (rows as Array<{ session_json: string }>).map((row) => decodeStoredSession(JSON.parse(row.session_json))).map((session) => ({
+      ? this.database.raw.prepare(`SELECT sessions.session_json, sidebar.pinned_at
+          FROM sessions
+          LEFT JOIN session_sidebar_state sidebar ON sidebar.session_id = sessions.session_id
+          WHERE sidebar.archived_at IS NULL AND lower(sessions.search_text) LIKE ?
+          ORDER BY (sidebar.pinned_at IS NOT NULL) DESC, sidebar.pinned_at DESC, sessions.updated_at DESC`).all(`%${normalized}%`)
+      : this.database.raw.prepare(`SELECT sessions.session_json, sidebar.pinned_at
+          FROM sessions
+          LEFT JOIN session_sidebar_state sidebar ON sidebar.session_id = sessions.session_id
+          WHERE sidebar.archived_at IS NULL
+          ORDER BY (sidebar.pinned_at IS NOT NULL) DESC, sidebar.pinned_at DESC, sessions.updated_at DESC`).all();
+    return (rows as Array<{ pinned_at?: string; session_json: string }>).map((row) => ({ row, session: decodeStoredSession(JSON.parse(row.session_json)) })).map(({ row, session }) => ({
       active: session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued"),
       createdAt: session.createdAt,
       model: session.model,
+      pinned: Boolean(row.pinned_at),
       projectRoot: session.projectRoot,
       runCount: session.runs.length,
       sessionId: session.sessionId,
       title: session.title,
       updatedAt: session.updatedAt
     }));
+  }
+
+  archiveProject(projectRoot: string): number {
+    const at = new Date().toISOString();
+    const result = this.database.raw.prepare(`INSERT INTO session_sidebar_state (session_id, pinned_at, archived_at)
+      SELECT session_id, NULL, ? FROM sessions WHERE project_root = ?
+      ON CONFLICT(session_id) DO UPDATE SET pinned_at = NULL, archived_at = excluded.archived_at`).run(at, projectRoot);
+    return Number(result.changes);
+  }
+
+  updateSidebarState(sessionId: string, input: { archived?: boolean; pinned?: boolean }): boolean {
+    const session = this.database.raw.prepare("SELECT 1 FROM sessions WHERE session_id = ?").get(sessionId);
+    if (!session) return false;
+    const current = this.database.raw.prepare("SELECT pinned_at, archived_at FROM session_sidebar_state WHERE session_id = ?").get(sessionId) as { archived_at?: string; pinned_at?: string } | undefined;
+    const at = new Date().toISOString();
+    const archivedAt = input.archived === undefined ? current?.archived_at ?? null : input.archived ? at : null;
+    const pinnedAt = archivedAt ? null : input.pinned === undefined ? current?.pinned_at ?? null : input.pinned ? at : null;
+    if (!archivedAt && !pinnedAt) {
+      this.database.raw.prepare("DELETE FROM session_sidebar_state WHERE session_id = ?").run(sessionId);
+      return true;
+    }
+    this.database.raw.prepare(`INSERT INTO session_sidebar_state (session_id, pinned_at, archived_at) VALUES (?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET pinned_at = excluded.pinned_at, archived_at = excluded.archived_at`)
+      .run(sessionId, pinnedAt, archivedAt);
+    return true;
   }
 }

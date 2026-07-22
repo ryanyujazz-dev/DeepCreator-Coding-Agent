@@ -58,6 +58,67 @@ test("does not leave a managed command activity running after agent completion",
   }
 });
 
+test("finishes a suspended thinking activity exactly once", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-suspended-thinking-"));
+  const store = new RuntimeStore(directory);
+  try {
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_suspended_thinking",
+      title: "suspended thinking"
+    });
+    store.append({
+      data: { model: "test", prompt: "检查项目", startedAt: new Date().toISOString() },
+      runId: "run_suspended_thinking",
+      sessionId: "session_suspended_thinking",
+      type: "run.started"
+    });
+    store.append({
+      activityId: "activity_thinking",
+      data: {
+        audience: "user",
+        kind: "thinking",
+        startedAt: new Date().toISOString(),
+        title: "正在思考"
+      },
+      runId: "run_suspended_thinking",
+      sessionId: "session_suspended_thinking",
+      type: "activity.started"
+    });
+    store.append({
+      activityId: "activity_thinking",
+      data: { status: "suspended" as const },
+      runId: "run_suspended_thinking",
+      sessionId: "session_suspended_thinking",
+      type: "activity.updated"
+    });
+
+    const suspended = store.getRun("run_suspended_thinking")!.activities[0];
+    assert.equal(suspended.status, "suspended");
+    assert.equal(suspended.finishedAt, undefined);
+
+    finishRun({
+      answer: "检查完成。",
+      projectRoot: directory,
+      runId: "run_suspended_thinking",
+      sessionId: "session_suspended_thinking",
+      status: "completed",
+      store
+    });
+
+    const finishedEvents = store.readEvents("session_suspended_thinking")
+      .filter((event) => event.type === "activity.finished" && event.scope.activityId === "activity_thinking");
+    assert.equal(finishedEvents.length, 1);
+    assert.equal(store.getRun("run_suspended_thinking")!.activities[0].status, "completed");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
 test("persists one interrupted result for every unfinished tool call", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-interrupted-tools-"));
   const store = new RuntimeStore(directory);
