@@ -665,12 +665,14 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   assert.equal(first.hash, second.hash);
   // 系统提示词已升级为英文(对标 Codex/Claude Code)。
   // ADR-007: identity 2.1.0(统一 <system-reminder> 标签声明)
-  // P1/P2: tool_policy 2.1.0(并行示例)、doing_tasks 1.1.0(commit 规范)、output_style 1.2.0(格式粒度+语言)
+  // 执行叙事: coding_behavior 2.1.0(preamble+progress+双通道引导)
+  // P1/P2: tool_policy 2.1.0(并行示例)、doing_tasks 1.1.0(commit 规范)、output_style 1.3.0(格式粒度+语言+preamble修正)
   assert.match(first.version, /identity@2\.1\.0/);
+  assert.match(first.version, /coding_behavior@2\.3\.0/);
   assert.match(first.version, /tool_policy@2\.1\.0/);
   assert.match(first.version, /final_response@2\.0\.0/);
   assert.match(first.version, /doing_tasks@1\.1\.0/);
-  assert.match(first.version, /output_style@1\.2\.0/);
+  assert.match(first.version, /output_style@1\.3\.0/);
   assert.match(first.text, /structured tool_calls/);
   assert.match(first.text, /Do not use emoji/);
   // 英文化后不应再出现中文提示词原文
