@@ -40,3 +40,32 @@ test("persists projections, replays logs, and resumes after an offset", () => {
     rmSync(directory, { force: true, recursive: true });
   }
 });
+
+test("persists pinned and archived sidebar state without changing session history", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-sidebar-state-"));
+  try {
+    const first = new RuntimeStore(directory);
+    register(first, "session_sidebar_a");
+    register(first, "session_sidebar_b");
+
+    assert.equal(first.updateSessionSidebar("session_sidebar_a", { pinned: true }), true);
+    assert.equal(first.listSessions()[0].sessionId, "session_sidebar_a");
+    assert.equal(first.listSessions()[0].pinned, true);
+
+    assert.equal(first.updateSessionSidebar("session_sidebar_a", { archived: true }), true);
+    assert.deepEqual(first.listSessions().map((session) => session.sessionId), ["session_sidebar_b"]);
+    assert.equal(first.getSession("session_sidebar_a")?.title, "持久化测试", "archive metadata must not mutate the event-sourced session");
+
+    assert.equal(first.updateSessionSidebar("session_sidebar_a", { archived: false }), true);
+    assert.equal(first.archiveProjectSessions("/tmp/project"), 2);
+    assert.equal(first.listSessions().length, 0);
+    first.close();
+
+    const restored = new RuntimeStore(directory);
+    assert.equal(restored.listSessions().length, 0);
+    assert.equal(restored.getSession("session_sidebar_a")?.title, "持久化测试");
+    restored.close();
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

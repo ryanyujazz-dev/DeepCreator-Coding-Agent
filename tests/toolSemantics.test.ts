@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { analyzeCommand, approvalFor } from "../server/domain/accessPolicy";
-import { activityKindForTool, createToolState, executeTool, toolSpecs } from "../server/infra/tools";
+import { resolveRuntimeShell } from "../server/infra/shell";
+import {
+  activityKindForTool,
+  createToolState,
+  executeTool,
+  toolSpecs
+} from "../server/infra/tools";
 
 function semantic(name: string, args: Record<string, unknown>) {
   return createToolState({
@@ -60,12 +69,21 @@ test("classifies command permission and mutation semantics from parsed arguments
   assert.equal(localNpx.network, false);
   assert.equal(localNpx.readOnly, true);
 
-  const readOnlyResult = await executeTool({
-    args: { command: "pwd" },
-    name: "run_command",
-    projectRoot: "/tmp"
-  });
-  assert.equal(readOnlyResult.mutatedWorkspace, false);
+  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepseeker-command-"));
+  try {
+    const readOnlyResult = await executeTool({
+      activityId: "activity_pwd",
+      args: { command: "pwd" },
+      name: "run_command",
+      projectRoot,
+      runId: "run_pwd",
+      sessionId: "session_pwd"
+    });
+    assert.equal(readOnlyResult.exitCode, 0);
+    assert.equal(readOnlyResult.mutatedWorkspace, false);
+  } finally {
+    rmSync(projectRoot, { force: true, recursive: true });
+  }
 
   const destructive = approvalFor({
     args: { command: "rm -rf dist" },
@@ -77,21 +95,74 @@ test("classifies command permission and mutation semantics from parsed arguments
   assert.equal(destructive?.risk, "high");
 });
 
-test("reports command timeouts explicitly and preserves pipeline failures", async () => {
-  const timedOut = await executeTool({
-    args: { command: "sleep 1" },
-    commandTimeoutMs: 25,
-    name: "run_command",
-    projectRoot: "/tmp"
-  });
-  assert.equal(timedOut.exitCode, 124);
-  assert.equal(timedOut.timedOut, true);
-  assert.match(timedOut.output, /执行超时/);
+test("yields long commands for follow-up control and preserves nonzero exits", async () => {
+  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepseeker-command-"));
+  const family = resolveRuntimeShell().family;
+  const timeoutCommand = family === "cmd"
+    ? "ping -n 3 127.0.0.1 >NUL"
+    : family === "powershell" ? "Start-Sleep -Seconds 1" : "sleep 1";
+  const failureCommand = family === "cmd"
+    ? "exit /b 7"
+    : family === "powershell" ? "exit 7" : "sh -c 'exit 7' | tail -1";
+  try {
+    const running = await executeTool({
+      activityId: "activity_long",
+      args: { command: timeoutCommand },
+      commandCheckpointMs: 25,
+      name: "run_command",
+      projectRoot,
+      runId: "run_long",
+      sessionId: "session_long"
+    });
+    assert.equal(running.commandState, "running");
+    assert.ok(running.commandId);
+    const stopped = await executeTool({
+      args: { commandId: running.commandId },
+      name: "stop_command",
+      projectRoot
+    });
+    assert.equal(stopped.commandState, "cancelled");
 
-  const pipeline = await executeTool({
-    args: { command: "sh -c 'exit 7' | tail -1" },
-    name: "run_command",
-    projectRoot: "/tmp"
-  });
-  assert.equal(pipeline.exitCode, 7);
+    const failed = await executeTool({
+      activityId: "activity_failure",
+      args: { command: failureCommand },
+      name: "run_command",
+      projectRoot,
+      runId: "run_failure",
+      sessionId: "session_failure"
+    });
+    assert.equal(failed.exitCode, 7);
+  } finally {
+    rmSync(projectRoot, { force: true, recursive: true });
+  }
+});
+
+test("settles after a shell exits with inherited pipes", async () => {
+  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepseeker-command-lifecycle-"));
+  writeFileSync(path.join(projectRoot, "background-parent.cjs"), [
+    "const { spawn } = require('node:child_process');",
+    "const { tmpdir } = require('node:os');",
+    "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], {",
+    "  cwd: tmpdir(),",
+    "  detached: true,",
+    "  stdio: ['ignore', 'inherit', 'inherit'],",
+    "  windowsHide: true",
+    "}).unref();"
+  ].join("\n"));
+
+  try {
+    const startedAt = Date.now();
+    const result = await executeTool({
+      activityId: "activity_inherited",
+      args: { command: "node background-parent.cjs" },
+      name: "run_command",
+      projectRoot,
+      runId: "run_inherited",
+      sessionId: "session_inherited"
+    });
+    assert.equal(result.exitCode, 0);
+    assert.ok(Date.now() - startedAt < 2_000, "command waited for a detached descendant's output pipe");
+  } finally {
+    rmSync(projectRoot, { force: true, recursive: true });
+  }
 });

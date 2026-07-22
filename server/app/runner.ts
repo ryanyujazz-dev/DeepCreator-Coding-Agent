@@ -12,7 +12,7 @@ import {
 import { ContextEntry, ContextInput } from "../../shared/contracts/context";
 import { RunRegistry } from "./runRegistry";
 import { prompts } from "./prompts";
-import { Provider, ModelDelta, ModelMessage, ToolSpec } from "../../shared/contracts/provider";
+import { Provider, ModelDelta, ModelMessage, ToolCall, ToolSpec } from "../../shared/contracts/provider";
 import { Baseline } from "../../shared/contracts/tool";
 import { CapabilitySource, emptyCapabilitySource } from "../../shared/contracts/capability";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
@@ -22,6 +22,7 @@ import { classifyInteraction, requiresWorkspaceAction } from "./interaction";
 import { ToolHost } from "./toolHost";
 import { ToolPipeline } from "./toolPipeline";
 import { PlanArgumentStream } from "./planStream";
+import { MutationArgumentStream } from "./mutationStream";
 
 type RuntimeInput = {
   runId: string;
@@ -70,9 +71,19 @@ function openActivity(input: RuntimeInput, data: Record<string, unknown>, activi
 function finishActivity(input: RuntimeInput, activityId: string, data: Record<string, unknown>): void {
   input.store.append({
     runId: input.runId,
-    data: { ...data, finishedAt: new Date().toISOString() },
+    data: { liveFiles: [], ...data, finishedAt: new Date().toISOString() },
     sessionId: input.sessionId,
     type: "activity.finished",
+    activityId
+  });
+}
+
+function suspendActivity(input: RuntimeInput, activityId: string): void {
+  input.store.append({
+    runId: input.runId,
+    data: { status: "suspended" as const },
+    sessionId: input.sessionId,
+    type: "activity.updated",
     activityId
   });
 }
@@ -245,6 +256,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
   let protocolCorrectionCount = 0;
   let consecutiveToolProtocolErrors = 0;
   let deferredWorkCorrectionCount = 0;
+  let unfinishedCommandCorrectionCount = 0;
   let providerRequestCount = 0;
 
   while (true) {
@@ -266,6 +278,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     const toolActivities = new Map<string, string>();
     const toolArgumentBuffers = new Map<string, string>();
     const planArgumentStreams = new Map<string, PlanArgumentStream>();
+    const mutationArgumentStreams = new Map<string, MutationArgumentStream>();
     const pendingBuffers = new Map<string, string>();
 
     const appendBuffered = (activityId: string, text: string) => {
@@ -279,11 +292,27 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     };
     const onFragment = (fragment: ModelDelta) => {
       if (fragment.kind === "thinking") {
-        thinkingActivity ??= openActivity(input, { audience: "debug", kind: "thinking", startedAt: new Date().toISOString(), title: "" });
+        thinkingActivity ??= openActivity(input, {
+          audience: "debug",
+          kind: "thinking",
+          modelStepId,
+          startedAt: new Date().toISOString(),
+          title: ""
+        });
       } else if (fragment.kind === "answer") {
-        answerActivity ??= openActivity(input, { audience: "user", kind: "message", startedAt: new Date().toISOString(), title: "Agent 回复" });
-        appendBuffered(answerActivity, fragment.text);
+        if (!answerActivity) {
+          answerActivity = openActivity(input, {
+            audience: "user",
+            body: fragment.text,
+            kind: "message",
+            startedAt: new Date().toISOString(),
+            title: "Agent 回复"
+          });
+        } else {
+          appendBuffered(answerActivity, fragment.text);
+        }
       } else if (fragment.kind === "tool_call" && fragment.name) {
+        if (fragment.name === "wait_command" || fragment.name === "stop_command") return;
         const argumentsText = (toolArgumentBuffers.get(fragment.callId) ?? "") + (fragment.argumentsText ?? "");
         toolArgumentBuffers.set(fragment.callId, argumentsText);
         const streamedArgs = tryParseArguments(argumentsText);
@@ -298,16 +327,32 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         const activityId = toolActivities.get(fragment.callId) ?? openActivity(input, streamedTool ? {
           audience: "user",
           kind: input.tools.kind(streamedTool),
+          modelStepId,
           startedAt: new Date().toISOString(),
           title: fragment.name === "submit_plan" ? "正在编写计划" : input.tools.title(fragment.name),
           tool: streamedTool
         } : {
           audience: "user",
           kind: "tool",
+          modelStepId,
           startedAt: new Date().toISOString(),
           title: `未知工具：${fragment.name}`
         });
         toolActivities.set(fragment.callId, activityId);
+        if (fragment.name === "write_file" || fragment.name === "edit_file") {
+          const mutationStream = mutationArgumentStreams.get(fragment.callId) ?? new MutationArgumentStream(fragment.name);
+          mutationArgumentStreams.set(fragment.callId, mutationStream);
+          const liveFile = mutationStream.push(fragment.argumentsText ?? "");
+          if (liveFile) {
+            input.store.append({
+              activityId,
+              data: { liveFiles: [liveFile] },
+              runId: input.runId,
+              sessionId: input.sessionId,
+              type: "activity.updated"
+            });
+          }
+        }
         if (fragment.name === "submit_plan") {
           const planStream = planArgumentStreams.get(fragment.callId) ?? new PlanArgumentStream();
           planArgumentStreams.set(fragment.callId, planStream);
@@ -356,6 +401,19 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       signal: input.signal,
       tools
     });
+    for (const [callId, mutationStream] of mutationArgumentStreams) {
+      const liveFile = mutationStream.flush();
+      const activityId = toolActivities.get(callId);
+      if (activityId && liveFile) {
+        input.store.append({
+          activityId,
+          data: { liveFiles: [liveFile] },
+          runId: input.runId,
+          sessionId: input.sessionId,
+          type: "activity.updated"
+        });
+      }
+    }
     for (const [activityId, text] of pendingBuffers) {
       const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
       if (activity?.kind !== "thinking") {
@@ -398,7 +456,10 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       throw new ModelProtocolError(response.protocolIssue.message);
     }
 
-    if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "completed" });
+    if (thinkingActivity) {
+      if (response.toolCalls.length > 0) suspendActivity(input, thinkingActivity);
+      else finishActivity(input, thinkingActivity, { status: "completed" });
+    }
     if (answerActivity) finishActivity(input, answerActivity, { status: "completed" });
     if (response.answer.trim()) answer = response.answer.trim();
     messages.push(response.continuationMessage);
@@ -412,6 +473,23 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           : "DeepSeek 推理资源不足，本轮未完成。");
     }
     if (response.toolCalls.length === 0) {
+      const runningCommandIds = new Set([
+        ...input.tools.runningCommands(input.runId).map((command) => command.commandId),
+        ...(input.store.getRun(input.runId)?.activities ?? [])
+          .filter((activity) => activity.status === "running" && Boolean(activity.command?.commandId))
+          .map((activity) => activity.command!.commandId!)
+      ]);
+      if (runningCommandIds.size > 0) {
+        unfinishedCommandCorrectionCount += 1;
+        if (unfinishedCommandCorrectionCount >= 3) {
+          throw new ModelProtocolError("模型连续三次尝试在命令仍运行时结束本轮。Runtime 已停止本次运行的命令。");
+        }
+        messages.push({
+          role: "user",
+          text: `Runtime 检测到仍在运行或正在收尾的命令：${[...runningCommandIds].join(", ")}。当前文本不能作为最终回答；请调用 wait_command 继续等待，或在不再需要命令时调用 stop_command。不要重复启动同一命令。`
+        });
+        continue;
+      }
       const currentMode = input.store.getSession(input.sessionId)?.mode ?? session.mode;
       if (currentMode === "plan") {
         messages.push({
@@ -448,13 +526,12 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       });
       return;
     }
-    let mutatedWorkspace = false;
     let protocolErrors = 0;
     const deferredContextRecords: ContextInput[] = [];
+    const deferredEvidenceRecords: ContextInput[] = [];
     const stepRejection = pipeline.stepRejection(response.toolCalls, modelStepId, input.projectRoot);
     let suspended = false;
-    for (const call of response.toolCalls) {
-      const outcome = await pipeline.run({
+    const runToolCall = (call: ToolCall) => pipeline.run({
         baseline: input.workspaceBaseline,
         projectRoot: input.projectRoot,
         registry: input.registry,
@@ -463,23 +540,36 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         signal: input.signal,
         store: input.store
       }, call, modelStepId, knownInstructionKeys, toolActivities.get(call.callId), stepRejection);
+    const outcomes = new Map<string, Awaited<ReturnType<typeof runToolCall>>>();
+    let parallelBatch: ToolCall[] = [];
+    const flushParallel = async () => {
+      if (parallelBatch.length === 0) return;
+      const batch = parallelBatch;
+      parallelBatch = [];
+      const batchOutcomes = await Promise.all(batch.map(runToolCall));
+      batch.forEach((call, index) => outcomes.set(call.callId, batchOutcomes[index]));
+    };
+    for (const call of response.toolCalls) {
+      if (input.tools.parallel(call.name)) {
+        parallelBatch.push(call);
+        continue;
+      }
+      await flushParallel();
+      outcomes.set(call.callId, await runToolCall(call));
+    }
+    await flushParallel();
+    for (const call of [...response.toolCalls].sort((left, right) => left.index - right.index)) {
+      const outcome = outcomes.get(call.callId)!;
       if (outcome.message) messages.push(outcome.message);
+      deferredEvidenceRecords.push(...(outcome.evidenceRecords ?? []));
       deferredContextRecords.push(...outcome.contextRecords);
-      mutatedWorkspace ||= outcome.mutatedWorkspace;
       suspended ||= Boolean(outcome.suspended);
       if (outcome.protocolError) protocolErrors += 1;
     }
+    for (const record of deferredEvidenceRecords) input.store.appendContextEntry(record);
     for (const record of deferredContextRecords) {
       const persisted = input.store.appendContextEntry(record);
       messages.push({ role: "user", text: persisted.text ?? "" });
-    }
-    if (mutatedWorkspace) {
-      input.store.append({
-        runId: input.runId,
-        data: await input.tools.changes(input.projectRoot, input.workspaceBaseline),
-        sessionId: input.sessionId,
-        type: "changes.changed"
-      });
     }
     if (suspended) return;
     consecutiveToolProtocolErrors = protocolErrors === response.toolCalls.length
@@ -525,6 +615,7 @@ export async function runAgent(input: RunInput): Promise<void> {
       });
     }
   } finally {
+    await input.tools.stopCommands(input.runId);
     await input.tools.close(workspaceBaseline);
   }
 }

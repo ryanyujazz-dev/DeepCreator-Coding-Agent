@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { reduceEvents } from "../shared/domain/reducer";
 import { ApprovalChoice, isRunDone, AccessMode, Mode, Plan, PlanDecision, PlanEntry, SessionSummary, Session } from "../shared/contracts/runtime";
 import { ConnectionPhase } from "./components/ConnectionStatus";
-import { runtimeApi, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError, RuntimeWorkspace } from "./runtimeApi";
+import { runtimeApi, RuntimeBalance, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError, RuntimeWorkspace } from "./runtimeApi";
 
 export function useWorkspace() {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
@@ -16,6 +16,7 @@ export function useWorkspace() {
   const [contextObserver, setContextObserver] = useState<RuntimeContextObserver | null>(null);
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<RuntimeWorkspace | null>(null);
+  const [balance, setBalance] = useState<RuntimeBalance | null>(null);
 
   const refreshSessions = useCallback(async (query = "") => {
     const result = await runtimeApi.listSessions(query);
@@ -136,6 +137,35 @@ export function useWorkspace() {
     };
   }, [activeRun, session?.sessionId, session?.updatedAt]);
 
+  // 余额轮询:账户级数据,与 activeRun 解耦。60s 一次,仅在配置了 API key 时启动。
+  // 查询失败时撤下旧值,避免把过期余额继续展示为当前数据。
+  useEffect(() => {
+    let disposed = false;
+    let refreshing = false;
+    if (!config?.hasApiKey) {
+      setBalance(null);
+      return;
+    }
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const result = await runtimeApi.getBalance();
+        if (!disposed) setBalance(result);
+      } catch {
+        if (!disposed) setBalance(null);
+      } finally {
+        refreshing = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 60_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [config?.hasApiKey]);
+
   useEffect(() => {
     if (!session) return;
     setDraftMode(session.mode);
@@ -209,6 +239,51 @@ export function useWorkspace() {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
   }, [activeRun]);
+
+  const stopCommand = useCallback(async (commandId: string) => {
+    try {
+      await runtimeApi.stopCommand(commandId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, []);
+
+  const pinSession = useCallback(async (sessionId: string, pinned: boolean) => {
+    try {
+      await runtimeApi.setSessionSidebar(sessionId, { pinned });
+      await refreshSessions();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, [refreshSessions]);
+
+  const archiveSession = useCallback(async (sessionId: string) => {
+    try {
+      await runtimeApi.setSessionSidebar(sessionId, { archived: true });
+      if (session?.sessionId === sessionId) {
+        setSession(null);
+        setWorkspace(null);
+      }
+      await refreshSessions();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      throw nextError;
+    }
+  }, [refreshSessions, session?.sessionId]);
+
+  const archiveProjectSessions = useCallback(async (root: string) => {
+    try {
+      await runtimeApi.archiveProjectSessions(root);
+      if (session?.projectRoot === root) {
+        setSession(null);
+        setWorkspace(null);
+      }
+      await refreshSessions();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      throw nextError;
+    }
+  }, [refreshSessions, session?.projectRoot]);
 
   const resolveApproval = useCallback(async (decision: ApprovalChoice) => {
     if (!pendingApproval) return;
@@ -284,6 +359,9 @@ export function useWorkspace() {
     activeRun,
     accessMode: draftAccessMode,
     answerQuestion,
+    archiveProjectSessions,
+    archiveSession,
+    balance,
     cancelRun,
     config,
     connection,
@@ -294,6 +372,7 @@ export function useWorkspace() {
     mode: draftMode,
     newSession,
     pendingApproval,
+    pinSession,
     planEntry: draftPlanEntry,
     projectRoot,
     resolveApproval,
@@ -307,6 +386,7 @@ export function useWorkspace() {
     session,
     sessions,
     startRun,
+    stopCommand,
     workspace
   };
 }

@@ -16,6 +16,14 @@ export const runParamsSchema = {
   }
 } as const;
 
+export const commandParamsSchema = {
+  params: {
+    type: "object",
+    properties: { commandId: id },
+    required: ["commandId"]
+  }
+} as const;
+
 export const runInputSchema = {
   ...sessionParamsSchema,
   body: {

@@ -93,3 +93,55 @@ test("constrains provider compaction summaries to semantic fields", async () => 
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
+
+test("queries the balance endpoint with authorization and normalizes amounts", async () => {
+  let requestAuthorization: string | undefined;
+  let requestUrl: string | undefined;
+  const server = createServer((request, response) => {
+    requestAuthorization = request.headers.authorization;
+    requestUrl = request.url;
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({
+      balance_infos: [{
+        currency: "CNY",
+        granted_balance: "1.25",
+        topped_up_balance: "8.75",
+        total_balance: "10.00"
+      }],
+      is_available: true
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}/chat/completions`);
+    const result = await provider.getBalance();
+    assert.equal(requestUrl, "/user/balance");
+    assert.equal(requestAuthorization, "Bearer test-key");
+    assert.deepEqual(result, {
+      balanceInfos: [{
+        currency: "CNY",
+        grantedBalance: 1.25,
+        toppedUpBalance: 8.75,
+        totalBalance: 10
+      }],
+      isAvailable: true
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("aborts a balance request when the provider does not respond", async () => {
+  const server = createServer(() => undefined);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}/chat/completions`, 20);
+    await assert.rejects(provider.getBalance(), /DeepSeek 余额查询超时:超过 20ms/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});

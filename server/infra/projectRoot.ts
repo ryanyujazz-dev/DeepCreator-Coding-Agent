@@ -21,7 +21,7 @@ export async function resolveProjectRoot(input: {
   }
 
   const prompt = input.prompt.trimStart();
-  if (!prompt.startsWith(path.sep)) return path.resolve(input.fallbackRoot);
+  if (!path.isAbsolute(prompt)) return path.resolve(input.fallbackRoot);
   for (let end = prompt.length; end > 1; end -= 1) {
     const candidate = prompt.slice(0, end).trimEnd();
     const directory = await existingDirectory(candidate);

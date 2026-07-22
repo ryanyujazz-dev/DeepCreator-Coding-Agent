@@ -15,7 +15,8 @@ import {
   Activity,
   FileChange,
   ActivityGroup,
-  Changes
+  Changes,
+  ToolAggregate
 } from "../../shared/contracts/runtime";
 import { CodeDiffViewer } from "./CodeEditorSurface";
 import { DetailPanel } from "./DetailPanel";
@@ -46,6 +47,8 @@ function memberLabel(activity: Activity): string {
   if (activity.tool?.toolName === "run_command") return `${activity.status === "running" ? "正在运行" : "已运行"} ${target}`;
   if (activity.tool?.toolName === "read_file") return `${activity.status === "running" ? "正在读取" : "已读取"} ${target}`;
   if (activity.tool?.toolName === "list_files") return `${activity.status === "running" ? "正在列出" : "已列出"} ${target}`;
+  if (activity.tool?.toolName === "grep") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
+  if (activity.tool?.toolName === "glob") return `${activity.status === "running" ? "正在匹配" : "已匹配"} ${target}`;
   if (activity.tool?.action === "search") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
   if (activity.tool?.action === "modify") return `${activity.status === "running" ? "正在修改" : "已修改"} ${target}`;
   return `${activity.status === "running" ? "正在执行" : "已完成"} ${target}`;
@@ -55,6 +58,8 @@ function fileActionLabel(activity: Activity): string {
   if (activity.status === "failed") return "失败";
   if (activity.status === "cancelled") return "已取消";
   if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
+  if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "已搜索";
+  if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "已匹配";
   if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
   if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
   return activity.status === "running" ? "正在处理" : "已处理";
@@ -65,6 +70,8 @@ function directActionLabel(activity: Activity): string {
   if (activity.status === "failed") {
     if (activity.tool?.action === "modify") return "修改失败";
     if (activity.tool?.toolName === "read_file") return "读取失败";
+    if (activity.tool?.toolName === "grep") return "搜索失败";
+    if (activity.tool?.toolName === "glob") return "匹配失败";
     return "执行失败";
   }
   if (activity.status === "cancelled") return "已取消";
@@ -72,6 +79,8 @@ function directActionLabel(activity: Activity): string {
   if (activity.tool?.toolName === "edit_file") return active ? "正在编辑" : "已编辑";
   if (activity.tool?.toolName === "delete_file") return active ? "正在删除" : "已删除";
   if (activity.tool?.toolName === "read_file") return active ? "正在读取" : "已读取";
+  if (activity.tool?.toolName === "grep") return active ? "正在搜索" : "已搜索";
+  if (activity.tool?.toolName === "glob") return active ? "正在匹配" : "已匹配";
   if (activity.tool?.action === "search") return active ? "正在搜索" : "已搜索";
   return active ? "正在处理" : "已处理";
 }
@@ -81,6 +90,8 @@ function expandedActionLabel(group: ActivityGroup, members: Activity[]): string 
   if (group.category === "execute") return group.status === "failed" ? "运行失败的命令" : "已运行的命令";
   if (group.category === "verify") return group.status === "failed" ? "验证失败的命令" : "已验证的命令";
   if (members.every((activity) => activity.tool?.toolName === "read_file")) return "已读取的文件";
+  if (members.every((activity) => activity.tool?.toolName === "grep")) return group.status === "failed" ? "失败的搜索" : "搜索记录";
+  if (members.every((activity) => activity.tool?.toolName === "glob")) return group.status === "failed" ? "失败的匹配" : "匹配记录";
   if (members.every((activity) => activity.tool?.action === "search")) return "搜索记录";
   return "检查记录";
 }
@@ -112,6 +123,8 @@ function commandOutput(activity: Activity): string {
 
 function detailTitle(activity: Activity): string {
   if (activity.tool?.toolName === "run_command") return "Shell";
+  if (activity.tool?.toolName === "grep") return "grep";
+  if (activity.tool?.toolName === "glob") return "glob";
   if (activity.tool?.toolName === "read_file") return activity.tool.displayTarget || "文件内容";
   if (activity.tool?.toolName === "list_files") return "目录内容";
   if (activity.tool?.action === "search") return "搜索结果";
@@ -180,17 +193,21 @@ function OperationMemberRow({
   );
 }
 
-function ModificationFileRow({
+export function ModificationFileRow({
   file,
-  onOpenFile
+  onOpenFile,
+  active = false,
+  showIcon = true
 }: {
   file: FileChange;
   onOpenFile: (path: string) => void;
+  active?: boolean;
+  showIcon?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasPatch = Boolean(file.patch?.trim());
   return (
-    <div className={`operation-modification-file ${expanded ? "is-expanded" : ""}`}>
+    <div className={`operation-modification-file ${active ? "is-running" : ""} ${expanded ? "is-expanded" : ""}`}>
       <div
         aria-expanded={expanded}
         className="operation-file-summary"
@@ -206,8 +223,8 @@ function ModificationFileRow({
         role="button"
         tabIndex={0}
       >
-        <span className="operation-file-summary-icon"><PencilLine size={13} /></span>
-        <span className="operation-file-summary-action">{modificationAction(file.operation)}</span>
+        {showIcon && <span className="operation-file-summary-icon"><PencilLine size={13} /></span>}
+        <span className={`operation-file-summary-action ${active ? "working-glow" : ""}`}>{modificationAction(file.operation, active)}</span>
         <button
           className="operation-file-summary-name"
           onClick={(event) => {
@@ -219,7 +236,7 @@ function ModificationFileRow({
         >
           {file.path}
         </button>
-        <span className="operation-diff-metrics"><b>+{file.additions}</b> <i>-{file.deletions}</i></span>
+        <span className={`operation-diff-metrics ${active ? "is-live" : ""}`}><b>+{file.additions}</b> <i>-{file.deletions}</i></span>
         <ChevronRight className="operation-file-summary-chevron" size={13} />
       </div>
       <div className={`operation-file-detail-expander ${expanded ? "is-expanded" : ""}`}>
@@ -266,7 +283,7 @@ export function ActivityGroupRenderer({
     ? fileTargets[0]
     : undefined;
   const directMember = directFile ? members[0] : undefined;
-  const metrics = group.category === "modify" && group.changes && group.status !== "running"
+  const metrics = group.category === "modify" && group.changes
     ? group.changes
     : undefined;
   const toggleExpanded = () => {
@@ -333,6 +350,76 @@ export function ActivityGroupRenderer({
                 : members.map((activity) => (
                     <OperationMemberRow key={activity.activityId} onOpenFile={onOpenFile} activity={activity} />
                   ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function aggregateIcon(aggregate: ToolAggregate) {
+  return aggregate.status === "failed" ? <CircleAlert size={13} /> : <CheckCircle2 size={13} />;
+}
+
+export function ActivityAggregateRenderer({
+  aggregate,
+  onOpenFile,
+  activities,
+  changes
+}: {
+  aggregate: ToolAggregate;
+  onOpenFile: (path: string) => void;
+  activities: Activity[];
+  changes: Changes;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [hasOpened, setHasOpened] = useState(false);
+  const members = useMemo(() => {
+    const keys = new Set(aggregate.memberActivityIds);
+    return activities.filter((activity) => keys.has(activity.activityId));
+  }, [aggregate.memberActivityIds, activities]);
+  const changedFiles = useMemo(() => {
+    if (changes.comparisonBase !== "run_start") return new Map<string, FileChange>();
+    return new Map(changes.files.map((file) => [file.path.replaceAll("\\", "/"), file]));
+  }, [changes]);
+  const toggleExpanded = () => {
+    setHasOpened(true);
+    setExpanded((value) => !value);
+  };
+  const handleSummaryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    toggleExpanded();
+  };
+
+  return (
+    <article className={`operation-group activity-aggregate is-${aggregate.status} ${expanded ? "is-expanded" : ""}`}>
+      <div
+        aria-expanded={expanded}
+        className="operation-group-summary"
+        onClick={toggleExpanded}
+        onKeyDown={handleSummaryKeyDown}
+        role="button"
+        tabIndex={0}
+      >
+        <span className="operation-group-icon">{aggregateIcon(aggregate)}</span>
+        <span className="operation-group-action">{aggregate.summaryLabel}</span>
+        <ChevronRight className="operation-summary-chevron" size={13} />
+      </div>
+      <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>
+        <div>
+          {hasOpened && (
+            <div className="operation-group-details" aria-label="已完成的工具调用">
+              {members.map((activity) => {
+                const changedFile = activity.tool?.action === "modify"
+                  ? (activity.files?.find((file) => file.path.replaceAll("\\", "/") === activity.tool?.normalizedTarget)
+                    ?? changedFiles.get(activity.tool.normalizedTarget))
+                  : undefined;
+                return changedFile
+                  ? <ModificationFileRow file={changedFile} key={activity.activityId} onOpenFile={onOpenFile} />
+                  : <OperationMemberRow activity={activity} key={activity.activityId} onOpenFile={onOpenFile} />;
+              })}
             </div>
           )}
         </div>

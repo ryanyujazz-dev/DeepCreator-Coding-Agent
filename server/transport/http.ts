@@ -10,6 +10,7 @@ import { RuleSource } from "../../shared/contracts/rules";
 import {
   accessInputSchema,
   approvalInputSchema,
+  commandParamsSchema,
   eventQuerySchema,
   modeInputSchema,
   runInputSchema,
@@ -23,6 +24,7 @@ import { RunRegistry } from "../app/runRegistry";
 import { answerQuestion, resolvePlan, ResumeRun, revisePlan } from "../app/planReview";
 import { RuntimeStore } from "../infra/runtimeStore";
 import { WorkspaceInfo } from "../infra/workspace";
+import { CommandManager } from "../infra/commandManager";
 
 export type HttpConfig = {
   authToken?: string;
@@ -36,6 +38,7 @@ export type HttpConfig = {
 
 export type HttpDeps = {
   capabilities: CapabilitySource;
+  commands: CommandManager;
   config: HttpConfig;
   providerFor: (model: string) => { model: string; provider: Provider };
   registry: RunRegistry;
@@ -48,7 +51,7 @@ export type HttpDeps = {
 };
 
 export function createHttp(deps: HttpDeps): FastifyInstance {
-  const { capabilities, config, providerFor, registry, resolveProjectRoot, rules, run, store, tools, workspaceInfo } = deps;
+  const { capabilities, commands, config, providerFor, registry, resolveProjectRoot, rules, run, store, tools, workspaceInfo } = deps;
   const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, workspaceRoot } = config;
   const app = Fastify({ logger: false });
   const frontendOrigin = new URL(frontendUrl).origin;
@@ -181,9 +184,47 @@ app.get("/api/config", async () => ({
   workspaceRoot
 }));
 
+// 查询账户余额。前端 60s 轮询一次,用于在 context-meter popover 显示剩余额度。
+// 复用 providerFor 闭包拿到 provider(已持有解密后的 apiKey)。
+// 失败静默:前端 catch 后显示"尚无数据",不打扰用户。
+app.get("/api/balance", async (_request, reply) => {
+  try {
+    if (!hasApiKey) return reply.code(400).send({ error: "未配置 API Key。" });
+    const { provider } = providerFor(defaultModel);
+    if (!provider.getBalance) return reply.code(501).send({ error: "当前 provider 不支持余额查询。" });
+    return await provider.getBalance();
+  } catch (error) {
+    return reply.code(502).send({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 app.get<{ Querystring: { query?: string } }>("/api/sessions", async (request) => ({
   sessions: store.listSessions(request.query.query ?? "")
 }));
+
+app.put<{
+  Params: { sessionId: string };
+  Body: { archived?: boolean; pinned?: boolean };
+}>("/api/sessions/:sessionId/sidebar", { schema: sessionParamsSchema }, async (request, reply) => {
+  const session = store.getSession(request.params.sessionId);
+  if (!session) return reply.code(404).send({ error: "session not found" });
+  if (request.body.archived && session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued")) {
+    return reply.code(409).send({ error: "正在执行的任务不能归档" });
+  }
+  store.updateSessionSidebar(request.params.sessionId, request.body);
+  return { ok: true };
+});
+
+app.post<{
+  Body: { projectRoot?: string };
+}>("/api/projects/archive-sessions", async (request, reply) => {
+  const projectRoot = request.body.projectRoot?.trim();
+  if (!projectRoot) return reply.code(400).send({ error: "projectRoot is required" });
+  if (store.listSessions().some((session) => session.projectRoot === projectRoot && session.active)) {
+    return reply.code(409).send({ error: "项目中仍有正在执行的任务" });
+  }
+  return { archived: store.archiveProjectSessions(projectRoot) };
+});
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId", { schema: sessionParamsSchema }, async (request, reply) => {
   const session = store.getSession(request.params.sessionId);
@@ -449,8 +490,19 @@ app.get<{
 });
 
 app.post<{ Params: { runId: string } }>("/api/runs/:runId/cancel", { schema: runParamsSchema }, async (request, reply) => {
+  const drained = registry.waitForRun(request.params.runId);
   const cancelled = registry.cancelRun(request.params.runId);
-  return reply.code(cancelled ? 200 : 404).send({ ok: cancelled });
+  if (!cancelled) return reply.code(404).send({ ok: false });
+  const [settled] = await Promise.all([
+    drained,
+    commands.stopRun(request.params.runId).then(() => true)
+  ]);
+  return reply.send({ ok: true, settled });
+});
+
+app.post<{ Params: { commandId: string } }>("/api/commands/:commandId/stop", { schema: commandParamsSchema }, async (request, reply) => {
+  const stopped = await commands.stop(request.params.commandId);
+  return reply.code(stopped ? 200 : 404).send({ command: stopped, ok: Boolean(stopped) });
 });
 
 app.put<{

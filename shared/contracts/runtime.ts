@@ -1,7 +1,7 @@
 export const EVENT_VERSION = "deepseeker.events/v2" as const;
 
 export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
-export type ActivityStatus = "running" | "completed" | "failed" | "cancelled";
+export type ActivityStatus = "running" | "suspended" | "completed" | "failed" | "cancelled";
 export type Audience = "user" | "debug" | "internal";
 export type Mode = "work" | "plan";
 export type PlanEntry = "manual" | "suggest" | "auto";
@@ -207,6 +207,7 @@ export type ResumeState = {
 export type Activity = {
   activityId: string;
   runId: string;
+  modelStepId?: string;
   kind: ActivityKind;
   status: ActivityStatus;
   audience: Audience;
@@ -217,10 +218,15 @@ export type Activity = {
   tool?: ToolState;
   command?: {
     command: string;
+    commandId?: string;
+    elapsedMs?: number;
     exitCode?: number;
+    outputTruncated?: boolean;
+    state?: "running" | "completed" | "failed" | "cancelled";
     timedOut?: boolean;
   };
   files?: FileChange[];
+  liveFiles?: FileChange[];
   error?: string;
 };
 
@@ -254,9 +260,66 @@ export type ActivityGroup = {
   changes?: Pick<Changes, "additions" | "deletions" | "fileCount">;
 };
 
-export type TimelineEntry =
-  | { entryId: string; type: "activity_group"; group: ActivityGroup }
+export type LiveStep =
+  | { mode: "thinking"; activity: Activity }
+  | { mode: "message"; activity: Activity }
+  | {
+      mode: "tools";
+      category: ActionKind | "mixed";
+      currentTarget?: string;
+      status: ActivityStatus;
+      summaryLabel: string;
+      totalCalls: number;
+    };
+
+export type ActivityIndicator =
+  | {
+      mode: "thinking";
+      sourceActivityId: string;
+      label: string;
+    }
+  | {
+      mode: "tool";
+      sourceActivityId: string;
+      category: ActionKind;
+      label: string;
+      target?: string;
+    };
+
+export type ActivitySlot = {
+  slotId: string;
+  logicalState: "active" | "empty";
+  visual: ActivityIndicator;
+};
+
+export type ToolAggregate = {
+  aggregateId: string;
+  runId: string;
+  memberActivityIds: string[];
+  totalCalls: number;
+  successCount: number;
+  failureCount: number;
+  cancelledCount: number;
+  status: Exclude<ActivityStatus, "running">;
+  summaryLabel: string;
+};
+
+export type DisplaySegment = {
+  segmentId: string;
+  runId: string;
+  mainActivity?: Activity;
+  aggregate?: ToolAggregate;
+  activitySlots: ActivitySlot[];
+};
+
+export type DisplayTimelineEntry =
+  | { entryId: string; type: "display_segment"; segment: DisplaySegment }
   | { entryId: string; type: "activity"; activity: Activity };
+
+export type TimelineEntry =
+  | DisplayTimelineEntry
+  | { entryId: string; type: "activity_group"; group: ActivityGroup }
+  | { entryId: string; type: "live_step"; liveStep: LiveStep };
 
 export type Run = {
   runId: string;
@@ -312,6 +375,7 @@ export type SessionSummary = Pick<
 > & {
   runCount: number;
   active: boolean;
+  pinned?: boolean;
 };
 
 export type EventBatch = {

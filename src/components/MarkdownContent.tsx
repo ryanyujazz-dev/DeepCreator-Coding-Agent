@@ -4,6 +4,7 @@ import { ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { StreamFragment } from "../stream/textFlow";
+import { MermaidBlock } from "./MermaidBlock";
 
 type FadeRange = {
   end: number;
@@ -69,35 +70,47 @@ function textFromNode(node: ReactNode): string {
 }
 
 function CodeBlock({ children, followOutput }: { children: ReactNode; followOutput: boolean }) {
-  const [copied, setCopied] = useState(false);
-  const outputRef = useRef<HTMLPreElement>(null);
-  const stickToEnd = useRef(true);
+  // CodeBlock 只做语言分派,不调用任何 hook。这样语言切换(如 text -> mermaid)时
+  // 不会触发 React "Rendered fewer hooks than expected" 错误。
+  // 真正的实现(含 hook)拆到 MermaidBlock 和 PlainCodeBlock 两个子组件里。
   const properties = isValidElement(children)
     ? children.props as { children?: ReactNode; className?: string }
     : { children };
   const code = textFromNode(properties.children).replace(/\n$/, "");
   const language = properties.className?.match(/language-([^\s]+)/)?.[1] ?? "text";
-  const languageLabel: Record<string, string> = {
-    bash: "Bash",
-    css: "CSS",
-    html: "HTML",
-    javascript: "JavaScript",
-    js: "JavaScript",
-    json: "JSON",
-    jsx: "JSX",
-    markdown: "Markdown",
-    md: "Markdown",
-    python: "Python",
-    py: "Python",
-    shell: "Shell",
-    sh: "Shell",
-    text: "代码",
-    ts: "TypeScript",
-    tsx: "TSX",
-    typescript: "TypeScript",
-    yaml: "YAML",
-    yml: "YAML"
-  };
+  if (language === "mermaid") {
+    return <MermaidBlock code={code} followOutput={followOutput} />;
+  }
+  return <PlainCodeBlock code={code} followOutput={followOutput} language={language} />;
+}
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  bash: "Bash",
+  css: "CSS",
+  html: "HTML",
+  javascript: "JavaScript",
+  js: "JavaScript",
+  json: "JSON",
+  jsx: "JSX",
+  markdown: "Markdown",
+  md: "Markdown",
+  mermaid: "Mermaid",
+  python: "Python",
+  py: "Python",
+  shell: "Shell",
+  sh: "Shell",
+  text: "代码",
+  ts: "TypeScript",
+  tsx: "TSX",
+  typescript: "TypeScript",
+  yaml: "YAML",
+  yml: "YAML"
+};
+
+function PlainCodeBlock({ code, followOutput, language }: { code: string; followOutput: boolean; language: string }) {
+  const [copied, setCopied] = useState(false);
+  const outputRef = useRef<HTMLPreElement>(null);
+  const stickToEnd = useRef(true);
   useEffect(() => {
     const output = outputRef.current;
     if (!followOutput || !stickToEnd.current || !output) return;
@@ -106,7 +119,7 @@ function CodeBlock({ children, followOutput }: { children: ReactNode; followOutp
   return (
     <section className="markdown-code-block">
       <header>
-        <span className="markdown-code-language"><Code2 size={12} />{languageLabel[language] ?? language}</span>
+        <span className="markdown-code-language"><Code2 size={12} />{LANGUAGE_LABELS[language] ?? language}</span>
         <button
           aria-label="复制代码"
           onClick={() => {

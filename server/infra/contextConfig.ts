@@ -1,5 +1,6 @@
 import { platform } from "node:os";
 import { ContextConfig, defaultContextConfig } from "../app/contextBuilder";
+import { resolveRuntimeShell } from "./shell";
 
 function number(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -14,7 +15,7 @@ export function contextConfig(): ContextConfig {
     platform: platform(),
     protocolReserveTokens: number("DEEPSEEK_PROTOCOL_RESERVE_TOKENS", defaultContextConfig.protocolReserveTokens),
     safetyMarginTokens: number("DEEPSEEK_CONTEXT_SAFETY_TOKENS", defaultContextConfig.safetyMarginTokens),
-    shellFamily: process.env.SHELL?.split("/").at(-1) ?? "unknown",
+    shellFamily: resolveRuntimeShell().family,
     windowTokens: number("DEEPSEEK_CONTEXT_WINDOW_TOKENS", defaultContextConfig.windowTokens)
   };
 }

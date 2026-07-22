@@ -38,6 +38,18 @@ export type RuntimeConfig = {
   workspaceRoot: string;
 };
 
+// 账户余额查询结果(对应后端 GET /api/balance)。
+// 用于在 context-meter popover 显示 DeepSeek 账户剩余额度。
+export type RuntimeBalance = {
+  isAvailable: boolean;
+  balanceInfos: Array<{
+    currency: string;
+    totalBalance: number;
+    grantedBalance: number;
+    toppedUpBalance: number;
+  }>;
+};
+
 export type RuntimeContextSection = {
   section: string;
   source: string;
@@ -126,6 +138,7 @@ export class RuntimeClient {
   }
 
   config = () => this.request<RuntimeConfig>("/api/config");
+  getBalance = () => this.request<RuntimeBalance>("/api/balance");
   listSessions = (query = "") => this.request<{ sessions: import("../shared/contracts/runtime").SessionSummary[] }>(
     `/api/sessions${query.trim() ? `?query=${encodeURIComponent(query.trim())}` : ""}`
   );
@@ -138,6 +151,13 @@ export class RuntimeClient {
     return this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { body: JSON.stringify(input), method: "POST" });
   };
   cancelRun = (runId: string) => this.request<{ ok: boolean }>(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+  stopCommand = (commandId: string) => this.request<{ ok: boolean }>(`/api/commands/${encodeURIComponent(commandId)}/stop`, { method: "POST" });
+  setSessionSidebar = (sessionId: string, input: { archived?: boolean; pinned?: boolean }) => this.request<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(sessionId)}/sidebar`, {
+    body: JSON.stringify(input), method: "PUT"
+  });
+  archiveProjectSessions = (projectRoot: string) => this.request<{ archived: number }>("/api/projects/archive-sessions", {
+    body: JSON.stringify({ projectRoot }), method: "POST"
+  });
   setAccessMode = (sessionId: string, accessMode: AccessMode) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/access-mode`, {
     body: JSON.stringify({ accessMode }), method: "PUT"
   });
@@ -206,15 +226,16 @@ export class RuntimeClient {
     return () => controller.abort();
   }
 
-  private headers(init?: HeadersInit): Headers {
+  private headers(init?: HeadersInit, hasBody = false): Headers {
     const headers = new Headers(init);
-    headers.set("Content-Type", "application/json");
+    if (hasBody) headers.set("Content-Type", "application/json");
     if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
     return headers;
   }
 
   private request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    return fetch(this.url(path), { ...init, headers: this.headers(init.headers) }).then((response) => json<T>(response));
+    const hasBody = init.body !== undefined && init.body !== null;
+    return fetch(this.url(path), { ...init, headers: this.headers(init.headers, hasBody) }).then((response) => json<T>(response));
   }
 
   private url(path: string): string {

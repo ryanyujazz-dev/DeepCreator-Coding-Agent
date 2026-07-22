@@ -1,7 +1,7 @@
 import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
-import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
-import { RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
+import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 
 const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
   { description: "外部访问和有风险的操作会先询问", icon: ShieldAlert, key: "request_approval", label: "请求批准" },
@@ -10,6 +10,7 @@ const accessOptions: Array<{ description: string; icon: typeof Shield; key: Acce
 ];
 
 export function Composer({
+  balance,
   contextConfig,
   contextObserver,
   disabledReason,
@@ -27,6 +28,7 @@ export function Composer({
   accessMode,
   mode
 }: {
+  balance?: RuntimeBalance | null;
   contextConfig: RuntimeConfig | null;
   contextObserver: RuntimeContextObserver | null;
   disabledReason?: string;
@@ -45,6 +47,22 @@ export function Composer({
   mode: Mode;
 }) {
   const [draft, setDraft] = useState("");
+  // textarea 自适应高度:初始 2 行,随内容增长最高到 8 行,超过 8 行内部滚动。
+  // CSS 里 min-height/max-height 已经把范围限定到 2~8 行,JS 只需根据 scrollHeight 设置 height。
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const COMPOSER_MIN_HEIGHT = 78;   // ≈ 2 行(2 × 22.5 行高 + 30 padding)
+  const COMPOSER_MAX_HEIGHT = 210;  // ≈ 8 行(8 × 22.5 + 30)
+  const autoGrow = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    // 先重置为 auto,让 scrollHeight 反映真实内容高度(否则 height 会卡在上次值)
+    el.style.height = "auto";
+    const next = Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, el.scrollHeight));
+    el.style.height = `${next}px`;
+  }, []);
+  useEffect(() => {
+    autoGrow();
+  }, [draft, autoGrow]);
   const [accessMenuOpen, setAccessMenuOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
@@ -97,12 +115,27 @@ export function Composer({
       windowTokens
     };
   }, [contextConfig, contextObserver, contextSort]);
-  function submit(event: FormEvent) {
-    event.preventDefault();
+  function sendDraft() {
     const prompt = draft.trim();
     if (!prompt || isRunning || isWaiting || disabledReason) return;
     setDraft("");
+    // 发送后 textarea 高度回到 2 行(清空内容后 autoGrow 会通过 useEffect 触发,
+    // 但 inline style.height 可能卡在大值,这里显式重置让 useEffect 立即生效)
+    if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
     onSubmit(prompt);
+  }
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    sendDraft();
+  }
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Enter 发送,Shift+Enter 换行;Cmd/Ctrl+Enter 不触发(留给未来可能的强制发送)
+    // 中文/日文输入法用 Enter 确认候选词时不能提交当前草稿。
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      sendDraft();
+    }
   }
   const resolvePlan = async (decision: PlanDecision) => {
     if (!pendingPlan || interactionBusy) return;
@@ -181,7 +214,7 @@ export function Composer({
   }
   return (
     <form className="composer" onSubmit={submit}>
-      <textarea aria-label="输入任务" disabled={isRunning || isWaiting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "Agent 正在处理" : "随心输入")} value={draft} />
+      <textarea aria-label="输入任务" disabled={isRunning || isWaiting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "Agent 正在处理" : "随心输入")} ref={textareaRef} value={draft} />
       <div className="composer-row">
         <div className="composer-left">
           <div className="add-selector">
@@ -271,10 +304,11 @@ export function Composer({
                 <span>本轮加载 <b>{contextSummary.guidanceLoaded}</b> 项规范 · <b>{contextSummary.skillsLoaded}</b> 个技能 · <b>{contextSummary.capabilitiesLoaded}</b> 个能力 · 裁剪 <b>{contextSummary.evidenceTrimmed}</b> 项证据</span>
                 <span>有效预算 {formatTokens(contextSummary.effectiveBudget)} · 压缩阈值 {formatTokens(contextSummary.compactThreshold)}{contextSummary.compacted ? " · 已压缩" : ""}</span>
               </div>
+              <footer><span>账户余额</span><strong>{formatBalance(balance)}</strong></footer>
               <footer><span>平均缓存命中率</span><strong>{contextSummary.cacheRate === undefined ? "尚无数据" : `${(contextSummary.cacheRate * 100).toFixed(1)}%`}</strong></footer>
             </div>
           </div>
-          <button className="model-button" type="button"><span>{model}</span><ChevronDown size={13} /></button><button className="plain-icon" disabled={isWaiting} type="button" aria-label="语音输入"><Mic size={16} /></button>{isRunning ? <button className="send-button stop-button" onClick={onCancel} type="button" aria-label="停止"><Square size={14} /></button> : <button className="send-button" disabled={isWaiting || Boolean(disabledReason)} type="submit" aria-label="发送"><ArrowUp size={18} /></button>}
+          <button className="model-button" type="button"><span>{model}</span><ChevronDown size={13} /></button><button className="plain-icon" disabled={isWaiting} type="button" aria-label="语音输入"><Mic size={16} /></button>{isRunning ? <button className="send-button stop-button" onClick={onCancel} type="button" aria-label="停止"><Square size={14} fill="currentColor" /></button> : <button className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || Boolean(disabledReason)} type="submit" aria-label="发送"><ArrowUp size={18} /></button>}
         </div>
       </div>
     </form>
@@ -286,4 +320,17 @@ function formatTokens(value: number): string {
   if (value >= 10_000) return `${(value / 10_000).toFixed(1)}万`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
   return String(value);
+}
+
+// 格式化账户余额。参考 cacheRate === undefined ? "尚无数据" 的现有风格:
+// - balance 为 null(未配置 key 或查询失败)→ "尚无数据"
+// - isAvailable: false(账户被禁用)→ "不可用"
+// - 正常 → "¥9.23" / "$1.50"(按 currency 判断货币符号)
+function formatBalance(value: RuntimeBalance | null | undefined): string {
+  if (!value) return "尚无数据";
+  if (!value.isAvailable) return "不可用";
+  const info = value.balanceInfos[0];
+  if (!info) return "尚无数据";
+  const symbol = info.currency === "CNY" ? "¥" : info.currency === "USD" ? "$" : "";
+  return `${symbol}${info.totalBalance.toFixed(2)}`;
 }

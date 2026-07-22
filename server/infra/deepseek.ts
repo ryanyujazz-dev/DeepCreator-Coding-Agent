@@ -1,5 +1,6 @@
 import {
   Provider,
+  ProviderBalance,
   Summary,
   SummaryRequest,
   FinishCause,
@@ -27,6 +28,9 @@ type DeepSeekMessage = {
 };
 
 const DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
+
+// DeepSeek 账户余额查询结果复用 ProviderBalance 类型(shared/contracts/provider.ts)。
+// getBalance 返回 ProviderBalance,与 Provider 接口定义一致。
 
 function toDeepSeekMessage(message: ModelMessage): DeepSeekMessage {
   return {
@@ -104,8 +108,45 @@ export class DeepSeekProvider implements Provider {
 
   constructor(
     private readonly apiKey: string,
-    private readonly apiUrl = process.env.DEEPSEEK_API_URL ?? DEFAULT_API_URL
+    private readonly apiUrl = process.env.DEEPSEEK_API_URL ?? DEFAULT_API_URL,
+    private readonly balanceRequestTimeoutMs = 10_000
   ) {}
+
+  // 查询账户余额(GET https://api.deepseek.com/user/balance)。
+  // 从 this.apiUrl(默认 chat/completions 端点)取 origin 拼出 balance endpoint,
+  // 这样用户自定义了 DEEPSEEK_API_URL 时余额接口也会跟着走同一个 host。
+  async getBalance(): Promise<ProviderBalance> {
+    if (!this.apiKey) throw new Error("缺少 DEEPSEEK_API_KEY,无法查询余额。");
+    const balanceUrl = new URL("/user/balance", new URL(this.apiUrl).origin).toString();
+    const signal = AbortSignal.timeout(this.balanceRequestTimeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(balanceUrl, {
+        headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
+        method: "GET",
+        signal
+      });
+    } catch (error) {
+      if (signal.aborted) {
+        throw new Error(`DeepSeek 余额查询超时:超过 ${this.balanceRequestTimeoutMs}ms。`);
+      }
+      throw error;
+    }
+    if (!response.ok) throw new Error(`DeepSeek 余额查询失败:HTTP ${response.status}`);
+    const data = await response.json() as {
+      is_available: boolean;
+      balance_infos: Array<{ currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }>;
+    };
+    return {
+      isAvailable: data.is_available,
+      balanceInfos: (data.balance_infos ?? []).map((item) => ({
+        currency: item.currency,
+        totalBalance: Number(item.total_balance),
+        grantedBalance: Number(item.granted_balance),
+        toppedUpBalance: Number(item.topped_up_balance)
+      }))
+    };
+  }
 
   async summarizeContext(request: SummaryRequest): Promise<Summary> {
     const response = await this.stream({

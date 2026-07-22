@@ -1,5 +1,6 @@
 import { Component, CSSProperties, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { MoreHorizontal, PanelRight, SlidersHorizontal, TerminalSquare } from "lucide-react";
+import { Folder, MoreHorizontal, PanelRight, SlidersHorizontal } from "lucide-react";
+import { AppTopbar } from "./components/AppTopbar";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
 import { ConnectionStatus } from "./components/ConnectionStatus";
@@ -19,7 +20,7 @@ type SurfaceFileState = {
   loading: boolean;
 };
 
-const DEFAULT_SIDEBAR_WIDTH = 192;
+const DEFAULT_SIDEBAR_WIDTH = 272;
 const DEFAULT_SURFACE_WIDTH = 640;
 
 function storedPanelWidth(key: string, fallback: number): number {
@@ -39,7 +40,8 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { message: str
 }
 
 export function App() {
-  const [sidebarWidth, setSidebarWidth] = useState(() => storedPanelWidth("deepseeker.sidebarWidth", DEFAULT_SIDEBAR_WIDTH));
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepseeker.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
   const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepseeker.surfaceWidth", DEFAULT_SURFACE_WIDTH));
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [surfaces, setSurfaces] = useState<Surface[]>([]);
@@ -50,16 +52,20 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const {
     activeRun,
+    archiveProjectSessions,
+    archiveSession,
     cancelRun,
     config,
     connection,
     contextObserver,
     currentRun,
+    balance,
     error,
     model,
     mode,
     newSession,
     pendingApproval,
+    pinSession,
     accessMode,
     resolveApproval,
     resolvePlan,
@@ -72,6 +78,7 @@ export function App() {
     session,
     sessions,
     startRun,
+    stopCommand,
     retryRuntime,
     workspace,
     projectRoot
@@ -225,11 +232,22 @@ export function App() {
     await newSession(preferredRoot);
     if (window.deepseeker) setProjects(await window.deepseeker.projects.recent());
   }, [newSession]);
+  const desktop = window.deepseeker;
   return (
     <AppErrorBoundary>
-      <div className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+      <div className="app-frame">
+        <AppTopbar onToggleSidebar={() => setSidebarOpen((open) => !open)} />
+        <div className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
         <SessionSidebar
+          desktopProjectsManaged={Boolean(desktop)}
+          onArchiveProject={(root) => archiveProjectSessions(root)}
+          onArchiveSession={(sessionId) => archiveSession(sessionId)}
           onNewSession={(preferredRoot) => void createSession(preferredRoot)}
+          onOpenProject={desktop ? (root) => desktop.projects.open(root) : undefined}
+          onPinProject={desktop ? async (root, pinned) => setProjects(await desktop.projects.pin(root, pinned)) : undefined}
+          onPinSession={(sessionId, pinned) => pinSession(sessionId, pinned)}
+          onRemoveProject={desktop ? async (root) => setProjects(await desktop.projects.remove(root)) : undefined}
+          onRenameProject={desktop ? async (root, name) => setProjects(await desktop.projects.rename(root, name)) : undefined}
           onSearch={searchSessions}
           onSelectSession={(sessionId) => void selectSession(sessionId)}
           onSettings={window.deepseeker ? () => setSettingsOpen(true) : undefined}
@@ -246,47 +264,48 @@ export function App() {
         >
           <div className="conversation-main">
             <header className="thread-header">
-              <div className="thread-title"><TerminalSquare size={16} /><span>{session?.title ?? "DeepSeeker CodeAgent"}</span><MoreHorizontal size={14} /></div>
+              <div className="thread-title"><Folder size={16} /><span>{session?.title ?? "DeepSeeker CodeAgent"}</span><MoreHorizontal size={14} /></div>
               <ConnectionStatus onRetry={window.deepseeker ? () => void retryRuntime() : undefined} phase={connection} />
             </header>
             <div className="window-actions"><button className="icon-button" aria-label="视图设置"><SlidersHorizontal size={14} /></button><button className="icon-button" aria-label="工作区面板"><PanelRight size={14} /></button></div>
             <Inspector onOpenReview={openReviewSurface} session={session} workspace={workspace} />
-            <Conversation onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} session={session} />
-            <div className="composer-dock">
-              {currentRun && (
-                <div
-                  aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
-                  className={`composer-hud is-${currentRun.status} ${activeRun && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}
-                >
+            <Conversation onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
+            {currentRun && (
+              <div
+                aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
+                className={`composer-hud is-${currentRun.status} ${activeRun && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}
+              >
+                <div className="composer-hud-primary">
                   <span className={agentRunning ? "working-glow" : ""}>{waitingRun ? "等待决定" : activeRun ? "正在执行" : "最近工作"}</span>
                   <strong className={agentRunning ? "working-glow" : ""}>{workLabel}</strong>
-                  <span>{currentDelta.fileCount} 个文件已更改 <b>+{currentDelta.additions}</b> <i>-{currentDelta.deletions}</i></span>
                 </div>
-              )}
-              {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
-              {window.deepseeker && !session && projectRoot && <div className="composer-notice">新任务将运行在 <strong>{projectRoot}</strong></div>}
-              {workspace?.exists === false && <div className="composer-error">项目目录不存在，请新建任务并重新选择项目。</div>}
-              {error && <div className="composer-error">{error}</div>}
-              <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
-              <Composer
-                contextConfig={config}
-                contextObserver={contextObserver}
-                disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : projectRoot ? undefined : "请先选择项目文件夹"}
-                isRunning={agentRunning}
-                isWaiting={Boolean(waitingRun)}
-                model={model}
-                onCancel={() => void cancelRun()}
-                onAccessModeChange={(mode) => void setAccessMode(mode)}
-                onModeChange={(nextMode) => void setMode(nextMode)}
-                onAnswerQuestion={answerQuestion}
-                onResolvePlan={resolvePlan}
-                onSubmit={(prompt) => void startRun(prompt)}
-                pendingPlan={pendingPlan}
-                pendingQuestion={pendingQuestion}
-                accessMode={accessMode}
-                mode={mode}
-              />
-            </div>
+                <span className="composer-hud-changes">{currentDelta.fileCount} 个文件已更改 <b>+{currentDelta.additions}</b> <i>-{currentDelta.deletions}</i></span>
+              </div>
+            )}
+            {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
+            {window.deepseeker && !session && projectRoot && <div className="composer-notice">新任务将运行在 <strong>{projectRoot}</strong></div>}
+            {workspace?.exists === false && <div className="composer-error">项目目录不存在，请新建任务并重新选择项目。</div>}
+            {error && <div className="composer-error">{error}</div>}
+            <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
+            <Composer
+              balance={balance}
+              contextConfig={config}
+              contextObserver={contextObserver}
+              disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : projectRoot ? undefined : "请先选择项目文件夹"}
+              isRunning={agentRunning}
+              isWaiting={Boolean(waitingRun)}
+              model={model}
+              onCancel={() => void cancelRun()}
+              onAccessModeChange={(mode) => void setAccessMode(mode)}
+              onModeChange={(nextMode) => void setMode(nextMode)}
+              onAnswerQuestion={answerQuestion}
+              onResolvePlan={resolvePlan}
+              onSubmit={(prompt) => void startRun(prompt)}
+              pendingPlan={pendingPlan}
+              pendingQuestion={pendingQuestion}
+              accessMode={accessMode}
+              mode={mode}
+            />
           </div>
           <SurfacePane
             activeSurfaceId={activeSurface?.id ?? null}
@@ -308,6 +327,7 @@ export function App() {
           />
         </main>
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        </div>
       </div>
     </AppErrorBoundary>
   );

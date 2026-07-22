@@ -9,6 +9,7 @@ import { resolveProjectRoot } from "../infra/projectRoot";
 import { ruleSource } from "../infra/rules";
 import { RuntimeStore } from "../infra/runtimeStore";
 import { toolHost } from "../infra/tools";
+import { commandManager } from "../infra/commandManager";
 import { describeWorkspace } from "../infra/workspace";
 import { createHttp } from "../transport/http";
 
@@ -37,10 +38,31 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   const apiKey = options.apiKey ?? "";
   const context = contextConfig();
   const store = new RuntimeStore(path.resolve(options.dataDirectory), options.migrationDirectory);
+  for (const summary of store.listSessions()) {
+    const session = store.getSession(summary.sessionId);
+    for (const run of session?.runs ?? []) {
+      for (const activity of run.activities.filter((item) => item.status === "running" && item.command?.commandId)) {
+        store.append({
+          activityId: activity.activityId,
+          data: {
+            body: activity.body || "Runtime 已重启，无法恢复此前托管的命令。",
+            command: { ...activity.command, state: "cancelled" as const },
+            error: "Runtime 已重启，命令状态不可恢复。",
+            finishedAt: new Date().toISOString(),
+            status: "cancelled" as const
+          },
+          runId: run.runId,
+          sessionId: session!.sessionId,
+          type: "activity.finished"
+        });
+      }
+    }
+  }
   const registry = new RunRegistry();
   const runner = new Runner(toolHost, ruleSource, capabilitySource, context);
   const app = createHttp({
     capabilities: capabilitySource,
+    commands: commandManager,
     config: {
       authToken: options.authToken,
       context,
@@ -71,6 +93,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     closing = true;
     app.server.closeAllConnections();
     await registry.cancelAllAndWait();
+    await commandManager.stopAll();
     await app.close().catch(() => undefined);
     store.close();
   };

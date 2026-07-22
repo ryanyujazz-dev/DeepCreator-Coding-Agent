@@ -87,8 +87,22 @@ export type ModelCaps = {
   supportsParallelToolCalls: boolean;
 };
 
+// Provider 账户余额查询结果(可选实现)。
+// DeepSeek 官方 GET /user/balance 返回结构归一化后的类型。
+export type ProviderBalance = {
+  isAvailable: boolean;
+  balanceInfos: Array<{
+    currency: string;
+    totalBalance: number;
+    grantedBalance: number;
+    toppedUpBalance: number;
+  }>;
+};
+
 export interface Provider {
   readonly capabilities: ModelCaps;
   summarizeContext?(request: SummaryRequest): Promise<Summary>;
   stream(request: ModelRequest): Promise<ModelResponse>;
+  // 可选:某些 provider(如 DeepSeek)支持账户余额查询,用于在 UI 显示剩余额度。
+  getBalance?(): Promise<ProviderBalance>;
 }

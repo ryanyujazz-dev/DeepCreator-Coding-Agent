@@ -24,6 +24,7 @@ export type ToolContext = {
 
 export type ToolOutcome = {
   contextRecords: ContextInput[];
+  evidenceRecords?: ContextInput[];
   message?: ModelMessage;
   mutatedWorkspace: boolean;
   protocolError: boolean;
@@ -58,7 +59,7 @@ function openActivity(input: ToolContext, data: Record<string, unknown>, activit
 function finishActivity(input: ToolContext, activityId: string, data: Record<string, unknown>): void {
   input.store.append({
     activityId,
-    data: { ...data, finishedAt: new Date().toISOString() },
+    data: { liveFiles: [], ...data, finishedAt: new Date().toISOString() },
     runId: input.runId,
     sessionId: input.sessionId,
     type: "activity.finished"
@@ -105,6 +106,7 @@ export class ToolPipeline {
     stepRejection?: string
   ): Promise<ToolOutcome> {
     let activityId = existingActivityId;
+    let retainedCommandBaseline = false;
     try {
       // normalize
       const args = parseArgs(call.argumentsText);
@@ -122,6 +124,9 @@ export class ToolPipeline {
         name: call.name,
         projectRoot: input.projectRoot
       });
+      if (call.name === "wait_command" || call.name === "stop_command") {
+        return await this.controlManagedCommand(input, call, modelStepId, args, prepared);
+      }
       activityId ??= openActivity(input, {
         audience: "user",
         kind: this.host.kind(prepared),
@@ -198,15 +203,49 @@ export class ToolPipeline {
       }
 
       // execute
+      if (call.name === "run_command") {
+        this.host.retain(input.baseline);
+        retainedCommandBaseline = true;
+      }
       const result = await this.host.execute({
+        activityId,
         args,
         name: call.name,
+        onCommandSettled: call.name === "run_command" ? (settled) => {
+          void this.settleManagedCommand(input, activityId!, settled, true);
+        } : undefined,
         onOutput: call.name === "run_command" ? ({ text }) => {
           input.store.append({ activityId, data: { bodyDelta: text }, runId: input.runId, sessionId: input.sessionId, type: "activity.updated" });
         } : undefined,
         projectRoot: input.projectRoot,
+        runId: input.runId,
+        sessionId: input.sessionId,
         signal: input.signal
       });
+      if (call.name === "run_command" && result.commandState !== "running") {
+        retainedCommandBaseline = false;
+        await this.host.close(input.baseline);
+      } else if (call.name === "run_command") {
+        retainedCommandBaseline = false;
+      }
+
+      if (result.mutatedWorkspace) {
+        const changes = await this.host.changes(input.projectRoot, input.baseline);
+        const normalizedTarget = prepared.normalizedTarget.replaceAll("\\", "/");
+        const files = changes.files.filter((file) => file.path.replaceAll("\\", "/") === normalizedTarget);
+        input.store.appendMany([{
+          data: changes,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          type: "changes.changed"
+        }, {
+          activityId,
+          data: { files },
+          runId: input.runId,
+          sessionId: input.sessionId,
+          type: "activity.updated"
+        }]);
+      }
 
       // record
       const completed = this.host.prepare({
@@ -219,15 +258,36 @@ export class ToolPipeline {
         projectRoot: input.projectRoot,
         result
       });
-      finishActivity(input, activityId, {
-        body: this.host.summarizeResult(call.name, args, result.output),
-        command: result.command ? { command: result.command, exitCode: result.exitCode, timedOut: result.timedOut } : undefined,
-        status: result.exitCode && result.exitCode !== 0 ? "failed" : "completed",
-        tool: completed
-      });
+      const command = result.command ? {
+        command: result.command,
+        commandId: result.commandId,
+        elapsedMs: result.elapsedMs,
+        exitCode: result.exitCode,
+        outputTruncated: result.outputTruncated,
+        state: result.commandState,
+        timedOut: result.timedOut
+      } : undefined;
+      if (result.commandState === "running") {
+        input.store.append({
+          activityId,
+          data: { command, tool: completed },
+          runId: input.runId,
+          sessionId: input.sessionId,
+          type: "activity.updated"
+        });
+      } else {
+        finishActivity(input, activityId, {
+          body: this.host.summarizeResult(call.name, args, result.output),
+          command,
+          status: result.commandState === "cancelled"
+            ? "cancelled"
+            : result.exitCode && result.exitCode !== 0 ? "failed" : "completed",
+          tool: completed
+        });
+      }
       const evidence = reduceToolEvidence(call.name, result);
       const recordId = `context_${randomUUID()}`;
-      input.store.appendContextEntry({
+      const evidenceRecord: ContextInput = {
         artifactRef: input.store.storeEvidence(input.sessionId, recordId, evidence.fullText),
         isError: Boolean(result.exitCode && result.exitCode !== 0),
         kind: "tool_result",
@@ -247,7 +307,7 @@ export class ToolPipeline {
         toolCallKey: call.callId,
         toolName: call.name,
         wasTruncated: evidence.wasTruncated
-      });
+      };
       const capabilityRecord: ContextInput | undefined = result.contextUpdate ? {
         kind: "context_update",
         metadata: result.contextUpdate.metadata,
@@ -263,12 +323,14 @@ export class ToolPipeline {
       for (const rule of discovered) knownRuleIds.add(rule.instructionKey);
       return {
         contextRecords: [capabilityRecord, update].filter((record): record is ContextInput => Boolean(record)),
+        evidenceRecords: [evidenceRecord],
         message: { role: "tool", text: evidence.modelText, toolCallKey: call.callId },
         mutatedWorkspace: result.mutatedWorkspace,
         protocolError: false,
         target: completed.normalizedTarget
       };
     } catch (error) {
+      if (retainedCommandBaseline) await this.host.close(input.baseline).catch(() => undefined);
       const message = error instanceof Error ? error.message : String(error);
       activityId ??= openActivity(input, {
         audience: "user",
@@ -290,6 +352,122 @@ export class ToolPipeline {
         protocolError: /未知工具|有效的 JSON|格式无效|参数/.test(message),
         target: call.name
       };
+    }
+  }
+
+  private async controlManagedCommand(
+    input: ToolContext,
+    call: ToolCall,
+    modelStepId: string,
+    args: Record<string, unknown>,
+    prepared: ToolState
+  ): Promise<ToolOutcome> {
+    const result = await this.host.execute({
+      args,
+      name: call.name,
+      projectRoot: input.projectRoot,
+      runId: input.runId,
+      sessionId: input.sessionId,
+      signal: input.signal
+    });
+    if (result.commandActivityId) {
+      const command = {
+        command: result.command ?? "",
+        commandId: result.commandId,
+        elapsedMs: result.elapsedMs,
+        exitCode: result.exitCode,
+        outputTruncated: result.outputTruncated,
+        state: result.commandState
+      };
+      if (result.commandState === "running") {
+        input.store.append({
+          activityId: result.commandActivityId,
+          data: { command },
+          runId: result.commandRunId ?? input.runId,
+          sessionId: result.commandSessionId ?? input.sessionId,
+          type: "activity.updated"
+        });
+      } else {
+        await this.settleManagedCommand(input, result.commandActivityId, result, false);
+      }
+    }
+    const evidence = reduceToolEvidence(call.name, result);
+    this.record(input, call, modelStepId, evidence.modelText, {
+      action: prepared.action,
+      commandId: result.commandId,
+      commandState: result.commandState,
+      target: prepared.normalizedTarget
+    });
+    return {
+      contextRecords: [],
+      message: { role: "tool", text: evidence.modelText, toolCallKey: call.callId },
+      mutatedWorkspace: result.mutatedWorkspace,
+      protocolError: false,
+      target: prepared.normalizedTarget
+    };
+  }
+
+  private async settleManagedCommand(
+    input: ToolContext,
+    activityId: string,
+    result: import("../../shared/contracts/tool").ToolResult,
+    releaseBaselineLease: boolean
+  ): Promise<void> {
+    try {
+      const sessionId = result.commandSessionId ?? input.sessionId;
+      const activity = input.store.getSession(sessionId)?.runs
+        .flatMap((run) => run.activities)
+        .find((item) => item.activityId === activityId);
+      if (!activity || activity.status !== "running" || (activity.command?.state && activity.command.state !== "running")) return;
+      input.store.append({
+        activityId,
+        data: {
+          command: {
+            command: result.command ?? activity.command?.command ?? "",
+            commandId: result.commandId,
+            elapsedMs: result.elapsedMs,
+            exitCode: result.exitCode,
+            outputTruncated: result.outputTruncated,
+            state: result.commandState
+          }
+        },
+        runId: activity.runId,
+        sessionId,
+        type: "activity.updated"
+      });
+      if (result.mutatedWorkspace) {
+        const changes = await this.host.changes(input.projectRoot, input.baseline).catch(() => undefined);
+        if (changes) {
+          input.store.append({ data: changes, runId: activity.runId, sessionId, type: "changes.changed" });
+        }
+      }
+      const status = result.commandState === "cancelled"
+        ? "cancelled"
+        : result.exitCode && result.exitCode !== 0 ? "failed" : "completed";
+      finishActivity({ ...input, runId: activity.runId, sessionId }, activityId, {
+        body: result.output,
+        command: {
+          command: result.command ?? activity.command?.command ?? "",
+          commandId: result.commandId,
+          elapsedMs: result.elapsedMs,
+          exitCode: result.exitCode,
+          outputTruncated: result.outputTruncated,
+          state: result.commandState
+        },
+        status,
+        tool: activity.tool ? { ...activity.tool, resultSummary: result.output.slice(0, 500) } : undefined
+      });
+      const evidence = reduceToolEvidence("run_command", result);
+      input.store.appendContextEntry({
+        kind: "context_update",
+        metadata: { commandId: result.commandId, commandState: result.commandState, exitCode: result.exitCode },
+        runId: activity.runId,
+        sessionId,
+        source: "runtime",
+        text: `命令 ${result.commandId} 已结束。状态：${result.commandState}，退出码：${result.exitCode ?? "未知"}。\n${evidence.modelText}`
+      });
+    } finally {
+      if (releaseBaselineLease) await this.host.close(input.baseline).catch(() => undefined);
     }
   }
 
