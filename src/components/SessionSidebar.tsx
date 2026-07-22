@@ -63,6 +63,18 @@ function storedCollapsedProjects(): Set<string> {
   }
 }
 
+export function partitionSidebarItems(projectRoots: string[], projects: ProjectRef[], sessions: SessionSummary[]) {
+  const pinnedProjectPaths = new Set(projects.filter((project) => project.pinned).map((project) => project.path));
+  const pinnedProjectRoots = projectRoots.filter((projectRoot) => pinnedProjectPaths.has(projectRoot));
+  const pinnedSessions = sessions.filter((session) => session.pinned);
+  return {
+    hasPinnedItems: pinnedProjectRoots.length > 0 || pinnedSessions.length > 0,
+    pinnedProjectRoots,
+    pinnedSessions,
+    regularProjectRoots: projectRoots.filter((projectRoot) => !pinnedProjectPaths.has(projectRoot))
+  };
+}
+
 export function SessionSidebar({
   desktopProjectsManaged = false,
   onArchiveProject,
@@ -125,6 +137,10 @@ export function SessionSidebar({
     ? sessions.filter((session) => session.projectRoot === projectMenu.project.path)
     : [];
   const projectMenuHasActiveSessions = projectMenuSessions.some((session) => session.active);
+  const sidebarSections = useMemo(
+    () => partitionSidebarItems(projectRoots, projects, sessions),
+    [projectRoots, projects, sessions]
+  );
 
   useEffect(() => {
     window.localStorage.setItem("deepseeker.collapsedProjects", JSON.stringify([...collapsedProjects]));
@@ -201,6 +217,95 @@ export function SessionSidebar({
     });
   };
 
+  const resolveProject = (projectRoot: string): ProjectRef => projectByPath.get(projectRoot) ?? {
+    lastOpenedAt: "",
+    name: projectRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? projectRoot,
+    path: projectRoot
+  };
+
+  const renderSessionRow = (session: SessionSummary, project: ProjectRef, topLevel = false) => (
+    <div
+      className={`thread-row-shell ${topLevel ? "is-top-level" : ""} ${selectedSessionKey === session.sessionId ? "active-thread" : ""}`}
+      key={`session:${session.sessionId}`}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredSession(null); }}
+      onFocus={(event) => {
+        if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredSession({ project, rect: anchorRect(event.currentTarget), session });
+      }}
+      onMouseEnter={(event) => setHoveredSession({ project, rect: anchorRect(event.currentTarget), session })}
+      onMouseLeave={() => setHoveredSession(null)}
+    >
+      <RowAction className="thread-row" onClick={() => onSelectSession(session.sessionId)}>
+        <OverflowFadeText>{session.title}</OverflowFadeText>
+        {session.active && <span className="session-running" />}
+      </RowAction>
+      <div className="thread-row-actions">
+        {onPinSession && (
+          <IconButton
+            label={session.pinned ? "取消置顶任务" : "置顶任务"}
+            className={session.pinned ? "is-active" : ""}
+            onClick={() => void runAction(() => onPinSession(session.sessionId, !session.pinned))}
+          ><Pin fill={session.pinned ? "currentColor" : "none"} size={13} /></IconButton>
+        )}
+        {onArchiveSession && (
+          <IconButton
+            label="归档任务"
+            disabled={session.active}
+            onClick={() => requestConfirmation({
+              action: () => onArchiveSession(session.sessionId),
+              confirmLabel: "归档任务",
+              description: `这会将该任务从 ${project.name} 中归档。你稍后可以在已归档任务中找到它。`,
+              title: `归档“${session.title}”？`
+            })}
+            title={session.active ? "请先中止正在运行的任务" : "归档任务"}
+          ><Archive size={14} /></IconButton>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderProjectGroup = (projectRoot: string, pinnedSection = false) => {
+    const project = resolveProject(projectRoot);
+    const projectSessions = sessions.filter((session) => session.projectRoot === projectRoot && !session.pinned);
+    const collapsed = collapsedProjects.has(projectRoot);
+    return (
+      <div className={`project-group ${pinnedSection ? "is-pinned-project" : ""} ${collapsed ? "is-collapsed" : ""}`} key={`project:${projectRoot}`}>
+        <div
+          className={`project-title-shell ${projectMenu?.project.path === projectRoot ? "has-open-menu" : ""}`}
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredProject(null); }}
+          onFocus={(event) => {
+            if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredProject({ project, rect: anchorRect(event.currentTarget) });
+          }}
+          onMouseEnter={(event) => setHoveredProject({ project, rect: anchorRect(event.currentTarget) })}
+          onMouseLeave={() => setHoveredProject(null)}
+        >
+          <RowAction
+            aria-expanded={!collapsed}
+            className="project-title"
+            onClick={() => toggleProject(projectRoot)}
+            title={collapsed ? "展开项目任务" : "收起项目任务"}
+          >
+            <AnimatedFolderIcon expanded={!collapsed} />
+            <OverflowFadeText>{project.name}</OverflowFadeText>
+          </RowAction>
+          <div className="project-row-actions">
+            {desktopProjectsManaged && (
+              <IconButton
+                label={`${project.name} 更多操作`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setHoveredProject(null);
+                  setProjectMenu({ project, rect: anchorRect(event.currentTarget) });
+                }}
+              ><MoreHorizontal size={15} /></IconButton>
+            )}
+            <IconButton label={`在 ${project.name} 中新建任务`} onClick={() => onNewSession(projectRoot)}><NewTaskIcon size={16} /></IconButton>
+          </div>
+        </div>
+        {!collapsed && projectSessions.map((session) => renderSessionRow(session, project))}
+      </div>
+    );
+  };
+
   return (
     <aside className="sidebar">
       <div className="sidebar-brand-row">
@@ -226,93 +331,19 @@ export function SessionSidebar({
         <RowAction className="nav-row" onClick={() => onNewSession()}><NewTaskIcon size={17} /><span>新建任务</span></RowAction>
       </nav>
       <div className="sidebar-content">
+        {sidebarSections.hasPinnedItems && (
+          <section className="sidebar-section pinned-section">
+            <h2>置顶</h2>
+            <div className="pinned-items">
+              {sidebarSections.pinnedSessions.map((session) => renderSessionRow(session, resolveProject(session.projectRoot), true))}
+              {sidebarSections.pinnedProjectRoots.map((projectRoot) => renderProjectGroup(projectRoot, true))}
+            </div>
+          </section>
+        )}
         <section className="sidebar-section">
           <h2>项目</h2>
           {projectRoots.length === 0 && <div className="sidebar-empty">暂无会话</div>}
-          {projectRoots.map((projectRoot) => {
-            const project = projectByPath.get(projectRoot) ?? {
-              lastOpenedAt: "",
-              name: projectRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? projectRoot,
-              path: projectRoot
-            };
-            const projectSessions = sessions.filter((session) => session.projectRoot === projectRoot);
-            const collapsed = collapsedProjects.has(projectRoot);
-            return (
-              <div className={`project-group ${collapsed ? "is-collapsed" : ""}`} key={projectRoot}>
-                <div
-                  className={`project-title-shell ${projectMenu?.project.path === projectRoot ? "has-open-menu" : ""}`}
-                  onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredProject(null); }}
-                  onFocus={(event) => {
-                    if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredProject({ project, rect: anchorRect(event.currentTarget) });
-                  }}
-                  onMouseEnter={(event) => setHoveredProject({ project, rect: anchorRect(event.currentTarget) })}
-                  onMouseLeave={() => setHoveredProject(null)}
-                >
-                  <RowAction
-                    aria-expanded={!collapsed}
-                    className="project-title"
-                    onClick={() => toggleProject(projectRoot)}
-                    title={collapsed ? "展开项目任务" : "收起项目任务"}
-                  >
-                    <AnimatedFolderIcon expanded={!collapsed} />
-                    <OverflowFadeText>{project.name}</OverflowFadeText>
-                  </RowAction>
-                  <div className="project-row-actions">
-                    {desktopProjectsManaged && (
-                      <IconButton
-                        label={`${project.name} 更多操作`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setHoveredProject(null);
-                          setProjectMenu({ project, rect: anchorRect(event.currentTarget) });
-                        }}
-                      ><MoreHorizontal size={15} /></IconButton>
-                    )}
-                    <IconButton label={`在 ${project.name} 中新建任务`} onClick={() => onNewSession(projectRoot)}><NewTaskIcon size={16} /></IconButton>
-                  </div>
-                </div>
-                {!collapsed && projectSessions.map((session) => (
-                  <div
-                    className={`thread-row-shell ${selectedSessionKey === session.sessionId ? "active-thread" : ""}`}
-                    key={session.sessionId}
-                    onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredSession(null); }}
-                    onFocus={(event) => {
-                      if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredSession({ project, rect: anchorRect(event.currentTarget), session });
-                    }}
-                    onMouseEnter={(event) => setHoveredSession({ project, rect: anchorRect(event.currentTarget), session })}
-                    onMouseLeave={() => setHoveredSession(null)}
-                  >
-                    <RowAction className="thread-row" onClick={() => onSelectSession(session.sessionId)}>
-                      <OverflowFadeText>{session.title}</OverflowFadeText>
-                      {session.active && <span className="session-running" />}
-                    </RowAction>
-                    <div className="thread-row-actions">
-                      {onPinSession && (
-                        <IconButton
-                          label={session.pinned ? "取消置顶任务" : "置顶任务"}
-                          className={session.pinned ? "is-active" : ""}
-                          onClick={() => void runAction(() => onPinSession(session.sessionId, !session.pinned))}
-                        ><Pin fill={session.pinned ? "currentColor" : "none"} size={13} /></IconButton>
-                      )}
-                      {onArchiveSession && (
-                        <IconButton
-                          label="归档任务"
-                          disabled={session.active}
-                          onClick={() => requestConfirmation({
-                            action: () => onArchiveSession(session.sessionId),
-                            confirmLabel: "归档任务",
-                            description: `这会将该任务从 ${project.name} 中归档。你稍后可以在已归档任务中找到它。`,
-                            title: `归档“${session.title}”？`
-                          })}
-                          title={session.active ? "请先中止正在运行的任务" : "归档任务"}
-                        ><Archive size={14} /></IconButton>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
+          {sidebarSections.regularProjectRoots.map((projectRoot) => renderProjectGroup(projectRoot))}
         </section>
       </div>
       <div className="account-strip">

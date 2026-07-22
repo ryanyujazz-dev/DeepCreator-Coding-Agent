@@ -91,6 +91,7 @@
 
   --execution-icon-column: 16px;
   --execution-column-gap: 5px;
+  --execution-slot-gap: 8px;
   font-family: var(--font-family-ui);
   background: var(--app-chrome);
   color: var(--app-text);
@@ -916,13 +917,13 @@ textarea:disabled {
   --process-detail-color: #969da0;
   --process-content-size: var(--type-conversation-size);
   --process-meta-size: var(--process-content-size);
-  gap: 0;
+  gap: var(--execution-slot-gap);
 }
 
 .display-segment {
   display: grid;
   min-width: 0;
-  gap: 0;
+  gap: var(--execution-slot-gap);
 }
 
 .display-segment-primary {
@@ -5453,7 +5454,7 @@ body {
 }
 
 .primary-nav {
-  padding: 5px 10px 26px;
+  padding: 5px 10px 18px;
 }
 
 .nav-row {
@@ -5486,21 +5487,35 @@ body {
 }
 
 .sidebar-section h2 {
-  margin: 0 9px 10px;
+  margin: 0 9px 6px;
   color: #929aa0;
   font-size: 12px;
   font-weight: 650;
 }
 
+.pinned-section {
+  margin-bottom: 16px;
+}
+
+.pinned-items {
+  display: grid;
+  gap: 1px;
+}
+
+.pinned-section .project-group,
+.pinned-section .project-group.is-collapsed {
+  margin-bottom: 0;
+}
+
 .project-group {
-  margin-bottom: 18px;
-  gap: 3px;
+  margin-bottom: 10px;
+  gap: 1px;
 }
 
 .project-title {
   --sidebar-item-surface: var(--app-sidebar);
   position: relative;
-  min-height: 31px;
+  min-height: 29px;
   padding: 0 9px;
   overflow: hidden;
   border-radius: 8px;
@@ -6133,7 +6148,7 @@ body {
 }
 
 .project-group.is-collapsed {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .thread-row-shell {
@@ -6160,6 +6175,10 @@ body {
   margin: 0;
   padding: 0 9px 0 24px;
   background: transparent;
+}
+
+.thread-row-shell.is-top-level .thread-row {
+  padding-left: 9px;
 }
 
 .thread-row-shell:hover .thread-row,
@@ -6671,6 +6690,18 @@ body {
   background: var(--color-hover);
 }
 
+/* Sidebar rows are the compact specialization of the shared row-action primitive. */
+.sidebar .project-title {
+  min-height: 29px;
+  padding: 0 9px;
+  gap: 9px;
+}
+
+.sidebar .thread-row {
+  min-height: 29px;
+  padding: 0 9px 0 24px;
+}
+
 .ui-floating-surface {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-surface);
@@ -6762,6 +6793,12 @@ body {
   --process-detail-color: var(--color-text-muted);
   --process-content-size: var(--type-conversation-size);
   --process-meta-size: var(--type-conversation-size);
+}
+
+/* Slot spacing belongs to the timeline structure, never to an individual slot body. */
+.work-process .work-body,
+.work-process .operation-group {
+  padding-bottom: 0;
 }
 
 .tool-step {

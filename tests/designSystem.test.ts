@@ -12,6 +12,7 @@ test("keeps one semantic token source and the licensed HarmonyOS font", () => {
   assert.match(styles, /--font-family-ui:\s*"HarmonyOS Sans SC"/);
   assert.match(styles, /--type-conversation-size:\s*13px/);
   assert.match(styles, /--execution-icon-column:\s*16px/);
+  assert.match(styles, /--execution-slot-gap:\s*8px/);
 
   const font = path.join(root, "src/assets/fonts/HarmonyOS_Sans_SC.ttf");
   const license = path.join(root, "src/assets/fonts/LICENSE-HarmonyOS-Sans.txt");
@@ -25,6 +26,20 @@ test("binds every execution hierarchy level to shared typography and columns", (
   assert.match(styles, /\.operation-call-row[\s\S]*grid-template-columns:\s*var\(--execution-icon-column\)/);
   assert.match(styles, /\.operation-detail-panel\s*>\s*header[\s\S]*font-size:\s*var\(--type-conversation-size\)/);
   assert.match(styles, /\.operation-group-expander,[\s\S]*margin-left:\s*0;[\s\S]*padding-left:\s*0;/);
+});
+
+test("uses structural gaps for equal execution slot spacing", () => {
+  assert.match(styles, /\.work-process\s*\{[^}]*gap:\s*var\(--execution-slot-gap\)/s);
+  assert.match(styles, /\.display-segment\s*\{[^}]*gap:\s*var\(--execution-slot-gap\)/s);
+  assert.match(styles, /\.work-process \.work-body,\s*\.work-process \.operation-group\s*\{[^}]*padding-bottom:\s*0/s);
+});
+
+test("keeps the sidebar project list compact", () => {
+  assert.match(styles, /\.sidebar-section h2\s*\{[^}]*margin:\s*0 9px 6px/s);
+  assert.match(styles, /\.project-group\s*\{[^}]*margin-bottom:\s*10px;[^}]*gap:\s*1px/s);
+  assert.match(styles, /\.project-group\.is-collapsed\s*\{[^}]*margin-bottom:\s*8px/s);
+  assert.match(styles, /\.sidebar \.project-title\s*\{[^}]*min-height:\s*29px;[^}]*padding:\s*0 9px/s);
+  assert.match(styles, /\.sidebar \.thread-row\s*\{[^}]*min-height:\s*29px;[^}]*padding:\s*0 9px 0 24px/s);
 });
 
 test("keeps conversation workflow interaction feedback color-only", () => {
