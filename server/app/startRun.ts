@@ -1,0 +1,139 @@
+import { AccessMode, Mode, PlanEntry, Run, Session, WorkspaceKind } from "../../shared/contracts/runtime";
+import { ContextConfig, getCompactThresholdTokens, getContextWindowTokens } from "./contextBuilder";
+import { RunLaunchPort } from "./runLauncher";
+import { EventPort, SessionPort } from "./runtimeRepo";
+import { SystemPort } from "./systemPort";
+import { WorkspacePort } from "./workspacePort";
+
+export type StartRunInput = {
+  accessMode?: AccessMode;
+  mode?: Mode;
+  model?: string;
+  planEntry?: PlanEntry;
+  projectRoot?: string;
+  prompt: string;
+  sessionId: string;
+  workspaceKind?: WorkspaceKind;
+};
+
+export type StartRunResult = { run: Run; session: Session };
+
+export class StartRunError extends Error {
+  constructor(
+    message: string,
+    readonly kind: "invalid_input" | "conflict"
+  ) {
+    super(message);
+    this.name = "StartRunError";
+  }
+}
+
+function explicitPlanMode(prompt: string): boolean {
+  return /(?:先|只|请).{0,12}(?:规划|计划|设计方案|分析方案)|(?:不要|先别|暂不).{0,8}(?:修改|改代码|执行|实现)|plan\s+mode/i.test(prompt);
+}
+
+export class StartRun {
+  constructor(private readonly deps: {
+    context: ContextConfig;
+    defaultModel: string;
+    launcher: RunLaunchPort;
+    store: EventPort & SessionPort;
+    system: SystemPort;
+    workspace: WorkspacePort;
+    workspaceRoot: string;
+  }) {}
+
+  async execute(input: StartRunInput): Promise<StartRunResult> {
+    const prompt = input.prompt.trim();
+    if (!prompt) throw new StartRunError("prompt is required", "invalid_input");
+    const model = input.model ?? this.deps.defaultModel;
+    let session = this.deps.store.getSession(input.sessionId);
+    let projectRoot: string;
+
+    if (session) {
+      if (input.workspaceKind && input.workspaceKind !== session.workspaceKind) {
+        throw new StartRunError("This task is locked to its original workspace.", "conflict");
+      }
+      if (input.projectRoot && this.deps.workspace.canonicalize(input.projectRoot) !== this.deps.workspace.canonicalize(session.projectRoot)) {
+        throw new StartRunError("This task is locked to its original project directory.", "conflict");
+      }
+      if (session.workspaceKind === "scratch" && input.projectRoot) {
+        throw new StartRunError("Scratch tasks cannot switch to a project directory.", "conflict");
+      }
+      if (session.workspaceKind === "scratch") {
+        const expectedRoot = await this.deps.workspace.ensureScratch(input.sessionId);
+        if (this.deps.workspace.canonicalize(expectedRoot) !== this.deps.workspace.canonicalize(session.projectRoot)) {
+          throw new StartRunError("Scratch workspace metadata is inconsistent.", "conflict");
+        }
+        projectRoot = expectedRoot;
+      } else {
+        projectRoot = session.projectRoot;
+      }
+    } else {
+      const workspaceKind = input.workspaceKind ?? "project";
+      if (workspaceKind === "scratch" && input.projectRoot) {
+        throw new StartRunError("projectRoot is not allowed for a scratch workspace.", "invalid_input");
+      }
+      try {
+        projectRoot = workspaceKind === "scratch"
+          ? await this.deps.workspace.ensureScratch(input.sessionId)
+          : await this.deps.workspace.resolveProjectRoot({
+              explicitRoot: input.projectRoot,
+              fallbackRoot: this.deps.workspaceRoot,
+              prompt
+            });
+      } catch (error) {
+        throw new StartRunError(error instanceof Error ? error.message : "Unable to prepare workspace.", "invalid_input");
+      }
+    }
+
+    if (!session) {
+      const mode = input.mode ?? (explicitPlanMode(prompt) ? "plan" : "work");
+      session = this.deps.store.createSession({
+        accessMode: input.accessMode ?? "request_approval",
+        compactThresholdTokens: getCompactThresholdTokens(this.deps.context.windowTokens, this.deps.context.maxOutputTokens, this.deps.context),
+        contextWindowTokens: getContextWindowTokens(this.deps.context),
+        mode,
+        model,
+        planEntry: input.planEntry ?? "suggest",
+        projectRoot,
+        sessionId: input.sessionId,
+        title: prompt.slice(0, 42) || "新任务",
+        workspaceKind: input.workspaceKind ?? "project"
+      });
+    }
+    if (input.planEntry && input.planEntry !== session.planEntry) {
+      this.deps.store.append({ data: { planEntry: input.planEntry }, sessionId: input.sessionId, type: "session.updated" });
+      session = this.deps.store.getSession(input.sessionId)!;
+    }
+    if (input.accessMode && input.accessMode !== session.accessMode) {
+      this.deps.store.append({ data: { accessMode: input.accessMode }, sessionId: input.sessionId, type: "session.updated" });
+      session = this.deps.store.getSession(input.sessionId)!;
+    }
+    if (session.runs.some((run) => ["running", "waiting", "queued"].includes(run.status))) {
+      throw new StartRunError("session already has an active run", "conflict");
+    }
+    const requestedMode = input.mode ?? (explicitPlanMode(prompt) ? "plan" : session.mode);
+    if (requestedMode !== session.mode) {
+      this.deps.store.append({
+        data: { mode: requestedMode, previousMode: session.mode, reason: "用户在发送请求时选择了工作模式。", source: "user" },
+        sessionId: input.sessionId,
+        type: "mode.changed"
+      });
+      session = this.deps.store.getSession(input.sessionId)!;
+    }
+
+    const runId = this.deps.system.createId("run");
+    this.deps.store.append({
+      data: { mode: session.mode, model, prompt, startedAt: this.deps.system.now() },
+      runId,
+      sessionId: input.sessionId,
+      type: "run.started"
+    });
+    this.deps.launcher.launch({ model, projectRoot, prompt, runId, sessionId: input.sessionId });
+    return {
+      run: this.deps.store.getRun(runId)!,
+      session: this.deps.store.getSession(input.sessionId)!
+    };
+  }
+}

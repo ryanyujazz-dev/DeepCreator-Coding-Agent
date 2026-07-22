@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { activityTitle } from "../shared/projections/activityPresentation";
 import { runAgent } from "../server/app/runner";
 import { RunRegistry } from "../server/app/runRegistry";
 import { Provider } from "../shared/contracts/provider";
@@ -44,14 +45,14 @@ test("recovers a transient provider failure before any stream fragment", async (
     assert.equal(attempts, 2);
     assert.equal(run.status, "completed");
     assert.equal(run.answer, "恢复成功");
-    assert.ok(run.activities.some((activity) => activity.title === "正在恢复模型连接"));
+    assert.ok(run.activities.some((activity) => activity.kind === "error" && activityTitle(activity) === "运行错误"));
     const answerStart = store.readEvents("session_retry").find((event) =>
       event.type === "activity.started" && (event.data as { kind?: string }).kind === "message"
     );
     assert.equal((answerStart?.data as { body?: string }).body, "恢复成功");
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
   }
 });
 
@@ -114,10 +115,25 @@ test("persists semantic tool facts while provider schemas stay presentation-free
     assert.equal(readUnit?.tool?.normalizedTarget, "sample.ts");
     assert.equal(readUnit?.tool?.resultMetrics?.itemCount, 1);
     assert.ok(readUnit?.tool?.modelStepId.startsWith("model_step_"));
-    assert.ok(store.readEvents("session_tool").some((event) => event.type === "activity.updated"));
+    const events = store.readEvents("session_tool");
+    assert.ok(events.some((event) => event.type === "activity.updated"));
+    for (const event of events) {
+      if (event.type !== "activity.started" && event.type !== "activity.updated" && event.type !== "activity.finished") continue;
+      assert.equal("title" in event.data, false, "new Activity Events persist facts, not rendered labels");
+      const persistedTool = event.data.tool;
+      if (!persistedTool) continue;
+      assert.equal("displayTarget" in persistedTool, false);
+      assert.equal("groupMode" in persistedTool, false);
+      assert.equal("importance" in persistedTool, false);
+      assert.equal("detail" in persistedTool, false);
+    }
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try {
+      rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EPERM" && process.platform === "win32")) throw error;
+    }
   }
 });
 

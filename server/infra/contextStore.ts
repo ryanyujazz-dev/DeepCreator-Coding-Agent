@@ -1,6 +1,7 @@
-import { ContextEntry, ContextInput, createContextEntry } from "../../shared/contracts/context";
+import { ContextEntry, ContextInput } from "../../shared/contracts/context";
 import { decodeLegacyContextEntry } from "../../shared/legacy/context";
 import { Database } from "./database";
+import { createContextEntry } from "./contextEntry";
 
 export class ContextStore {
   constructor(private readonly database: Database) {}

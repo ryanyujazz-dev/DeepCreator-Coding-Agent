@@ -3,6 +3,10 @@
   "productName": "DeepSeeker",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.11.0",
+  "engines": {
+    "node": ">=22"
+  },
   "main": ".vite/build/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -14,6 +18,9 @@
     "package:mac": "electron-forge package --platform=darwin",
     "make:mac": "electron-forge make --platform=darwin",
     "test": "tsx --test tests/**/*.test.ts",
+    "test:architecture": "tsx --test tests/architecture.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run test:architecture && npm test && npm run build",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

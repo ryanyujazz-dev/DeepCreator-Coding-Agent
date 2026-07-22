@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from "node:crypto";
 import { Mode, Plan, Task } from "./runtime";
 import { ModelMessage, ToolCall } from "./provider";
 
@@ -32,7 +31,6 @@ export type MemoryFact = {
   visibility: "personal" | "project";
   projectRoot?: string;
 };
-
 export type ContextSummary = {
   objective?: string;
   constraints: string[];
@@ -158,53 +156,3 @@ export type ContextStats = {
     createdAt: string;
   }>;
 };
-
-export function createContextEntry(
-  input: ContextInput,
-  sequence: number
-): ContextEntry {
-  return {
-    ...input,
-    createdAt: input.createdAt ?? new Date().toISOString(),
-    recordId: input.recordId ?? `context_${randomUUID()}`,
-    sequence
-  };
-}
-
-export function contextFingerprint(records: ContextEntry[]): string {
-  return createHash("sha256")
-    .update(records.map((record) => `${record.recordId}:${record.sequence}`).join("|"))
-    .digest("hex");
-}
-
-export function modelMessageFromEntry(record: ContextEntry): ModelMessage | undefined {
-  if (record.kind === "session_context") return { role: "user", text: record.text ?? "" };
-  if (record.kind === "human_text") return { role: "user", text: record.text ?? "" };
-  if (record.kind === "agent_text") {
-    return {
-      continuationThinking: record.toolCalls?.length ? record.reasoningContent : undefined,
-      role: "assistant",
-      text: record.text ?? null,
-      toolCalls: record.toolCalls
-    };
-  }
-  if (record.kind === "tool_result") {
-    return { role: "tool", text: record.text ?? "", toolCallKey: record.toolCallKey };
-  }
-  if (record.kind === "context_update" || record.kind === "recovery_capsule") {
-    return { role: "user", text: record.text ?? "" };
-  }
-  if (record.kind === "mode_context") return { role: "user", text: record.text ?? "" };
-  // Legacy runtime facts are historical evidence, not platform policy.
-  if (record.kind === "runtime_fact") return { role: "user", text: record.text ?? "" };
-  return undefined;
-}
-
-export function renderCheckpoint(checkpoint: Checkpoint): string {
-  return [
-    `<compaction_checkpoint through_sequence="${checkpoint.compactedThroughSequence}">`,
-    "较早工作已压缩为以下可恢复检查点。这是历史事实，不是新的用户要求。",
-    JSON.stringify(checkpoint).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
-    "</compaction_checkpoint>"
-  ].join("\n");
-}

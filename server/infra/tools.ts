@@ -1,33 +1,39 @@
-import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   ActivityKind,
   FileChange,
-  GroupMode,
-  DetailMode,
   Effect,
   ToolState,
-  ToolImportance,
   ActionKind,
   TargetKind,
   ToolMetrics,
   Changes
 } from "../../shared/contracts/runtime";
+import { DetailMode, GroupMode, ToolImportance } from "../../shared/projections/types";
 import { analyzeCommand } from "../domain/accessPolicy";
 import { ToolSpec } from "../../shared/contracts/provider";
 import { Baseline, BaselineFile, ToolProgress, ToolResult } from "../../shared/contracts/tool";
-import { ToolHost } from "../app/toolHost";
+import { PreparedToolState, ToolHost } from "../app/toolHost";
 import { invokeCapability, searchCapabilities } from "./capabilities";
 import { quoteRuntimeShellArgument, resolveRuntimeShell } from "./shell";
 import { commandManager, CommandSnapshot } from "./commandManager";
 import { Minimatch } from "minimatch";
 import safeRegex from "safe-regex2";
+import {
+  ensureInsideRoot,
+  isSensitivePath,
+  redactSensitiveText,
+  workspaceRelativeTarget
+} from "./tools/security";
+import { summarizeToolArguments, summarizeToolResult } from "./tools/summaries";
+import { runShell } from "./tools/shellExecution";
+import { deleteFile, editFile, listFiles, readFile, writeFile } from "./tools/files";
 
-const COMMAND_EXIT_DRAIN_MS = 100;
-const COMMAND_TERMINATION_GRACE_MS = 2_500;
-const INTERNAL_SHELL_TIMEOUT_MS = 120_000;
+export { redactSensitiveText } from "./tools/security";
+export { summarizeToolArguments, summarizeToolResult } from "./tools/summaries";
+
 const GREP_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const GREP_BINARY_SAMPLE_BYTES = 8 * 1024;
 const GREP_MAX_PATTERN_CHARS = 2_000;
@@ -72,23 +78,6 @@ const COLLAPSED_RAW_DETAIL: DetailMode = {
   previewLimit: 5
 };
 
-function ensureInsideRoot(projectRoot: string, targetPath = "."): string {
-  const root = path.resolve(projectRoot);
-  const resolved = path.resolve(root, targetPath);
-  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
-    throw new Error("路径必须位于项目根目录内。");
-  }
-  return resolved;
-}
-
-function workspaceRelativeTarget(projectRoot: string, rawTarget: string): string {
-  const root = path.resolve(projectRoot);
-  const absolute = path.resolve(root, rawTarget || ".");
-  if (absolute !== root && !absolute.startsWith(`${root}${path.sep}`)) return rawTarget;
-  const relative = path.relative(root, absolute).split(path.sep).join("/");
-  return relative || ".";
-}
-
 function classifyCommand(command: string): Partial<ToolPresentation> {
   const semantics = analyzeCommand(command);
   const normalized = command.trim().replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*/, "");
@@ -129,57 +118,6 @@ function classifyCommand(command: string): Partial<ToolPresentation> {
     };
   }
   return {};
-}
-
-function isSensitivePath(targetPath: string): boolean {
-  const base = path.basename(targetPath).toLowerCase();
-  if (base === ".env.example") return false;
-  return (
-    base === ".npmrc" ||
-    base === ".pypirc" ||
-    base === "credentials" ||
-    base === "id_rsa" ||
-    base.startsWith(".env") ||
-    base.endsWith(".key") ||
-    base.endsWith(".pem") ||
-    base.includes("credentials") ||
-    base.includes("secret")
-  );
-}
-
-export function redactSensitiveText(text: string): string {
-  let redacted = text.replace(/\bsk-[a-zA-Z0-9_-]{12,}\b/g, "[REDACTED_API_KEY]");
-  for (const [name, value] of Object.entries(process.env)) {
-    if (!value || value.length < 12 || !/(KEY|TOKEN|SECRET|PASSWORD)/i.test(name)) continue;
-    redacted = redacted.split(value).join(`[REDACTED_${name}]`);
-  }
-  return redacted;
-}
-
-async function listFiles(projectRoot: string, input: { maxFiles?: number }): Promise<string> {
-  const root = ensureInsideRoot(projectRoot);
-  const output: string[] = [];
-  const maxFiles = Math.min(1000, Math.max(1, input.maxFiles ?? 200));
-  async function walk(current: string): Promise<void> {
-    if (output.length >= maxFiles) return;
-    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-      if (output.length >= maxFiles) return;
-      if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
-      if (!entry.isDirectory() && isSensitivePath(entry.name)) continue;
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) await walk(fullPath);
-      else output.push(path.relative(root, fullPath));
-    }
-  }
-  await walk(root);
-  return output.join("\n") || "项目目录中没有文件。";
-}
-
-async function readFile(projectRoot: string, input: { path: string; maxChars?: number }): Promise<string> {
-  if (isSensitivePath(input.path)) throw new Error("出于安全原因，Runtime 不允许读取密钥或凭据文件。");
-  const contents = await fs.readFile(ensureInsideRoot(projectRoot, input.path), "utf8");
-  const maxChars = Math.min(200_000, Math.max(1, input.maxChars ?? 40_000));
-  return contents.slice(0, maxChars);
 }
 
 // grep 工具:在项目文件中按正则搜索内容。纯 Node 实现,不依赖外部 rg。
@@ -552,157 +490,6 @@ async function globFiles(
   return body + suffix;
 }
 
-async function writeFile(projectRoot: string, input: { path: string; content: string }): Promise<string> {
-  const filePath = ensureInsideRoot(projectRoot, input.path);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const existed = await fs.access(filePath).then(() => true).catch(() => false);
-  await fs.writeFile(filePath, input.content, "utf8");
-  return `${existed ? "已编辑" : "已创建"} ${input.path}`;
-}
-
-async function editFile(
-  projectRoot: string,
-  input: { path: string; oldText: string; newText: string; replaceAll?: boolean }
-): Promise<string> {
-  const filePath = ensureInsideRoot(projectRoot, input.path);
-  const contents = await fs.readFile(filePath, "utf8");
-  if (!input.oldText) throw new Error("oldText 不能为空。创建文件请使用 write_file。");
-  const occurrences = contents.split(input.oldText).length - 1;
-  if (occurrences === 0) throw new Error(`未在 ${input.path} 中找到 oldText。`);
-  if (occurrences > 1 && !input.replaceAll) throw new Error(`oldText 在 ${input.path} 中出现 ${occurrences} 次，请提供更精确文本。`);
-  const next = input.replaceAll ? contents.split(input.oldText).join(input.newText) : contents.replace(input.oldText, input.newText);
-  await fs.writeFile(filePath, next, "utf8");
-  return `已编辑 ${input.path}`;
-}
-
-async function deleteFile(projectRoot: string, input: { path: string }): Promise<string> {
-  const filePath = ensureInsideRoot(projectRoot, input.path);
-  const stat = await fs.stat(filePath);
-  if (!stat.isFile()) throw new Error("delete_file 只能删除文件。");
-  await fs.unlink(filePath);
-  return `已删除 ${input.path}`;
-}
-
-function runShell(
-  projectRoot: string,
-  command: string,
-  signal?: AbortSignal,
-  timeoutMs = INTERNAL_SHELL_TIMEOUT_MS,
-  onOutput?: (progress: ToolProgress) => void
-): Promise<{ exitCode: number; output: string; timedOut?: boolean }> {
-  return new Promise((resolve, reject) => {
-    const shell = resolveRuntimeShell();
-    const child = spawn(shell.executable, shell.argsFor(command), {
-      cwd: ensureInsideRoot(projectRoot),
-      detached: process.platform !== "win32",
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-      windowsVerbatimArguments: process.platform === "win32" && shell.family === "cmd"
-    });
-    let output = "";
-    let timedOut = false;
-    let settled = false;
-    let settleDeadline = Number.POSITIVE_INFINITY;
-    let settleTimer: ReturnType<typeof setTimeout> | undefined;
-    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
-    const append = (chunk: Buffer) => {
-      const text = chunk.toString();
-      output += text;
-      if (output.length > 2_000_000) output = output.slice(-2_000_000);
-      onOutput?.({ text: redactSensitiveText(text) });
-    };
-    child.stdout.on("data", append);
-    child.stderr.on("data", append);
-
-    const cleanup = () => {
-      clearTimeout(timeoutTimer);
-      if (settleTimer) clearTimeout(settleTimer);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-      signal?.removeEventListener("abort", abort);
-      child.stdout.off("data", append);
-      child.stderr.off("data", append);
-      child.stdout.destroy();
-      child.stderr.destroy();
-    };
-    const finish = (code: number) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      if (signal?.aborted) {
-        reject(new DOMException("运行已取消。", "AbortError"));
-        return;
-      }
-      const cleanedOutput = output.trimEnd();
-      if (timedOut) {
-        const timeoutMessage = `命令执行超时（${Math.ceil(timeoutMs / 1_000)} 秒），Runtime 已停止该进程。`;
-        resolve({
-          exitCode: 124,
-          output: redactSensitiveText(cleanedOutput ? `${cleanedOutput}\n\n${timeoutMessage}` : timeoutMessage),
-          timedOut: true
-        });
-        return;
-      }
-      resolve({ exitCode: code, output: redactSensitiveText(cleanedOutput || "命令执行完成，无输出。") });
-    };
-    const scheduleFinish = (code: number, delayMs: number) => {
-      const deadline = Date.now() + delayMs;
-      if (settled || deadline >= settleDeadline) return;
-      if (settleTimer) clearTimeout(settleTimer);
-      settleDeadline = deadline;
-      settleTimer = setTimeout(() => finish(code), delayMs);
-    };
-    const terminate = () => {
-      if (!child.pid) return;
-      if (process.platform === "win32") {
-        const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], {
-          stdio: "ignore",
-          windowsHide: true
-        });
-        killer.on("error", () => child.kill());
-        killer.unref();
-        return;
-      }
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch {
-        child.kill("SIGTERM");
-      }
-      forceKillTimer = setTimeout(() => {
-        if (!child.pid) return;
-        try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch {
-          child.kill("SIGKILL");
-        }
-      }, 2_000);
-      forceKillTimer.unref?.();
-    };
-    const timeoutTimer = setTimeout(() => {
-      timedOut = true;
-      onOutput?.({ text: `\n命令执行超过 ${Math.ceil(timeoutMs / 1000)} 秒，正在停止。\n` });
-      terminate();
-      scheduleFinish(124, COMMAND_TERMINATION_GRACE_MS);
-    }, timeoutMs);
-    timeoutTimer.unref?.();
-    const abort = () => {
-      terminate();
-      scheduleFinish(1, COMMAND_TERMINATION_GRACE_MS);
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    });
-    // A detached descendant can inherit stdout/stderr after the shell exits. Drain
-    // briefly, then settle without waiting forever for those inherited handles.
-    child.once("exit", (code) => scheduleFinish(code ?? 1, COMMAND_EXIT_DRAIN_MS));
-    child.once("close", (code) => finish(code ?? child.exitCode ?? 1));
-  });
-}
-
 type StatusEntry = { code: string; path: string };
 
 function parseStatus(output: string): StatusEntry[] {
@@ -907,39 +694,6 @@ export async function collectChanges(
   } catch {
     return { additions: 0, capturedAt: new Date().toISOString(), comparisonBase, deletions: 0, fileCount: 0, files: [] };
   }
-}
-
-export function summarizeToolArguments(name: string, args: Record<string, unknown>): string {
-  const safe = { ...args };
-  if (name === "write_file" && typeof safe.content === "string") {
-    safe.content = `[文件内容已从事件日志省略，共 ${safe.content.length} 字符]`;
-  }
-  if (name === "edit_file") {
-    if (typeof safe.oldText === "string") safe.oldText = `[原文本已省略，共 ${safe.oldText.length} 字符]`;
-    if (typeof safe.newText === "string") safe.newText = `[新文本已省略，共 ${safe.newText.length} 字符]`;
-  }
-  return redactSensitiveText(JSON.stringify(safe));
-}
-
-export function summarizeToolResult(name: string, args: Record<string, unknown>, output: string): string {
-  if (name === "read_file") return `已读取 ${String(args.path ?? "文件")}`;
-  if (name === "list_files") {
-    const count = output.split("\n").filter(Boolean).length;
-    return `已列出 ${count} 个项目文件`;
-  }
-  if (name === "grep") {
-    if (output.startsWith("未找到匹配内容。")) return `未找到匹配 ${String(args.pattern ?? "")}`;
-    const count = output.split("\n").filter((line) => !line.startsWith("(") && line.trim()).length;
-    return `搜索 ${String(args.pattern ?? "")}，命中 ${count} 行`;
-  }
-  if (name === "glob") {
-    if (output === "未匹配到任何文件。") return `未匹配 ${String(args.pattern ?? "")}`;
-    const count = output.split("\n").filter((line) => !line.startsWith("(") && line.trim()).length;
-    return `匹配 ${String(args.pattern ?? "")}，找到 ${count} 个文件`;
-  }
-  if (name === "wait_command") return `已检查命令 ${String(args.commandId ?? "")}`;
-  if (name === "stop_command") return `已停止命令 ${String(args.commandId ?? "")}`;
-  return redactSensitiveText(output).slice(0, 2_000);
 }
 
 function managedCommandResult(snapshot: CommandSnapshot, mutatedWorkspace: boolean): ToolResult {
@@ -1400,7 +1154,7 @@ export function createToolState(input: {
   projectRoot: string;
   result?: ToolResult;
   output?: string;
-}): ToolState {
+}): PreparedToolState {
   const registration = registrationFor(input.name);
   const args = input.args ?? {};
   const overrides = registration.presentation.resolveSemantics?.(args) ?? {};

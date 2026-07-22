@@ -14,7 +14,7 @@ import { useWorkspace } from "./useWorkspace";
 import { Changes } from "../shared/contracts/runtime";
 import { ProjectRef } from "../shared/contracts/desktop";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { IconButton } from "./components/ui/ControlPrimitives";
+import { IconButton } from "./shared-ui/ControlPrimitives";
 import { defaultDraftWorkspace, DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
 
 type SurfaceFileState = {

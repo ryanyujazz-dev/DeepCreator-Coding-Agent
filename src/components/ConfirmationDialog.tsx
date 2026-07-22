@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { ReactNode, useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
-import { IconButton } from "./ui/ControlPrimitives";
+import { IconButton } from "../shared-ui/ControlPrimitives";
 
 export function ConfirmationDialog({
   busy = false,

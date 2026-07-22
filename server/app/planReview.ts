@@ -1,5 +1,7 @@
 import { AccessMode, PlanDecision, Session } from "../../shared/contracts/runtime";
-import { RuntimeRepo } from "./runtimeRepo";
+import { ContextPort, EventInput, EventPort, SessionPort } from "./runtimeRepo";
+
+type PlanReviewPorts = ContextPort & EventPort & SessionPort;
 
 export type ResumeRun = {
   model: string;
@@ -44,7 +46,7 @@ export function resolvePlan(input: {
   planId: string;
   revision: number;
   sessionId: string;
-  store: RuntimeRepo;
+  store: PlanReviewPorts;
 }): ReviewResult {
   const session = input.store.getSession(input.sessionId);
   if (!session) throw new Error("Session not found.");
@@ -65,7 +67,7 @@ export function resolvePlan(input: {
   const run = session.runs.find((item) => item.runId === plan.runId);
   if (!run || run.status !== "waiting") throw new Error("Plan Run is not waiting for review.");
   const resolvedAt = new Date().toISOString();
-  const events: Parameters<RuntimeRepo["appendMany"]>[0] = [];
+  const events: EventInput[] = [];
   if (input.decision === "start_work") {
     if (input.accessMode && input.accessMode !== session.accessMode) {
       events.push({ data: { accessMode: input.accessMode }, sessionId: session.sessionId, type: "session.updated" });
@@ -128,7 +130,7 @@ export function answerQuestion(input: {
   answers: Record<string, string>;
   interactionId: string;
   sessionId: string;
-  store: RuntimeRepo;
+  store: PlanReviewPorts;
 }): ReviewResult {
   const session = input.store.getSession(input.sessionId);
   if (!session) throw new Error("Session not found.");
@@ -146,7 +148,7 @@ export function answerQuestion(input: {
   if (question.status !== "pending") throw new Error("Question interaction is stale.");
   const resolvedAt = new Date().toISOString();
   const enterPlan = question.purpose === "plan_entry" && answers.plan_entry === "进入计划模式";
-  const events: Parameters<RuntimeRepo["appendMany"]>[0] = [{
+  const events: EventInput[] = [{
     data: { answers, interactionId: question.interactionId, resolvedAt, status: "answered" },
     runId: question.runId,
     sessionId: session.sessionId,
@@ -180,7 +182,7 @@ export function revisePlan(input: {
   planId: string;
   revision: number;
   sessionId: string;
-  store: RuntimeRepo;
+  store: PlanReviewPorts;
   title: string;
 }): Session {
   const session = input.store.getSession(input.sessionId);

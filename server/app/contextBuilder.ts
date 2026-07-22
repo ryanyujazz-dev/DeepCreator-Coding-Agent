@@ -7,9 +7,9 @@ import {
   ContextSummary,
   ContextStats,
   ContextInput,
-  renderCheckpoint,
-  contextFingerprint
 } from "../../shared/contracts/context";
+import { renderCheckpoint } from "../../shared/domain/context";
+import { contextFingerprint } from "./contextFingerprint";
 import { emptyRuleSource, ResolvedRule, RuleSource } from "../../shared/contracts/rules";
 import { protocolSafeModelMessages } from "../../shared/domain/toolProtocol";
 import { prompts } from "./prompts";

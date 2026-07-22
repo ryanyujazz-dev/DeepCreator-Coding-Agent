@@ -14,13 +14,13 @@ import { useMemo, useState } from "react";
 import {
   Activity,
   FileChange,
-  ActivityGroup,
-  Changes,
-  ToolAggregate
+  Changes
 } from "../../shared/contracts/runtime";
+import { ActivityGroup, ToolAggregate } from "../../shared/projections/types";
+import { activityTitle, toolTarget } from "../../shared/projections/activityPresentation";
 import { CodeDiffViewer } from "./CodeEditorSurface";
 import { DetailPanel } from "./DetailPanel";
-import { DisclosureRow } from "./ui/ControlPrimitives";
+import { DisclosureRow } from "../shared-ui/ControlPrimitives";
 
 function groupIcon(group: ActivityGroup) {
   if (group.status === "failed") return <CircleAlert size={13} />;
@@ -41,7 +41,7 @@ function memberIcon(activity: Activity) {
 }
 
 function memberLabel(activity: Activity): string {
-  const target = activity.tool?.displayTarget || activity.title;
+  const target = toolTarget(activity.tool) || activityTitle(activity);
   if (activity.command?.timedOut) return `已超时 ${target}`;
   if (activity.status === "failed") return `失败 ${target}`;
   if (activity.status === "cancelled") return `已取消 ${target}`;
@@ -118,7 +118,8 @@ function commandOutput(activity: Activity): string {
   const exit = activity.command?.timedOut
     ? "执行超时"
     : activity.command?.exitCode === undefined ? "" : `退出码 ${activity.command.exitCode}`;
-  const command = activity.tool?.displayTarget ? `$ ${activity.tool.displayTarget}` : "";
+  const target = toolTarget(activity.tool);
+  const command = target ? `$ ${target}` : "";
   return [command, activity.body, exit].filter(Boolean).join("\n\n") || "命令执行完成，无输出。";
 }
 
@@ -126,10 +127,10 @@ function detailTitle(activity: Activity): string {
   if (activity.tool?.toolName === "run_command") return "Shell";
   if (activity.tool?.toolName === "grep") return "grep";
   if (activity.tool?.toolName === "glob") return "glob";
-  if (activity.tool?.toolName === "read_file") return activity.tool.displayTarget || "文件内容";
+  if (activity.tool?.toolName === "read_file") return toolTarget(activity.tool) || "文件内容";
   if (activity.tool?.toolName === "list_files") return "目录内容";
   if (activity.tool?.action === "search") return "搜索结果";
-  return activity.tool?.displayTarget || activity.title || "执行结果";
+  return toolTarget(activity.tool) || activityTitle(activity) || "执行结果";
 }
 
 function detailContent(activity: Activity): string {
@@ -145,7 +146,8 @@ function OperationMemberRow({
   activity: Activity;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const isFileReference = activity.tool?.targetKind === "file" && Boolean(activity.tool.displayTarget);
+  const target = toolTarget(activity.tool);
+  const isFileReference = activity.tool?.targetKind === "file" && Boolean(target);
   return (
     <div className={`operation-member-call is-${activity.status}`}>
       <DisclosureRow
@@ -166,10 +168,10 @@ function OperationMemberRow({
                 event.stopPropagation();
                 onOpenFile(activity.tool!.normalizedTarget);
               }}
-              title={activity.tool!.displayTarget}
+              title={target}
               type="button"
             >
-              {activity.tool!.displayTarget}
+              {target}
             </button>
           </span>
         ) : (

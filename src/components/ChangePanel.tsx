@@ -1,7 +1,7 @@
 import { ChevronDown, FileCode2 } from "lucide-react";
 import { useState } from "react";
 import { FileChange, Changes } from "../../shared/contracts/runtime";
-import { IconButton, PillButton, RowAction } from "./ui/ControlPrimitives";
+import { IconButton, PillButton, RowAction } from "../shared-ui/ControlPrimitives";
 
 function diffLineClass(line: string): string {
   if (line.startsWith("+++") || line.startsWith("---")) return "is-meta";

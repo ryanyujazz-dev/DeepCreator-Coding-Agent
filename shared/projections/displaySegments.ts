@@ -1,13 +1,16 @@
 import {
   ActionKind,
   Activity,
+  Run
+} from "../contracts/runtime";
+import {
   ActivityIndicator,
   ActivitySlot,
   DisplayTimelineEntry,
   DisplaySegment,
-  Run,
   ToolAggregate
-} from "../contracts/runtime";
+} from "./types";
+import { activityTitle, toolTarget } from "./activityPresentation";
 
 type IndexedActivity = {
   activity: Activity;
@@ -64,7 +67,7 @@ function createDraft(activity: Activity): SegmentDraft {
 }
 
 function toolStartLabel(activity: Activity): string {
-  const target = activity.tool?.displayTarget || activity.title;
+  const target = toolTarget(activity.tool) || activityTitle(activity);
   let action = "正在执行";
   if (activity.tool?.toolName === "read_file") action = "正在读取";
   else if (activity.tool?.toolName === "list_files") action = "正在列出";
@@ -89,7 +92,7 @@ function indicatorFor(activity: Activity): ActivityIndicator {
     label: toolStartLabel(activity),
     mode: "tool",
     sourceActivityId: activity.activityId,
-    target: activity.tool?.displayTarget
+    target: toolTarget(activity.tool) || undefined
   };
 }
 

@@ -1,4 +1,5 @@
 import { EVENT_VERSION, Event, EventType, Session, Task } from "../contracts/runtime";
+import { eventSchema } from "../schemas/event";
 import { LEGACY_EVENT_VERSION, LegacyEvent } from "./v1";
 
 const TYPE_MAP: Record<string, EventType | undefined> = {
@@ -154,7 +155,7 @@ export function decodeLegacyEvent(input: unknown): Event | undefined {
   if (event.topic === "cycle.executing" || event.topic.startsWith("context.compaction.")) return undefined;
   const type = TYPE_MAP[event.topic];
   if (!type) return undefined;
-  return {
+  const normalized = {
     at: String(event.emittedAt ?? ""),
     data: mapData(event as LegacyEvent, type),
     eventId: String(event.signalKey ?? `${event.scope.sessionKey}:${event.offset ?? 0}`),
@@ -167,19 +168,24 @@ export function decodeLegacyEvent(input: unknown): Event | undefined {
     type,
     version: EVENT_VERSION
   };
+  const parsed = eventSchema.safeParse(normalized);
+  return parsed.success ? parsed.value : undefined;
 }
 
 export function decodeEvent(input: unknown): Event | undefined {
   if (!input || typeof input !== "object") return undefined;
-  const event = input as Omit<Partial<Event>, "type"> & { contract?: string; type?: string };
+  const event = input as { contract?: string; data?: unknown; type?: string; version?: string };
   if (event.version === EVENT_VERSION) {
     if (event.type === "plan.changed") {
-      return { ...event, data: mapTasks(event.data), type: "tasks.changed" } as Event;
+      const parsed = eventSchema.safeParse({ ...event, data: mapTasks(event.data), type: "tasks.changed" });
+      return parsed.success ? parsed.value : undefined;
     }
     if (event.type === "tasks.changed") {
-      return { ...event, data: mapTasks(event.data) } as Event;
+      const parsed = eventSchema.safeParse({ ...event, data: mapTasks(event.data) });
+      return parsed.success ? parsed.value : undefined;
     }
-    return event as Event;
+    const parsed = eventSchema.safeParse(event);
+    return parsed.success ? parsed.value : undefined;
   }
   return decodeLegacyEvent(input);
 }

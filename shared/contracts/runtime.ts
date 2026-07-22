@@ -19,15 +19,6 @@ export type ActivityKind =
 export type ActionKind = "inspect" | "search" | "modify" | "execute" | "verify" | "task" | "plan" | "external";
 export type TargetKind = "file" | "directory" | "workspace" | "process" | "network" | "task" | "plan";
 export type Effect = "read_only" | "workspace_write" | "process_side_effect" | "external_side_effect" | "control_only";
-export type GroupMode = "consecutive" | "same_model_step" | "standalone" | "workspace_delta";
-export type ToolImportance = "routine" | "notable" | "critical";
-
-export type DetailMode = {
-  defaultCollapsed: boolean;
-  pathStyle: "workspace_relative" | "raw";
-  previewLimit: number;
-};
-
 export type ToolMetrics = {
   byteCount?: number;
   exitCode?: number;
@@ -44,51 +35,18 @@ export type ToolState = {
   action: ActionKind;
   targetKind: TargetKind;
   effect: Effect;
-  groupMode: GroupMode;
-  importance: ToolImportance;
+  /** @deprecated Legacy presentation hint. New Events derive grouping in projections. */
+  groupMode?: "consecutive" | "same_model_step" | "standalone" | "workspace_delta";
+  /** @deprecated Legacy presentation hint. New Events derive importance in projections. */
+  importance?: "routine" | "notable" | "critical";
   normalizedTarget: string;
-  displayTarget: string;
+  /** @deprecated Legacy rendered target. Use normalizedTarget as the durable fact. */
+  displayTarget?: string;
   argumentsPreview: string;
-  detail: DetailMode;
+  /** @deprecated Legacy expansion policy. New Events derive detail policy in the UI. */
+  detail?: { defaultCollapsed: boolean; pathStyle: "workspace_relative" | "raw"; previewLimit: number };
   resultSummary?: string;
   resultMetrics?: ToolMetrics;
-};
-
-export type EventType =
-  | "session.created"
-  | "session.updated"
-  | "mode.changed"
-  | "run.started"
-  | "tasks.changed"
-  | "plan.proposed"
-  | "plan.revised"
-  | "plan.approved"
-  | "plan.rejected"
-  | "question.asked"
-  | "question.answered"
-  | "changes.changed"
-  | "usage.changed"
-  | "activity.started"
-  | "activity.updated"
-  | "activity.finished"
-  | "approval.requested"
-  | "approval.resolved"
-  | "run.finished";
-
-export type EventScope = {
-  sessionId: string;
-  runId?: string;
-  activityId?: string;
-};
-
-export type Event<T = unknown> = {
-  version: typeof EVENT_VERSION;
-  eventId: string;
-  offset: number;
-  type: EventType;
-  scope: EventScope;
-  at: string;
-  data: T;
 };
 
 export type TaskStatus = "pending" | "running" | "completed" | "blocked";
@@ -211,7 +169,8 @@ export type Activity = {
   kind: ActivityKind;
   status: ActivityStatus;
   audience: Audience;
-  title: string;
+  /** @deprecated Legacy rendered label. New Events derive labels in projections. */
+  title?: string;
   body: string;
   startedAt: string;
   finishedAt?: string;
@@ -229,97 +188,6 @@ export type Activity = {
   liveFiles?: FileChange[];
   error?: string;
 };
-
-export type DetailKind = "read" | "search" | "list" | "modify" | "verify" | "execute" | "task" | "plan" | "external";
-
-export type DetailRow = {
-  detailId: string;
-  kind: DetailKind;
-  label: string;
-  targets: string[];
-  totalCalls: number;
-};
-
-export type ActivityGroup = {
-  groupId: string;
-  runId: string;
-  category: ActionKind;
-  status: ActivityStatus;
-  memberActivityIds: string[];
-  totalCalls: number;
-  successCount: number;
-  failureCount: number;
-  uniqueTargets: string[];
-  currentTarget?: string;
-  startedAt: string;
-  finishedAt?: string;
-  summaryLabel: string;
-  detailRows: DetailRow[];
-  importance: ToolImportance;
-  defaultExpanded: boolean;
-  changes?: Pick<Changes, "additions" | "deletions" | "fileCount">;
-};
-
-export type LiveStep =
-  | { mode: "thinking"; activity: Activity }
-  | { mode: "message"; activity: Activity }
-  | {
-      mode: "tools";
-      category: ActionKind | "mixed";
-      currentTarget?: string;
-      status: ActivityStatus;
-      summaryLabel: string;
-      totalCalls: number;
-    };
-
-export type ActivityIndicator =
-  | {
-      mode: "thinking";
-      sourceActivityId: string;
-      label: string;
-    }
-  | {
-      mode: "tool";
-      sourceActivityId: string;
-      category: ActionKind;
-      label: string;
-      target?: string;
-    };
-
-export type ActivitySlot = {
-  slotId: string;
-  logicalState: "active" | "empty";
-  visual: ActivityIndicator;
-};
-
-export type ToolAggregate = {
-  aggregateId: string;
-  runId: string;
-  memberActivityIds: string[];
-  totalCalls: number;
-  successCount: number;
-  failureCount: number;
-  cancelledCount: number;
-  status: Exclude<ActivityStatus, "running">;
-  summaryLabel: string;
-};
-
-export type DisplaySegment = {
-  segmentId: string;
-  runId: string;
-  mainActivity?: Activity;
-  aggregate?: ToolAggregate;
-  activitySlots: ActivitySlot[];
-};
-
-export type DisplayTimelineEntry =
-  | { entryId: string; type: "display_segment"; segment: DisplaySegment }
-  | { entryId: string; type: "activity"; activity: Activity };
-
-export type TimelineEntry =
-  | DisplayTimelineEntry
-  | { entryId: string; type: "activity_group"; group: ActivityGroup }
-  | { entryId: string; type: "live_step"; liveStep: LiveStep };
 
 export type Run = {
   runId: string;
@@ -380,6 +248,91 @@ export type SessionSummary = Pick<
   active: boolean;
   pinned?: boolean;
 };
+
+/** The single compile-time authority for each durable Event payload. */
+export type EventPayloadMap = {
+  "session.created": SessionInput;
+  "session.updated": {
+    accessMode?: AccessMode;
+    compactSummary?: string;
+    contextTokens?: number;
+    grants?: Grant[];
+    planEntry?: PlanEntry;
+  };
+  "mode.changed": {
+    mode: Mode;
+    previousMode?: Mode;
+    reason?: string;
+    source?: "user" | "model" | "runtime";
+  };
+  "run.started": Pick<Run, "model" | "prompt" | "startedAt"> & { mode?: Mode };
+  "tasks.changed": { items: Task[] };
+  "plan.proposed": { plan: Plan };
+  "plan.revised": { plan: Plan };
+  "plan.approved": { approvedAt: string; planId: string; revision: number };
+  "plan.rejected": {
+    comments?: string;
+    decision: Extract<PlanDecision, "continue_planning" | "cancel">;
+    planId: string;
+    resolvedAt: string;
+    revision: number;
+  };
+  "question.asked": { question: Question };
+  "question.answered": {
+    answers?: Record<string, string>;
+    interactionId: string;
+    resolvedAt: string;
+    status: Question["status"];
+  };
+  "changes.changed": Changes;
+  "usage.changed": Usage;
+  "activity.started": Omit<Activity, "activityId" | "body" | "runId" | "status"> & { body?: string };
+  "activity.updated": {
+    argumentsDelta?: string;
+    bodyDelta?: string;
+    command?: Partial<NonNullable<Activity["command"]>>;
+    files?: Activity["files"];
+    kind?: Activity["kind"];
+    liveFiles?: Activity["liveFiles"];
+    status?: Extract<Activity["status"], "running" | "suspended">;
+    title?: string;
+    tool?: Partial<ToolState>;
+  };
+  "activity.finished": Partial<Activity> & {
+    finishedAt: string;
+    status: Activity["status"];
+  };
+  "approval.requested": Approval;
+  "approval.resolved": Pick<Approval, "approvalId" | "state">;
+  "run.finished": {
+    answer?: string;
+    error?: string;
+    finishedAt: string;
+    resume?: Run["resume"];
+    status: Extract<RunStatus, "completed" | "failed" | "cancelled">;
+  };
+};
+
+export type EventType = keyof EventPayloadMap;
+
+export type EventScope = {
+  sessionId: string;
+  runId?: string;
+  activityId?: string;
+};
+
+export type EventOf<K extends EventType> = {
+  version: typeof EVENT_VERSION;
+  eventId: string;
+  offset: number;
+  type: K;
+  scope: EventScope;
+  at: string;
+  data: EventPayloadMap[K];
+};
+
+/** A discriminated union when K is omitted, and a precise Event for a known type. */
+export type Event<K extends EventType = EventType> = K extends EventType ? EventOf<K> : never;
 
 export type EventBatch = {
   kind: "events";

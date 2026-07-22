@@ -1,42 +1,58 @@
 import { ContextEntry, ContextInput, ContextStats, MemoryFact } from "../../shared/contracts/context";
-import { Event, EventType, Run, Session, SessionInput, SessionSummary } from "../../shared/contracts/runtime";
+import { Event, EventPayloadMap, EventType, Run, Session, SessionInput, SessionSummary } from "../../shared/contracts/runtime";
 
 export type EventSubscriber = (events: Event[]) => void;
 
-export interface RuntimeRepo {
-  append<T>(input: {
-    activityId?: string;
-    data: T;
-    runId?: string;
-    sessionId: string;
-    type: Exclude<EventType, "session.created">;
-  }): Event<T>;
-  appendMany(inputs: Array<{
-    activityId?: string;
-    data: unknown;
-    runId?: string;
-    sessionId: string;
-    type: Exclude<EventType, "session.created">;
-  }>): Event[];
-  appendContextEntry(input: ContextInput): ContextEntry;
+export type EventInput<K extends EventType = EventType> = K extends EventType ? {
+  activityId?: string;
+  data: EventPayloadMap[K];
+  runId?: string;
+  sessionId: string;
+  type: Exclude<K, "session.created">;
+} : never;
+
+export interface EventPort {
+  append<K extends Exclude<EventType, "session.created">>(input: EventInput<K>): Event<K>;
+  appendMany(inputs: EventInput[]): Event[];
+  readEvents(sessionId: string, afterOffset?: number): Event[];
+  subscribe(sessionId: string, subscriber: EventSubscriber): () => void;
+}
+
+export interface SessionPort {
   archiveProjectSessions(projectRoot: string): number;
-  close(): void;
   createSession(input: Omit<SessionInput, "createdAt">): Session;
-  deleteMemory(memoryId: string): boolean;
   getRun(runId: string): Run | undefined;
   getSession(sessionId: string): Session | undefined;
   listSessions(query?: string): SessionSummary[];
-  memoryDigest(projectRoot: string, limit?: number): string;
-  readCalibration(model: string): number;
-  readContextEntries(sessionId: string): ContextEntry[];
-  readEvents(sessionId: string, afterOffset?: number): Event[];
-  readMemories(projectRoot?: string): MemoryFact[];
-  readMetrics(sessionId: string): ContextStats[];
-  recordMetric(metric: ContextStats): void;
-  saveMemory(input: Omit<MemoryFact, "createdAt" | "lastConfirmedAt" | "memoryId"> & Partial<Pick<MemoryFact, "createdAt" | "lastConfirmedAt" | "memoryId">>): MemoryFact;
-  storeEvidence(sessionId: string, recordId: string, text: string): string;
-  subscribe(sessionId: string, subscriber: EventSubscriber): () => void;
   updateSessionSidebar(sessionId: string, input: { archived?: boolean; pinned?: boolean }): boolean;
-  updateMetricUsage(metricId: string, usage: Pick<ContextStats, "actualInputTokens" | "outputTokens" | "cacheHitTokens" | "cacheMissTokens">): void;
+}
+
+export interface ContextPort {
+  appendContextEntry(input: ContextInput): ContextEntry;
+  readContextEntries(sessionId: string): ContextEntry[];
+}
+
+export interface EvidencePort {
+  storeEvidence(sessionId: string, recordId: string, text: string): string;
   writeDebugSnapshot(sessionId: string, runId: string, value: unknown): void;
 }
+
+export interface MemoryPort {
+  deleteMemory(memoryId: string): boolean;
+  memoryDigest(projectRoot: string, limit?: number): string;
+  readMemories(projectRoot?: string): MemoryFact[];
+  saveMemory(input: Omit<MemoryFact, "createdAt" | "lastConfirmedAt" | "memoryId"> & Partial<Pick<MemoryFact, "createdAt" | "lastConfirmedAt" | "memoryId">>): MemoryFact;
+}
+
+export interface MetricPort {
+  readCalibration(model: string): number;
+  readMetrics(sessionId: string): ContextStats[];
+  recordMetric(metric: ContextStats): void;
+  updateMetricUsage(metricId: string, usage: Pick<ContextStats, "actualInputTokens" | "outputTokens" | "cacheHitTokens" | "cacheMissTokens">): void;
+}
+
+export interface StoreLifecyclePort {
+  close(): void;
+}
+
+export type RuntimePorts = EventPort & SessionPort & ContextPort & EvidencePort & MemoryPort & MetricPort & StoreLifecyclePort;

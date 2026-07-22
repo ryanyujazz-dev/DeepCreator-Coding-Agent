@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, PanelLeft } from "lucide-react";
-import { IconButton } from "./ui/ControlPrimitives";
+import { IconButton } from "../shared-ui/ControlPrimitives";
 
 export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   return (

@@ -19,11 +19,12 @@ import {
   emptyChanges
 } from "../contracts/runtime";
 
-type StartRunData = Pick<Run, "model" | "prompt" | "startedAt"> & { mode?: Mode };
-type StartActivityData = Omit<Activity, "activityId" | "body" | "runId" | "status"> & { body?: string };
-
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled Event type: ${JSON.stringify(value)}`);
 }
 
 function findRun(session: Session, event: Event): Run | undefined {
@@ -41,14 +42,12 @@ export function reduceEvent(current: Session, event: Event): Session {
   next.lastOffset = event.offset;
   next.updatedAt = event.at;
 
+  // Session creation is reduced by createSession/rebuildSession. Keeping this
+  // branch explicit makes the Event union exhaustive without hiding new types.
+  if (event.type === "session.created") return next;
+
   if (event.type === "session.updated") {
-    const data = event.data as {
-      accessMode?: AccessMode;
-      compactSummary?: string;
-      contextTokens?: number;
-      grants?: Grant[];
-      planEntry?: PlanEntry;
-    };
+    const data = event.data;
     if (data.accessMode !== undefined) next.accessMode = data.accessMode;
     if (data.compactSummary !== undefined) next.compactSummary = data.compactSummary;
     if (data.contextTokens !== undefined) next.contextTokens = data.contextTokens;
@@ -58,14 +57,14 @@ export function reduceEvent(current: Session, event: Event): Session {
   }
 
   if (event.type === "mode.changed") {
-    next.mode = (event.data as { mode: Mode }).mode;
+    next.mode = event.data.mode;
     const run = event.scope.runId ? findRun(next, event) : undefined;
     if (run) run.mode = next.mode;
     return next;
   }
 
   if (event.type === "run.started") {
-    const data = event.data as StartRunData;
+    const data = event.data;
     const runId = event.scope.runId;
     if (!runId || next.runIds.includes(runId)) return next;
     next.runIds.push(runId);
@@ -93,11 +92,11 @@ export function reduceEvent(current: Session, event: Event): Session {
 
   switch (event.type) {
     case "tasks.changed":
-      run.tasks = clone((event.data as { items: Task[] }).items);
+      run.tasks = clone(event.data.items);
       break;
     case "plan.proposed":
     case "plan.revised": {
-      const plan = clone((event.data as { plan: Plan }).plan);
+      const plan = clone(event.data.plan);
       next.plans = next.plans.map((item) => item.planId === plan.planId && item.status === "proposed"
         ? { ...item, status: "superseded" }
         : item);
@@ -111,7 +110,7 @@ export function reduceEvent(current: Session, event: Event): Session {
       break;
     }
     case "plan.approved": {
-      const data = event.data as { approvedAt: string; planId: string; revision: number };
+      const data = event.data;
       const plan = next.plans.find((item) => item.planId === data.planId && item.revision === data.revision);
       if (plan) {
         plan.approvedAt = data.approvedAt;
@@ -123,7 +122,7 @@ export function reduceEvent(current: Session, event: Event): Session {
       break;
     }
     case "plan.rejected": {
-      const data = event.data as { decision: "continue_planning" | "cancel"; planId: string; resolvedAt: string; revision: number };
+      const data = event.data;
       const plan = next.plans.find((item) => item.planId === data.planId && item.revision === data.revision);
       if (plan) {
         plan.status = "rejected";
@@ -133,25 +132,25 @@ export function reduceEvent(current: Session, event: Event): Session {
       break;
     }
     case "question.asked":
-      next.questions.push(clone((event.data as { question: Question }).question));
+      next.questions.push(clone(event.data.question));
       run.status = "waiting";
       break;
     case "question.answered": {
-      const data = event.data as { answers?: Record<string, string>; interactionId: string; resolvedAt: string; status: Question["status"] };
+      const data = event.data;
       const question = next.questions.find((item) => item.interactionId === data.interactionId);
       if (question) Object.assign(question, clone(data));
       run.status = "running";
       break;
     }
     case "changes.changed":
-      run.changes = clone(event.data as Changes);
+      run.changes = clone(event.data);
       break;
     case "usage.changed":
-      run.usage = clone(event.data as Usage);
+      run.usage = clone(event.data);
       if (run.usage.contextTokens !== undefined) next.contextTokens = run.usage.contextTokens;
       break;
     case "activity.started": {
-      const data = event.data as StartActivityData;
+      const data = event.data;
       if (!event.scope.activityId || run.activities.some((activity) => activity.activityId === event.scope.activityId)) break;
       run.activities.push({
         ...clone(data),
@@ -165,17 +164,7 @@ export function reduceEvent(current: Session, event: Event): Session {
     case "activity.updated": {
       const activity = findActivity(run, event);
       if (!activity) break;
-      const data = event.data as {
-        argumentsDelta?: string;
-          bodyDelta?: string;
-          command?: Partial<NonNullable<Activity["command"]>>;
-        files?: Activity["files"];
-        kind?: Activity["kind"];
-        liveFiles?: Activity["liveFiles"];
-        status?: Extract<Activity["status"], "running" | "suspended">;
-        title?: string;
-        tool?: Partial<ToolState>;
-      };
+      const data = event.data;
         if (data.bodyDelta) activity.body += data.bodyDelta;
         if (data.command) activity.command = { ...(activity.command ?? { command: data.command.command ?? "" }), ...clone(data.command) };
       if (data.argumentsDelta && activity.tool) activity.tool.argumentsPreview += data.argumentsDelta;
@@ -190,32 +179,23 @@ export function reduceEvent(current: Session, event: Event): Session {
     case "activity.finished": {
       const activity = findActivity(run, event);
       if (!activity) break;
-      const data = event.data as Partial<Activity> & {
-        finishedAt: string;
-        status: Activity["status"];
-      };
+      const data = event.data;
       Object.assign(activity, clone(data));
       break;
     }
     case "approval.requested":
       run.status = "waiting";
-      run.approvals.push(clone(event.data as Approval));
+      run.approvals.push(clone(event.data));
       break;
     case "approval.resolved": {
-      const data = event.data as Pick<Approval, "approvalId" | "state">;
+      const data = event.data;
       const approval = run.approvals.find((item) => item.approvalId === data.approvalId);
       if (approval) approval.state = data.state;
       if (run.status === "waiting") run.status = "running";
       break;
     }
     case "run.finished": {
-      const data = event.data as {
-        answer?: string;
-        error?: string;
-        finishedAt: string;
-        resume?: Run["resume"];
-        status: Extract<RunStatus, "completed" | "failed" | "cancelled">;
-      };
+      const data = event.data;
       run.answer = data.answer ?? run.answer;
       run.error = data.error;
       run.finishedAt = data.finishedAt;
@@ -243,7 +223,7 @@ export function reduceEvent(current: Session, event: Event): Session {
       break;
     }
     default:
-      break;
+      assertNever(event);
   }
 
   return next;

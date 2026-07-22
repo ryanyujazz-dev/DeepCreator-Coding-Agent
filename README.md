@@ -17,7 +17,7 @@ src                React client
 desktop            Electron Main, Preload bridge, Runtime worker
 ```
 
-See [ADR 004](docs/adr/004-clean-runtime-architecture.md), [context architecture](docs/adr/003-context-operating-system.md), [naming conventions](docs/naming-conventions.md), and the [design resource and layout guidelines](docs/design-resource-and-layout-guidelines.md).
+See [ADR 004](docs/adr/004-clean-runtime-architecture.md), [ADR 006](docs/adr/006-enterprise-modular-monolith.md), the normative [engineering architecture and code placement guide](docs/engineering-architecture.md), [naming conventions](docs/naming-conventions.md), and the [migration record](docs/enterprise-architecture-migration.md).
 
 ## Design and typography
 
@@ -48,9 +48,11 @@ Useful commands:
 npm run dev
 npm run dev:runtime:watch
 npm run dev:desktop
-npx tsc --noEmit
+npm run typecheck
+npm run test:architecture
 npm test
 npm run build
+npm run check
 npm run package:mac
 ```
 

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { ApprovalChoice, AccessScope, AccessRisk } from "../../shared/contracts/runtime";
-import { RuntimeRepo } from "./runtimeRepo";
+import { EventPort, SessionPort } from "./runtimeRepo";
+
+type RunRegistryPorts = EventPort & SessionPort;
 
 type PendingApproval = {
   runId: string;
@@ -92,7 +94,7 @@ export class RunRegistry {
     capability: AccessScope;
     runId: string;
     sessionId: string;
-    store: RuntimeRepo;
+    store: RunRegistryPorts;
     title: string;
     detail: string;
     risk: AccessRisk;
@@ -151,7 +153,7 @@ export class RunRegistry {
   resolveApproval(input: {
     approvalId: string;
     decision: ApprovalChoice;
-    store: RuntimeRepo;
+    store: RunRegistryPorts;
   }): boolean {
     const pending = this.approvals.get(input.approvalId);
     if (!pending) return false;

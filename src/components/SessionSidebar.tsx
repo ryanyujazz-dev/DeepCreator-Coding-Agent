@@ -21,7 +21,7 @@ import { NewTaskIcon } from "./NewTaskIcon";
 import { OverflowFadeText } from "./OverflowFadeText";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { SidebarConfirmationDialog } from "./SidebarConfirmationDialog";
-import { FloatingSurface, IconButton, RowAction } from "./ui/ControlPrimitives";
+import { FloatingSurface, IconButton, RowAction } from "../shared-ui/ControlPrimitives";
 
 type AnchorRect = { bottom: number; left: number; right: number; top: number; width: number };
 type ProjectOverlay = { project: ProjectRef; rect: AnchorRect };

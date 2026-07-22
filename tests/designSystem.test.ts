@@ -62,7 +62,7 @@ test("keeps primary conversation controls visible and aligned", () => {
 });
 
 test("provides the shared interaction primitives required by the design guide", () => {
-  const primitives = readFileSync(path.join(root, "src/components/ui/ControlPrimitives.tsx"), "utf8");
+  const primitives = readFileSync(path.join(root, "src/shared-ui/ControlPrimitives.tsx"), "utf8");
   for (const name of ["IconButton", "PillButton", "RowAction", "FloatingSurface", "DisclosureRow"]) {
     assert.match(primitives, new RegExp(`export (?:const|function) ${name}`));
   }

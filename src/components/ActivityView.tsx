@@ -1,6 +1,7 @@
 import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, TerminalSquare, Wrench } from "lucide-react";
 import { useState } from "react";
 import { Activity, Plan } from "../../shared/contracts/runtime";
+import { activityTitle, toolTarget } from "../../shared/projections/activityPresentation";
 import { useStreamText } from "../stream/useStreamText";
 import { MarkdownContent } from "./MarkdownContent";
 import { InlinePlanCard } from "./InlinePlanCard";
@@ -18,19 +19,20 @@ function completedTitle(activity: Activity): string {
   if (activity.command?.timedOut) return "命令运行超时";
   if (activity.kind === "command" && activity.status === "failed") return "命令运行失败";
   if (activity.kind === "command" && activity.status === "cancelled") return "命令已取消";
-  if (activity.status !== "completed") return activity.title;
+  if (activity.status !== "completed") return activityTitle(activity);
   if (activity.kind === "command") {
     return activity.command?.command ? `已运行 ${activity.command.command}` : "命令执行完成";
   }
-  if (activity.tool?.displayTarget) {
+  const target = toolTarget(activity.tool);
+  if (activity.tool && target) {
     if (activity.tool.action === "task") return "已更新执行任务";
     if (activity.tool.action === "plan") return "已更新方案";
-    if (activity.tool.action === "modify") return `已修改 ${activity.tool.displayTarget}`;
-    if (activity.tool.action === "inspect" || activity.tool.action === "search") return `已检查 ${activity.tool.displayTarget}`;
+    if (activity.tool.action === "modify") return `已修改 ${target}`;
+    if (activity.tool.action === "inspect" || activity.tool.action === "search") return `已检查 ${target}`;
   }
   const firstLine = activity.body.split("\n", 1)[0]?.trim();
   if (firstLine?.startsWith("已") && firstLine.length <= 120) return firstLine;
-  return activity.title;
+  return activityTitle(activity);
 }
 
 function fileActionLabel(activity: Activity): string {
@@ -125,6 +127,7 @@ export function ActivityView({
     );
   }
   const fileTarget = activity.tool?.targetKind === "file" ? activity.tool : undefined;
+  const fileLabel = toolTarget(fileTarget);
   return (
     <article className={`work-step tool-step is-${activity.status}`}>
       <div className="work-dot">{iconFor(activity)}</div>
@@ -132,8 +135,8 @@ export function ActivityView({
         {fileTarget ? (
           <strong className="inline-file-reference">
             <span className={activity.status === "running" ? "working-glow" : ""}>{fileActionLabel(activity)}</span>
-            <button onClick={() => onOpenFile(fileTarget.normalizedTarget)} title={fileTarget.displayTarget} type="button">
-              {fileTarget.displayTarget}
+            <button onClick={() => onOpenFile(fileTarget.normalizedTarget)} title={fileLabel} type="button">
+              {fileLabel}
             </button>
           </strong>
         ) : (

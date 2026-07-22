@@ -1,6 +1,6 @@
 import { ShieldAlert } from "lucide-react";
 import { ApprovalChoice, Approval } from "../../shared/contracts/runtime";
-import { PillButton } from "./ui/ControlPrimitives";
+import { PillButton } from "../shared-ui/ControlPrimitives";
 
 export function ApprovalDialog({ approval, onResolve }: { approval?: Approval; onResolve: (decision: ApprovalChoice) => void }) {
   if (!approval) return null;

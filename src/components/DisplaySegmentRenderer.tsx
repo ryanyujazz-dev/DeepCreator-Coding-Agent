@@ -10,11 +10,9 @@ import {
 import { useEffect, useState } from "react";
 import {
   Activity,
-  ActivityIndicator,
-  ActivitySlot,
-  Changes,
-  DisplaySegment
+  Changes
 } from "../../shared/contracts/runtime";
+import { ActivityIndicator, ActivitySlot, DisplaySegment } from "../../shared/projections/types";
 import { runningCommandElapsed } from "../../shared/projections/activityTiming";
 import { useStreamText } from "../stream/useStreamText";
 import { ActivityAggregateRenderer, ModificationFileRow } from "./ActivityGroupRenderer";

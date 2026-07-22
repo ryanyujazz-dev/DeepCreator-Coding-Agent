@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { ContextInput } from "../../shared/contracts/context";
 import { ModelMessage, ToolCall } from "../../shared/contracts/provider";
-import { Plan, Question, QuestionPrompt, Task, ToolState } from "../../shared/contracts/runtime";
+import { EventPayloadMap, Plan, Question, QuestionPrompt, Task, ToolState } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
 import { approvalFor } from "../domain/accessPolicy";
-import { reduceToolEvidence } from "../domain/evidence";
+import { reduceToolEvidence } from "./evidence";
 import { hasConflictingControlStep, planPolicy } from "../domain/planPolicy";
 import { contextUpdateRecord, findNewPathInstructions } from "./contextBuilder";
 import { RunRegistry } from "./runRegistry";
-import { RuntimeRepo } from "./runtimeRepo";
+import { ContextPort, EventPort, EvidencePort, MemoryPort, SessionPort } from "./runtimeRepo";
 import { ToolHost } from "./toolHost";
+import { durableToolState } from "./toolFacts";
 
 export type ToolContext = {
   baseline: Baseline;
@@ -19,7 +20,7 @@ export type ToolContext = {
   runId: string;
   sessionId: string;
   signal?: AbortSignal;
-  store: RuntimeRepo;
+  store: ContextPort & EventPort & EvidencePort & MemoryPort & SessionPort;
 };
 
 export type ToolOutcome = {
@@ -51,15 +52,25 @@ function tasksFrom(value: unknown): Task[] {
   });
 }
 
-function openActivity(input: ToolContext, data: Record<string, unknown>, activityId = `activity_${randomUUID()}`): string {
-  input.store.append({ activityId, data, runId: input.runId, sessionId: input.sessionId, type: "activity.started" });
+function openActivity(input: ToolContext, data: EventPayloadMap["activity.started"], activityId = `activity_${randomUUID()}`): string {
+  input.store.append({
+    activityId,
+    data: { ...data, tool: durableToolState(data.tool) },
+    runId: input.runId,
+    sessionId: input.sessionId,
+    type: "activity.started"
+  });
   return activityId;
 }
 
-function finishActivity(input: ToolContext, activityId: string, data: Record<string, unknown>): void {
+function finishActivity(
+  input: ToolContext,
+  activityId: string,
+  data: Omit<EventPayloadMap["activity.finished"], "finishedAt">
+): void {
   input.store.append({
     activityId,
-    data: { liveFiles: [], ...data, finishedAt: new Date().toISOString() },
+    data: { liveFiles: [], ...data, tool: durableToolState(data.tool), finishedAt: new Date().toISOString() },
     runId: input.runId,
     sessionId: input.sessionId,
     type: "activity.finished"
@@ -114,8 +125,6 @@ export class ToolPipeline {
 
       // validate
       if (!this.host.has(call.name)) throw new Error(`未知工具：${call.name}。可用工具：${this.host.names().join(", ")}`);
-      const title = this.host.title(call.name);
-      const activityTitle = call.name === "submit_plan" ? String(args.title ?? title) : title;
       const prepared = this.host.prepare({
         args,
         argumentsPreview: argsSummary,
@@ -131,13 +140,12 @@ export class ToolPipeline {
         audience: "user",
         kind: this.host.kind(prepared),
         startedAt: new Date().toISOString(),
-        title: activityTitle,
         tool: prepared
       });
       if (existingActivityId) {
         input.store.append({
           activityId,
-          data: { kind: this.host.kind(prepared), title: activityTitle, tool: prepared },
+          data: { kind: this.host.kind(prepared), tool: durableToolState(prepared) },
           runId: input.runId,
           sessionId: input.sessionId,
           type: "activity.updated"
@@ -270,7 +278,7 @@ export class ToolPipeline {
       if (result.commandState === "running") {
         input.store.append({
           activityId,
-          data: { command, tool: completed },
+          data: { command, tool: durableToolState(completed) },
           runId: input.runId,
           sessionId: input.sessionId,
           type: "activity.updated"
@@ -336,8 +344,7 @@ export class ToolPipeline {
         audience: "user",
         body: "",
         kind: "tool",
-        startedAt: new Date().toISOString(),
-        title: `工具调用失败：${call.name || "未知工具"}`
+        startedAt: new Date().toISOString()
       });
       const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
       finishActivity(input, activityId, activity?.kind === "plan"
@@ -628,7 +635,6 @@ export class ToolPipeline {
     finishActivity(input, activityId, {
       body: markdown,
       status: "completed",
-      title,
       tool: { ...prepared, resultSummary: "等待用户审阅" }
     });
     return { contextRecords: [], mutatedWorkspace: false, protocolError: false, suspended: true, target: "实施方案" };

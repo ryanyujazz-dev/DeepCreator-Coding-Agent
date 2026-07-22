@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { DesktopSettings } from "../../shared/contracts/desktop";
-import { IconButton } from "./ui/ControlPrimitives";
+import { IconButton } from "../shared-ui/ControlPrimitives";
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<DesktopSettings | null>(null);

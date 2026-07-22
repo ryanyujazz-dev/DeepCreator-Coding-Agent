@@ -1,6 +1,6 @@
 import { ChevronRight, Code2, Copy } from "lucide-react";
 import { ReactNode } from "react";
-import { IconButton } from "./ui/ControlPrimitives";
+import { IconButton } from "../shared-ui/ControlPrimitives";
 
 export function DetailPanel({
   children,

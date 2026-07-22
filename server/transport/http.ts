@@ -1,12 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import Fastify, { FastifyInstance } from "fastify";
-import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, Session, WorkspaceKind } from "../../shared/contracts/runtime";
+import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, WorkspaceKind } from "../../shared/contracts/runtime";
 import { MemoryFact } from "../../shared/contracts/context";
-import { Provider, ToolSpec } from "../../shared/contracts/provider";
-import { CapabilitySource } from "../../shared/contracts/capability";
-import { RuleSource } from "../../shared/contracts/rules";
+import { Provider } from "../../shared/contracts/provider";
 import {
   accessInputSchema,
   approvalInputSchema,
@@ -17,15 +12,16 @@ import {
   runParamsSchema,
   sessionParamsSchema
 } from "../../shared/schemas/http";
-import { RunInput } from "../app/runner";
-import { finishRun } from "../app/runLifecycle";
-import { ContextConfig, getCompactThresholdTokens, getContextWindowTokens, getEffectiveInputBudgetTokens, getRequestedMaxOutputTokens, prepareSessionContext } from "../app/contextBuilder";
+import { ContextConfig, getCompactThresholdTokens, getContextWindowTokens, getEffectiveInputBudgetTokens, getRequestedMaxOutputTokens } from "../app/contextBuilder";
+import { CancelRun } from "../app/cancelRun";
+import { ContextQueries } from "../app/contextQueries";
 import { RunRegistry } from "../app/runRegistry";
 import { answerQuestion, resolvePlan, ResumeRun, revisePlan } from "../app/planReview";
-import { RuntimeStore } from "../infra/runtimeStore";
-import { WorkspaceInfo } from "../infra/workspace";
-import { CommandManager } from "../infra/commandManager";
-import { ensureScratchWorkspace } from "../infra/sessionWorkspace";
+import { RunLaunchPort } from "../app/runLauncher";
+import { ContextPort, EventPort, MemoryPort, SessionPort } from "../app/runtimeRepo";
+import { SessionService, SessionServiceError } from "../app/sessionService";
+import { StartRun, StartRunError } from "../app/startRun";
+import { WorkspaceQueries, WorkspaceQueryError } from "../app/workspaceQueries";
 
 export type HttpConfig = {
   authToken?: string;
@@ -38,21 +34,20 @@ export type HttpConfig = {
 };
 
 export type HttpDeps = {
-  capabilities: CapabilitySource;
-  commands: CommandManager;
+  cancelRun: CancelRun;
   config: HttpConfig;
+  contextQueries: ContextQueries;
+  launcher: RunLaunchPort;
   providerFor: (model: string) => { model: string; provider: Provider };
   registry: RunRegistry;
-  resolveProjectRoot: (input: { explicitRoot?: string; fallbackRoot: string; prompt: string }) => Promise<string>;
-  rules: RuleSource;
-  run: (input: Omit<RunInput, "tools">) => Promise<void>;
-  store: RuntimeStore;
-  tools: ToolSpec[];
-  workspaceInfo: (projectRoot: string) => Promise<WorkspaceInfo>;
+  sessions: SessionService;
+  startRun: StartRun;
+  store: ContextPort & EventPort & MemoryPort & SessionPort;
+  workspace: WorkspaceQueries;
 };
 
 export function createHttp(deps: HttpDeps): FastifyInstance {
-  const { capabilities, commands, config, providerFor, registry, resolveProjectRoot, rules, run, store, tools, workspaceInfo } = deps;
+  const { cancelRun, config, contextQueries, launcher, providerFor, registry, sessions, startRun, store, workspace } = deps;
   const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, workspaceRoot } = config;
   const app = Fastify({ logger: false });
   const frontendOrigin = new URL(frontendUrl).origin;
@@ -80,77 +75,19 @@ export function createHttp(deps: HttpDeps): FastifyInstance {
     }
   });
 
-function explicitPlanMode(prompt: string): boolean {
-  return /(?:先|只|请).{0,12}(?:规划|计划|设计方案|分析方案)|(?:不要|先别|暂不).{0,8}(?:修改|改代码|执行|实现)|plan\s+mode/i.test(prompt);
-}
-
 function resumeRun(resume: ResumeRun): void {
-  if (registry.hasRun(resume.runId)) {
-    registry.afterRun(resume.runId, () => resumeRun(resume));
-    return;
-  }
-  const controller = registry.startRun(resume.runId);
-  const selected = providerFor(resume.model);
-  void run({
+  launcher.launch({
     continuation: true,
-    model: selected.model,
+    model: resume.model,
     projectRoot: resume.projectRoot,
     prompt: resume.prompt,
-    provider: selected.provider,
-    registry,
     runId: resume.runId,
-    sessionId: resume.sessionId,
-    signal: controller.signal,
-    store
-  }).finally(() => registry.finishRun(resume.runId));
+    sessionId: resume.sessionId
+  });
 }
 
-function createContextPreview(): ReturnType<typeof prepareSessionContext>["telemetry"] {
-  const now = new Date().toISOString();
-  const session: Session = {
-    compactThresholdTokens: getCompactThresholdTokens(context.windowTokens, context.maxOutputTokens, context),
-    contextTokens: 0,
-    contextWindowTokens: getContextWindowTokens(context),
-    createdAt: now,
-    runIds: [],
-    runs: [],
-    lastOffset: 0,
-    model: defaultModel,
-    mode: "work",
-    planEntry: "suggest",
-    plans: [],
-    questions: [],
-    grants: [],
-    accessMode: "request_approval",
-    projectRoot: workspaceRoot,
-    workspaceKind: "project",
-    sessionId: "context_preview",
-    title: "Context preview",
-    updatedAt: now
-  };
-  return prepareSessionContext({
-    capabilityIndex: capabilities.digest(workspaceRoot),
-    context,
-    runId: "context_preview",
-    memoryIndex: store.memoryDigest(workspaceRoot),
-    model: defaultModel,
-    projectRoot: workspaceRoot,
-    prompt: "",
-    records: [],
-    rules,
-    session,
-    tokenCalibrationFactor: store.readCalibration(defaultModel),
-    tools
-  }).telemetry;
-}
-
-function ensureInsideRoot(projectRoot: string, targetPath: string): string {
-  const root = path.resolve(projectRoot);
-  const resolved = path.resolve(root, targetPath);
-  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
-    throw new Error("路径必须位于项目根目录内。");
-  }
-  return resolved;
+function createContextPreview() {
+  return contextQueries.preview();
 }
 
 function writeSSE(raw: NodeJS.WritableStream, message: EventStream): void {
@@ -201,31 +138,35 @@ app.get("/api/balance", async (_request, reply) => {
 });
 
 app.get<{ Querystring: { query?: string } }>("/api/sessions", async (request) => ({
-  sessions: store.listSessions(request.query.query ?? "")
+  sessions: sessions.list(request.query.query ?? "")
 }));
 
 app.put<{
   Params: { sessionId: string };
   Body: { archived?: boolean; pinned?: boolean };
 }>("/api/sessions/:sessionId/sidebar", { schema: sessionParamsSchema }, async (request, reply) => {
-  const session = store.getSession(request.params.sessionId);
-  if (!session) return reply.code(404).send({ error: "session not found" });
-  if (request.body.archived && session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued")) {
-    return reply.code(409).send({ error: "正在执行的任务不能归档" });
+  try {
+    sessions.updateSidebar(request.params.sessionId, request.body);
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof SessionServiceError) {
+      return reply.code(error.kind === "not_found" ? 404 : 409).send({ error: error.message });
+    }
+    throw error;
   }
-  store.updateSessionSidebar(request.params.sessionId, request.body);
-  return { ok: true };
 });
 
 app.post<{
   Body: { projectRoot?: string };
 }>("/api/projects/archive-sessions", async (request, reply) => {
-  const projectRoot = request.body.projectRoot?.trim();
-  if (!projectRoot) return reply.code(400).send({ error: "projectRoot is required" });
-  if (store.listSessions().some((session) => session.projectRoot === projectRoot && session.active)) {
-    return reply.code(409).send({ error: "项目中仍有正在执行的任务" });
+  try {
+    return { archived: sessions.archiveProject(request.body.projectRoot ?? "") };
+  } catch (error) {
+    if (error instanceof SessionServiceError) {
+      return reply.code(error.kind === "invalid_input" ? 400 : 409).send({ error: error.message });
+    }
+    throw error;
   }
-  return { archived: store.archiveProjectSessions(projectRoot) };
 });
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId", { schema: sessionParamsSchema }, async (request, reply) => {
@@ -235,55 +176,28 @@ app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId", { schema:
 });
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/workspace", { schema: sessionParamsSchema }, async (request, reply) => {
-  const session = store.getSession(request.params.sessionId);
-  if (!session) return reply.code(404).send({ error: "session not found" });
-  return { workspace: await workspaceInfo(session.projectRoot) };
+  try {
+    return { workspace: await workspace.describe(request.params.sessionId) };
+  } catch (error) {
+    if (error instanceof WorkspaceQueryError) return reply.code(404).send({ error: error.message });
+    throw error;
+  }
 });
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-telemetry", { schema: sessionParamsSchema }, async (request, reply) => {
-  if (!store.getSession(request.params.sessionId)) return reply.code(404).send({ error: "session not found" });
-  return { telemetry: store.readMetrics(request.params.sessionId) };
+  try {
+    return { telemetry: contextQueries.telemetry(request.params.sessionId) };
+  } catch (error) {
+    return reply.code(404).send({ error: error instanceof Error ? error.message : "session not found" });
+  }
 });
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-observer", { schema: sessionParamsSchema }, async (request, reply) => {
-  const session = store.getSession(request.params.sessionId);
-  if (!session) return reply.code(404).send({ error: "session not found" });
-  const telemetry = store.readMetrics(request.params.sessionId);
-  const records = store.readContextEntries(request.params.sessionId);
-  const preview = telemetry.length === 0 ? prepareSessionContext({
-    capabilityIndex: capabilities.digest(session.projectRoot),
-    context,
-    runId: "context_preview",
-    memoryIndex: store.memoryDigest(session.projectRoot),
-    model: session.model,
-    projectRoot: session.projectRoot,
-    prompt: "",
-    providerContextWindowTokens: getContextWindowTokens(context),
-    records,
-    rules,
-    session,
-    tokenCalibrationFactor: store.readCalibration(session.model),
-    tools
-  }).telemetry : undefined;
-  return {
-    observer: {
-      latest: telemetry.at(-1) ?? preview,
-      memoryFactCount: store.readMemories(session.projectRoot).length,
-      recent: telemetry.slice(-20),
-      sessionId: session.sessionId,
-      updates: records.filter((record) => record.kind === "context_update").slice(-50).map((record) => ({
-        createdAt: record.createdAt,
-        kind: record.metadata?.updateKind ?? "context_update",
-        label: record.metadata?.label ?? "Context update",
-        loadingReason: record.metadata?.activationReason,
-        recordId: record.recordId,
-        revisionHash: record.metadata?.revisionHash,
-        source: record.metadata?.sourceFile,
-        survivesCompaction: false,
-        trust: record.metadata?.trust
-      }))
-    }
-  };
+  try {
+    return { observer: contextQueries.observer(request.params.sessionId) };
+  } catch (error) {
+    return reply.code(404).send({ error: error instanceof Error ? error.message : "session not found" });
+  }
 });
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/memory", { schema: sessionParamsSchema }, async (request, reply) => {
@@ -330,22 +244,13 @@ app.get<{
   Params: { sessionId: string };
   Querystring: { path?: string };
 }>("/api/sessions/:sessionId/files", { schema: sessionParamsSchema }, async (request, reply) => {
-  const session = store.getSession(request.params.sessionId);
-  if (!session) return reply.code(404).send({ error: "session not found" });
-  const filePath = request.query.path?.trim();
-  if (!filePath) return reply.code(400).send({ error: "path is required" });
   try {
-    const absolutePath = ensureInsideRoot(session.projectRoot, filePath);
-    const contents = await fs.readFile(absolutePath, "utf8");
-    const maxChars = 400_000;
-    return {
-      content: contents.slice(0, maxChars),
-      path: filePath,
-      projectRoot: session.projectRoot,
-      truncated: contents.length > maxChars
-    };
+    return await workspace.readFile(request.params.sessionId, request.query.path);
   } catch (error) {
-    return reply.code(404).send({ error: error instanceof Error ? error.message : "file not found" });
+    if (error instanceof WorkspaceQueryError) {
+      return reply.code(error.kind === "invalid_input" ? 400 : 404).send({ error: error.message });
+    }
+    throw error;
   }
 });
 
@@ -359,127 +264,23 @@ app.post<{
   Params: { sessionId: string };
   Body: { model?: string; accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry; projectRoot?: string; prompt?: string; sessionId?: string; workspaceKind?: WorkspaceKind };
 }>("/api/sessions/:sessionId/runs", { schema: runInputSchema }, async (request, reply) => {
-  const prompt = request.body.prompt?.trim();
-  if (!prompt) return reply.code(400).send({ error: "prompt is required" });
-  const model = request.body.model ?? defaultModel;
-  const sessionId = request.params.sessionId;
-  let session = store.getSession(sessionId);
-  let projectRoot: string;
-  if (session) {
-    if (request.body.workspaceKind && request.body.workspaceKind !== session.workspaceKind) {
-      return reply.code(409).send({ error: "This task is locked to its original workspace." });
+  try {
+    return reply.send(await startRun.execute({
+      accessMode: request.body.accessMode,
+      mode: request.body.mode,
+      model: request.body.model,
+      planEntry: request.body.planEntry,
+      projectRoot: request.body.projectRoot,
+      prompt: request.body.prompt ?? "",
+      sessionId: request.params.sessionId,
+      workspaceKind: request.body.workspaceKind
+    }));
+  } catch (error) {
+    if (error instanceof StartRunError) {
+      return reply.code(error.kind === "conflict" ? 409 : 400).send({ error: error.message });
     }
-    if (request.body.projectRoot && path.resolve(request.body.projectRoot) !== path.resolve(session.projectRoot)) {
-      return reply.code(409).send({ error: "This task is locked to its original project directory." });
-    }
-    if (session.workspaceKind === "scratch" && request.body.projectRoot) {
-      return reply.code(409).send({ error: "Scratch tasks cannot switch to a project directory." });
-    }
-    if (session.workspaceKind === "scratch") {
-      const expectedRoot = await ensureScratchWorkspace(dataDirectory, sessionId);
-      if (path.resolve(expectedRoot) !== path.resolve(session.projectRoot)) {
-        return reply.code(409).send({ error: "Scratch workspace metadata is inconsistent." });
-      }
-      projectRoot = expectedRoot;
-    } else {
-      projectRoot = session.projectRoot;
-    }
-  } else {
-    const workspaceKind = request.body.workspaceKind ?? "project";
-    if (workspaceKind === "scratch" && request.body.projectRoot) {
-      return reply.code(400).send({ error: "projectRoot is not allowed for a scratch workspace." });
-    }
-    try {
-      projectRoot = workspaceKind === "scratch"
-        ? await ensureScratchWorkspace(dataDirectory, sessionId)
-        : await resolveProjectRoot({
-          explicitRoot: request.body.projectRoot,
-          fallbackRoot: workspaceRoot,
-          prompt
-        });
-    } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Unable to prepare workspace." });
-    }
+    throw error;
   }
-  if (!session) {
-    const mode = request.body.mode ?? (explicitPlanMode(prompt) ? "plan" : "work");
-    session = store.createSession({
-      compactThresholdTokens: getCompactThresholdTokens(context.windowTokens, context.maxOutputTokens, context),
-      contextWindowTokens: getContextWindowTokens(context),
-      model,
-      mode,
-      planEntry: request.body.planEntry ?? "suggest",
-      accessMode: request.body.accessMode ?? "request_approval",
-      projectRoot,
-      workspaceKind: request.body.workspaceKind ?? "project",
-      sessionId,
-      title: prompt.slice(0, 42) || "新任务"
-    });
-  }
-  if (request.body.planEntry && request.body.planEntry !== session.planEntry) {
-    store.append({ data: { planEntry: request.body.planEntry }, sessionId, type: "session.updated" });
-    session = store.getSession(sessionId)!;
-  }
-  if (request.body.accessMode && request.body.accessMode !== session.accessMode) {
-    store.append({
-      data: { accessMode: request.body.accessMode },
-      sessionId,
-      type: "session.updated"
-    });
-    session = store.getSession(sessionId)!;
-  }
-  if (session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued")) {
-    return reply.code(409).send({ error: "session already has an active run" });
-  }
-  const requestedMode = request.body.mode ?? (explicitPlanMode(prompt) ? "plan" : session.mode);
-  if (requestedMode !== session.mode) {
-    store.append({
-      data: { mode: requestedMode, previousMode: session.mode, reason: "用户在发送请求时选择了工作模式。", source: "user" },
-      sessionId,
-      type: "mode.changed"
-    });
-    session = store.getSession(sessionId)!;
-  }
-
-  const runId = `run_${randomUUID()}`;
-  store.append({
-    runId,
-    data: { mode: session.mode, model, prompt, startedAt: new Date().toISOString() },
-    sessionId,
-    type: "run.started"
-  });
-  const controller = registry.startRun(runId);
-  const selected = providerFor(model);
-
-  void run({
-    runId,
-    model: selected.model,
-    projectRoot,
-    prompt,
-    provider: selected.provider,
-    registry,
-    sessionId,
-    signal: controller.signal,
-    store
-  })
-    .catch((error) => {
-      const run = store.getRun(runId);
-      if (!run || run.status === "completed" || run.status === "failed" || run.status === "cancelled") return;
-      const cancelled = controller.signal.aborted;
-      finishRun({
-        runId,
-        error: cancelled ? "用户取消了运行。" : error instanceof Error ? error.message : String(error),
-        failureType: cancelled ? "cancelled" : "runtime_error",
-        answer: cancelled ? "运行已取消。" : "本次运行未能完成。",
-        status: cancelled ? "cancelled" : "failed",
-        projectRoot,
-        sessionId,
-        store
-      });
-    })
-    .finally(() => registry.finishRun(runId));
-
-  return reply.send({ run: store.getRun(runId), session: store.getSession(sessionId) });
 });
 
 app.get<{
@@ -525,18 +326,13 @@ app.get<{
 });
 
 app.post<{ Params: { runId: string } }>("/api/runs/:runId/cancel", { schema: runParamsSchema }, async (request, reply) => {
-  const drained = registry.waitForRun(request.params.runId);
-  const cancelled = registry.cancelRun(request.params.runId);
-  if (!cancelled) return reply.code(404).send({ ok: false });
-  const [settled] = await Promise.all([
-    drained,
-    commands.stopRun(request.params.runId).then(() => true)
-  ]);
-  return reply.send({ ok: true, settled });
+  const result = await cancelRun.execute(request.params.runId);
+  if (!result.cancelled) return reply.code(404).send({ ok: false });
+  return reply.send({ ok: true, settled: result.settled });
 });
 
 app.post<{ Params: { commandId: string } }>("/api/commands/:commandId/stop", { schema: commandParamsSchema }, async (request, reply) => {
-  const stopped = await commands.stop(request.params.commandId);
+  const stopped = await cancelRun.stopCommand(request.params.commandId);
   return reply.code(stopped ? 200 : 404).send({ command: stopped, ok: Boolean(stopped) });
 });
 
@@ -544,41 +340,28 @@ app.put<{
   Params: { sessionId: string };
   Body: { accessMode?: AccessMode };
 }>("/api/sessions/:sessionId/access-mode", { schema: accessInputSchema }, async (request, reply) => {
-  const session = store.getSession(request.params.sessionId);
-  if (!session) return reply.code(404).send({ error: "session not found" });
-  const accessMode = request.body.accessMode;
-  if (!accessMode || !["request_approval", "smart_approval", "full_access"].includes(accessMode)) {
-    return reply.code(400).send({ error: "invalid permission profile" });
+  try {
+    return { session: sessions.changeAccessMode(request.params.sessionId, request.body.accessMode) };
+  } catch (error) {
+    if (error instanceof SessionServiceError) {
+      return reply.code(error.kind === "not_found" ? 404 : 400).send({ error: error.message });
+    }
+    throw error;
   }
-  store.append({
-    data: { accessMode },
-    sessionId: session.sessionId,
-    type: "session.updated"
-  });
-  return { session: store.getSession(session.sessionId) };
 });
 
 app.put<{
   Params: { sessionId: string };
   Body: { mode?: Mode; planEntry?: PlanEntry };
 }>("/api/sessions/:sessionId/mode", { schema: modeInputSchema }, async (request, reply) => {
-  let session = store.getSession(request.params.sessionId);
-  if (!session) return reply.code(404).send({ error: "session not found" });
-  if (session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued")) {
-    return reply.code(409).send({ error: "active run controls the current mode" });
+  try {
+    return { session: sessions.changeMode(request.params.sessionId, request.body) };
+  } catch (error) {
+    if (error instanceof SessionServiceError) {
+      return reply.code(error.kind === "not_found" ? 404 : error.kind === "conflict" ? 409 : 400).send({ error: error.message });
+    }
+    throw error;
   }
-  if (request.body.planEntry && request.body.planEntry !== session.planEntry) {
-    store.append({ data: { planEntry: request.body.planEntry }, sessionId: session.sessionId, type: "session.updated" });
-    session = store.getSession(session.sessionId)!;
-  }
-  if (request.body.mode && request.body.mode !== session.mode) {
-    store.append({
-      data: { mode: request.body.mode, previousMode: session.mode, reason: "用户切换了工作模式。", source: "user" },
-      sessionId: session.sessionId,
-      type: "mode.changed"
-    });
-  }
-  return { session: store.getSession(session.sessionId) };
 });
 
 app.post<{

@@ -13,7 +13,7 @@ import { createSession, rebuildSession, reduceEvent } from "../../shared/domain/
 import { assertEventTransition } from "../../shared/domain/state";
 import { decodeEvent } from "../../shared/legacy/decoder";
 import { appendInterruptedToolResults, finishRun } from "../app/runLifecycle";
-import { ContextEntry, ContextStats, MemoryFact, ContextInput, createContextEntry } from "../../shared/contracts/context";
+import { ContextEntry, ContextStats, MemoryFact, ContextInput } from "../../shared/contracts/context";
 import { missingToolResults } from "../../shared/domain/toolProtocol";
 import { ContextStore } from "./contextStore";
 import { Database } from "./database";
@@ -22,13 +22,24 @@ import { EvidenceStore } from "./evidenceStore";
 import { MemoryStore } from "./memoryStore";
 import { MetricStore } from "./metricStore";
 import { SessionStore } from "./sessionStore";
-import { EventSubscriber, RuntimeRepo } from "../app/runtimeRepo";
+import { createContextEntry } from "./contextEntry";
+import {
+  ContextPort,
+  EventInput,
+  EventPort,
+  EventSubscriber,
+  EvidencePort,
+  MemoryPort,
+  MetricPort,
+  SessionPort,
+  StoreLifecyclePort
+} from "../app/runtimeRepo";
 
 function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-export class RuntimeStore implements RuntimeRepo {
+export class RuntimeStore implements EventPort, SessionPort, ContextPort, EvidencePort, MemoryPort, MetricPort, StoreLifecyclePort {
   private readonly contexts: ContextStore;
   private readonly database: Database;
   private readonly events: EventStore;
@@ -59,7 +70,7 @@ export class RuntimeStore implements RuntimeRepo {
     if (existing) return clone(existing);
     const at = new Date().toISOString();
     const registration: SessionInput = { ...input, createdAt: at };
-    const event: Event<SessionInput> = {
+    const event: Event<"session.created"> = {
       at,
       data: registration,
       eventId: `${input.sessionId}:1`,
@@ -75,19 +86,13 @@ export class RuntimeStore implements RuntimeRepo {
     return clone(session);
   }
 
-  append<T>(input: {
-    sessionId: string;
-    runId?: string;
-    activityId?: string;
-    type: Exclude<EventType, "session.created">;
-    data: T;
-  }): Event<T> {
+  append<K extends Exclude<EventType, "session.created">>(input: EventInput<K>): Event<K> {
     const current = this.sessions.get(input.sessionId);
     if (!current) throw new Error(`Session not found: ${input.sessionId}`);
     const scope = { activityId: input.activityId, runId: input.runId, sessionId: input.sessionId };
     assertEventTransition(current, { data: input.data, scope, type: input.type });
     const offset = current.lastOffset + 1;
-    const event: Event<T> = {
+    const event = {
       at: new Date().toISOString(),
       data: input.data,
       eventId: `${input.sessionId}:${offset}`,
@@ -95,7 +100,7 @@ export class RuntimeStore implements RuntimeRepo {
       scope,
       type: input.type,
       version: EVENT_VERSION
-    };
+    } as Event<K>;
     const next = reduceEvent(current, event);
     this.events.append(event, next);
     this.sessions.set(input.sessionId, next);
@@ -103,13 +108,7 @@ export class RuntimeStore implements RuntimeRepo {
     return clone(event);
   }
 
-  appendMany(inputs: Array<{
-    sessionId: string;
-    runId?: string;
-    activityId?: string;
-    type: Exclude<EventType, "session.created">;
-    data: unknown;
-  }>): Event[] {
+  appendMany(inputs: EventInput[]): Event[] {
     if (inputs.length === 0) return [];
     const sessionId = inputs[0].sessionId;
     if (inputs.some((input) => input.sessionId !== sessionId)) throw new Error("A committed Event batch must belong to one Session.");
@@ -120,7 +119,7 @@ export class RuntimeStore implements RuntimeRepo {
       const scope = { activityId: input.activityId, runId: input.runId, sessionId };
       assertEventTransition(session, { data: input.data, scope, type: input.type });
       const offset = session.lastOffset + 1;
-      const event: Event = {
+      const event = {
         at: new Date().toISOString(),
         data: input.data,
         eventId: `${sessionId}:${offset}`,
@@ -128,7 +127,7 @@ export class RuntimeStore implements RuntimeRepo {
         scope,
         type: input.type,
         version: EVENT_VERSION
-      };
+      } as Event;
       session = reduceEvent(session, event);
       events.push(event);
     }

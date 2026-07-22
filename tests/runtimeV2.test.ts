@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { RunRegistry } from "../server/app/runRegistry";
+import { RunLauncher } from "../server/app/runLauncher";
+import { CancelRun } from "../server/app/cancelRun";
+import { ContextQueries } from "../server/app/contextQueries";
 import { runAgent } from "../server/app/runner";
+import { SessionService } from "../server/app/sessionService";
+import { StartRun } from "../server/app/startRun";
+import { WorkspaceQueries } from "../server/app/workspaceQueries";
 import { finishRun } from "../server/app/runLifecycle";
 import { defaultContextConfig } from "../server/app/contextBuilder";
 import { Database } from "../server/infra/database";
@@ -12,6 +18,7 @@ import { ContextStore } from "../server/infra/contextStore";
 import { EventStore } from "../server/infra/eventStore";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 import { SessionStore } from "../server/infra/sessionStore";
+import { ensureScratchWorkspace } from "../server/infra/sessionWorkspace";
 import { toolHost } from "../server/infra/tools";
 import { commandManager } from "../server/infra/commandManager";
 import { createHttp } from "../server/transport/http";
@@ -222,18 +229,32 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
       return { answer: "", continuationMessage: { role: "assistant", text: "" }, finishCause: "complete", thinking: "", toolCalls: [] };
     }
   };
-  const app = createHttp({
-    capabilities: emptyCapabilitySource,
-    commands: commandManager,
-    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
-    providerFor: () => ({ model: "mock-agent", provider }),
-    registry,
-    resolveProjectRoot: async () => directory,
-    rules: emptyRuleSource,
-    run: async () => undefined,
+  const providerFor = () => ({ model: "mock-agent", provider });
+  const launcher = new RunLauncher(providerFor, registry, async () => undefined, store);
+  const startRun = new StartRun({
+    context: defaultContextConfig,
+    defaultModel: "mock-agent",
+    launcher,
     store,
-    tools: toolHost.specs,
-    workspaceInfo: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot })
+    system: { createId: (prefix) => `${prefix}_http`, now: () => createdAt },
+    workspace: { canonicalize: path.resolve, ensureScratch: (sessionId) => ensureScratchWorkspace(directory, sessionId), resolveProjectRoot: async () => directory },
+    workspaceRoot: directory
+  });
+  const contextQueries = new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory });
+  const app = createHttp({
+    cancelRun: new CancelRun(registry, commandManager),
+    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
+    contextQueries,
+    launcher,
+    providerFor,
+    registry,
+    sessions: new SessionService(store),
+    startRun,
+    store,
+    workspace: new WorkspaceQueries(store, {
+      describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
+      readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
+    })
   });
   try {
     const preflight = await app.inject({
@@ -331,35 +352,50 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
       return { answer: "", continuationMessage: { role: "assistant", text: "" }, finishCause: "complete", thinking: "", toolCalls: [] };
     }
   };
-  const app = createHttp({
-    capabilities: emptyCapabilitySource,
-    commands: commandManager,
-    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
-    providerFor: () => ({ model: "mock-agent", provider }),
-    registry,
-    resolveProjectRoot: async () => directory,
-    rules: emptyRuleSource,
-    run: async (input) => new Promise<void>((resolve) => {
-      input.signal?.addEventListener("abort", () => {
-        setTimeout(() => {
-          finishRun({
-            answer: "运行已取消。",
-            error: "用户取消了运行。",
-            failureType: "cancelled",
-            projectRoot: input.projectRoot,
-            runId: input.runId,
-            sessionId: input.sessionId,
-            status: "cancelled",
-            store
-          });
-          cleanupFinished = true;
-          resolve();
-        }, 25);
-      }, { once: true });
-    }),
+  const providerFor = () => ({ model: "mock-agent", provider });
+  const run = async (input: Parameters<RunLauncher["launch"]>[0] & { signal?: AbortSignal }) => new Promise<void>((resolve) => {
+    input.signal?.addEventListener("abort", () => {
+      setTimeout(() => {
+        finishRun({
+          answer: "运行已取消。",
+          error: "用户取消了运行。",
+          failureType: "cancelled",
+          projectRoot: input.projectRoot,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          status: "cancelled",
+          store
+        });
+        cleanupFinished = true;
+        resolve();
+      }, 25);
+    }, { once: true });
+  });
+  const launcher = new RunLauncher(providerFor, registry, run, store);
+  const startRun = new StartRun({
+    context: defaultContextConfig,
+    defaultModel: "mock-agent",
+    launcher,
     store,
-    tools: toolHost.specs,
-    workspaceInfo: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot })
+    system: { createId: (prefix) => `${prefix}_cancel`, now: () => createdAt },
+    workspace: { canonicalize: path.resolve, ensureScratch: (sessionId) => ensureScratchWorkspace(directory, sessionId), resolveProjectRoot: async () => directory },
+    workspaceRoot: directory
+  });
+  const contextQueries = new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory });
+  const app = createHttp({
+    cancelRun: new CancelRun(registry, commandManager),
+    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
+    contextQueries,
+    launcher,
+    providerFor,
+    registry,
+    sessions: new SessionService(store),
+    startRun,
+    store,
+    workspace: new WorkspaceQueries(store, {
+      describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
+      readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
+    })
   });
 
   try {

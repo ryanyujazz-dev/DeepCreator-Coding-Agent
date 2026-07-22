@@ -13,16 +13,27 @@ import { ContextEntry, ContextInput } from "../../shared/contracts/context";
 import { RunRegistry } from "./runRegistry";
 import { prompts } from "./prompts";
 import { Provider, ModelDelta, ModelMessage, ToolCall, ToolSpec } from "../../shared/contracts/provider";
+import { EventPayloadMap } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { CapabilitySource, emptyCapabilitySource } from "../../shared/contracts/capability";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
-import { RuntimeRepo } from "./runtimeRepo";
+import {
+  ContextPort,
+  EventPort,
+  EvidencePort,
+  MemoryPort,
+  MetricPort,
+  SessionPort
+} from "./runtimeRepo";
 import { finishRun } from "./runLifecycle";
 import { classifyInteraction, requiresWorkspaceAction } from "./interaction";
 import { ToolHost } from "./toolHost";
 import { ToolPipeline } from "./toolPipeline";
 import { PlanArgumentStream } from "./planStream";
 import { MutationArgumentStream } from "./mutationStream";
+import { durableToolState } from "./toolFacts";
+
+export type RunnerPorts = ContextPort & EventPort & EvidencePort & MemoryPort & MetricPort & SessionPort;
 
 type RuntimeInput = {
   runId: string;
@@ -35,7 +46,7 @@ type RuntimeInput = {
   provider: Provider;
   registry: RunRegistry;
   signal?: AbortSignal;
-  store: RuntimeRepo;
+  store: RunnerPorts;
   tools: ToolHost;
   rules: RuleSource;
   workspaceBaseline: Baseline;
@@ -63,12 +74,16 @@ function tryParseArguments(text: string): Record<string, unknown> | undefined {
   }
 }
 
-function openActivity(input: RuntimeInput, data: Record<string, unknown>, activityId = `activity_${randomUUID()}`): string {
+function openActivity(input: RuntimeInput, data: EventPayloadMap["activity.started"], activityId = `activity_${randomUUID()}`): string {
   input.store.append({ runId: input.runId, data, sessionId: input.sessionId, type: "activity.started", activityId });
   return activityId;
 }
 
-function finishActivity(input: RuntimeInput, activityId: string, data: Record<string, unknown>): void {
+function finishActivity(
+  input: RuntimeInput,
+  activityId: string,
+  data: Omit<EventPayloadMap["activity.finished"], "finishedAt">
+): void {
   input.store.append({
     runId: input.runId,
     data: { liveFiles: [], ...data, finishedAt: new Date().toISOString() },
@@ -126,8 +141,7 @@ async function streamWithRecovery(
         audience: "user",
         body: `Provider 暂时不可用，正在进行第 ${attempt + 1} 次连接。`,
         kind: "error",
-        startedAt: new Date().toISOString(),
-        title: "正在恢复模型连接"
+        startedAt: new Date().toISOString()
       });
       finishActivity(input, activityId, { status: "completed" });
       await waitForRetry(400 * 2 ** (attempt - 1), input.signal);
@@ -155,7 +169,7 @@ function persistPreparedContext(input: RuntimeInput, previousTokens: number, pre
     record.kind === "recovery_capsule" && record.runId === input.runId
   )) input.store.appendContextEntry(prepared.recoveryRecord);
   if (prepared.compacted) {
-    const activityId = openActivity(input, { audience: "user", kind: "compaction", startedAt: new Date().toISOString(), title: "正在压缩上下文" });
+    const activityId = openActivity(input, { audience: "user", kind: "compaction", startedAt: new Date().toISOString() });
     input.store.appendContextEntry({
       checkpoint: prepared.checkpoint,
       runId: input.runId,
@@ -192,7 +206,7 @@ function semanticTranscript(records: ContextEntry[], maxChars: number): string {
 
 async function prepareRuntimeContext(
   input: RuntimeInput,
-  session: NonNullable<ReturnType<RuntimeRepo["getSession"]>>,
+  session: NonNullable<ReturnType<SessionPort["getSession"]>>,
   tools: ToolSpec[],
   latestUserInRecords = false
 ): Promise<BuiltContext> {
@@ -296,8 +310,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           audience: "debug",
           kind: "thinking",
           modelStepId,
-          startedAt: new Date().toISOString(),
-          title: ""
+          startedAt: new Date().toISOString()
         });
       } else if (fragment.kind === "answer") {
         if (!answerActivity) {
@@ -305,8 +318,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
             audience: "user",
             body: fragment.text,
             kind: "message",
-            startedAt: new Date().toISOString(),
-            title: "Agent 回复"
+            startedAt: new Date().toISOString()
           });
         } else {
           appendBuffered(answerActivity, fragment.text);
@@ -329,14 +341,12 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           kind: input.tools.kind(streamedTool),
           modelStepId,
           startedAt: new Date().toISOString(),
-          title: fragment.name === "submit_plan" ? "正在编写计划" : input.tools.title(fragment.name),
-          tool: streamedTool
+          tool: durableToolState(streamedTool)
         } : {
           audience: "user",
           kind: "tool",
           modelStepId,
-          startedAt: new Date().toISOString(),
-          title: `未知工具：${fragment.name}`
+          startedAt: new Date().toISOString()
         });
         toolActivities.set(fragment.callId, activityId);
         if (fragment.name === "write_file" || fragment.name === "edit_file") {
@@ -357,15 +367,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           const planStream = planArgumentStreams.get(fragment.callId) ?? new PlanArgumentStream();
           planArgumentStreams.set(fragment.callId, planStream);
           const update = planStream.push(fragment.argumentsText ?? "");
-          if (update.title !== undefined) {
-            input.store.append({
-              activityId,
-              data: { title: update.title || "正在编写计划" },
-              runId: input.runId,
-              sessionId: input.sessionId,
-              type: "activity.updated"
-            });
-          }
           if (update.markdownDelta) appendBuffered(activityId, update.markdownDelta);
         }
         if (streamedArgs && streamedTool) {
@@ -373,10 +374,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
             runId: input.runId,
             data: {
               kind: input.tools.kind(streamedTool),
-              title: fragment.name === "submit_plan"
-                ? String(streamedArgs.title ?? "正在编写计划")
-                : input.tools.title(fragment.name),
-              tool: streamedTool
+              tool: durableToolState(streamedTool)
             },
             sessionId: input.sessionId,
             type: "activity.updated",

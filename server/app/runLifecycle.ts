@@ -1,6 +1,9 @@
 import { Run, ResumeState } from "../../shared/contracts/runtime";
 import { MissingToolResult, missingToolResults } from "../../shared/domain/toolProtocol";
-import type { RuntimeRepo } from "./runtimeRepo";
+import { activityTitle, toolTarget } from "../../shared/projections/activityPresentation";
+import type { ContextPort, EventPort, SessionPort } from "./runtimeRepo";
+
+type RunLifecyclePorts = ContextPort & EventPort & SessionPort;
 
 function recoveryFor(input: {
   run: Run;
@@ -12,13 +15,11 @@ function recoveryFor(input: {
 }): ResumeState {
   const completedOperations = input.run.activities
     .filter((activity) => activity.status === "completed" && activity.kind !== "thinking")
-    .map((activity) => activity.tool?.resultSummary || activity.body || activity.title)
-    .filter(Boolean)
+    .map((activity) => activity.tool?.resultSummary || activity.body || activityTitle(activity))
     .slice(-24);
   const interruptedOperations = input.run.activities
     .filter((activity) => activity.status === "running")
-    .map((activity) => activity.tool?.displayTarget || activity.title)
-    .filter(Boolean);
+    .map((activity) => toolTarget(activity.tool) || activityTitle(activity));
   const lastProgress = [...input.run.activities]
     .reverse()
     .find((activity) => activity.kind === "message" && activity.body.trim())
@@ -44,7 +45,7 @@ export function appendInterruptedToolResults(input: {
   missingResults: MissingToolResult[];
   runId: string;
   sessionId: string;
-  store: RuntimeRepo;
+  store: RunLifecyclePorts;
   terminalPhase: "completed" | "failed" | "cancelled";
 }): number {
   const createdAt = input.createdAt ?? new Date().toISOString();
@@ -78,7 +79,7 @@ export function finishRun(input: {
   status: "completed" | "failed" | "cancelled";
   projectRoot: string;
   sessionId: string;
-  store: RuntimeRepo;
+  store: RunLifecyclePorts;
 }): void {
   const finishedAt = new Date().toISOString();
   let run = input.store.getRun(input.runId);

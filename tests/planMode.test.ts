@@ -239,7 +239,11 @@ test("submit_plan suspends durably and approval resumes the same Run with a pair
     assert.equal(restored.getRun("run_plan")?.answer, "已根据批准的方案完成当前工作。");
     restored.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try {
+      rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
   }
 });
 
@@ -289,7 +293,7 @@ test("fragmented submit_plan emits semantic Plan activity updates without exposi
     const activity = session.runs[0].activities.find((item) => item.tool?.callId === call.callId);
     assert.ok(activity);
     assert.equal(activity.kind, "plan");
-    assert.equal(activity.title, "流式实现计划");
+    assert.equal(activity.title, undefined);
     assert.equal(activity.body, markdown);
     assert.equal(activity.status, "completed");
     assert.equal(session.plans[0].markdown, markdown);
@@ -299,10 +303,15 @@ test("fragmented submit_plan emits semantic Plan activity updates without exposi
     assert.ok(updates.filter((event) => typeof event.data.bodyDelta === "string").length >= 2);
     const serializedUpdates = JSON.stringify(updates);
     assert.equal(serializedUpdates.includes('"markdown"'), false);
-    assert.equal(serializedUpdates.includes('"title"'), true, "semantic title updates remain observable");
+    assert.equal(serializedUpdates.includes('"title"'), false, "rendered titles stay out of Activity Events");
+    assert.equal(session.plans[0].title, "流式实现计划", "the semantic Plan title remains durable on plan.proposed");
     store.close();
   } finally {
-    rmSync(directory, { force: true, recursive: true });
+    try {
+      rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
   }
 });
 

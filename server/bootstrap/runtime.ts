@@ -1,6 +1,13 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { RunRegistry } from "../app/runRegistry";
+import { RunLauncher } from "../app/runLauncher";
 import { Runner } from "../app/runner";
+import { CancelRun } from "../app/cancelRun";
+import { ContextQueries } from "../app/contextQueries";
+import { SessionService } from "../app/sessionService";
+import { StartRun } from "../app/startRun";
+import { WorkspaceQueries } from "../app/workspaceQueries";
 import { capabilitySource } from "../infra/capabilities";
 import { contextConfig } from "../infra/contextConfig";
 import { DeepSeekProvider } from "../infra/deepseek";
@@ -10,7 +17,8 @@ import { ruleSource } from "../infra/rules";
 import { RuntimeStore } from "../infra/runtimeStore";
 import { toolHost } from "../infra/tools";
 import { commandManager } from "../infra/commandManager";
-import { describeWorkspace } from "../infra/workspace";
+import { workspaceQueryPort } from "../infra/workspace";
+import { ensureScratchWorkspace } from "../infra/sessionWorkspace";
 import { createHttp } from "../transport/http";
 
 export type RuntimeOptions = {
@@ -46,7 +54,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
           activityId: activity.activityId,
           data: {
             body: activity.body || "Runtime 已重启，无法恢复此前托管的命令。",
-            command: { ...activity.command, state: "cancelled" as const },
+            command: { command: activity.command?.command ?? "", ...activity.command, state: "cancelled" as const },
             error: "Runtime 已重启，命令状态不可恢复。",
             finishedAt: new Date().toISOString(),
             status: "cancelled" as const
@@ -60,9 +68,42 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   }
   const registry = new RunRegistry();
   const runner = new Runner(toolHost, ruleSource, capabilitySource, context);
-  const app = createHttp({
+  const providerFor = (model: string) => {
+    const mock = model === "mock-agent" || options.runtimeMode === "mock" || !apiKey;
+    return mock
+      ? { model: "mock-agent", provider: new MockProvider() }
+      : { model, provider: new DeepSeekProvider(apiKey) };
+  };
+  const launcher = new RunLauncher(providerFor, registry, (input) => runner.run(input), store);
+  const system = {
+    createId: (prefix: string) => `${prefix}_${randomUUID()}`,
+    now: () => new Date().toISOString()
+  };
+  const startRun = new StartRun({
+    context,
+    defaultModel,
+    launcher,
+    store,
+    system,
+    workspace: {
+      canonicalize: (targetPath) => path.resolve(targetPath),
+      ensureScratch: (sessionId) => ensureScratchWorkspace(path.resolve(options.dataDirectory), sessionId),
+      resolveProjectRoot
+    },
+    workspaceRoot: path.resolve(options.workspaceRoot)
+  });
+  const contextQueries = new ContextQueries({
     capabilities: capabilitySource,
-    commands: commandManager,
+    context,
+    defaultModel,
+    rules: ruleSource,
+    store,
+    system,
+    tools: toolHost.specs,
+    workspaceRoot: path.resolve(options.workspaceRoot)
+  });
+  const app = createHttp({
+    cancelRun: new CancelRun(registry, commandManager),
     config: {
       authToken: options.authToken,
       context,
@@ -72,19 +113,14 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
       hasApiKey: Boolean(apiKey),
       workspaceRoot: path.resolve(options.workspaceRoot)
     },
-    providerFor(model) {
-      const mock = model === "mock-agent" || options.runtimeMode === "mock" || !apiKey;
-      return mock
-        ? { model: "mock-agent", provider: new MockProvider() }
-        : { model, provider: new DeepSeekProvider(apiKey) };
-    },
+    contextQueries,
+    launcher,
+    providerFor,
     registry,
-    resolveProjectRoot,
-    rules: ruleSource,
-    run: (input) => runner.run(input),
+    sessions: new SessionService(store),
+    startRun,
     store,
-    tools: toolHost.specs,
-    workspaceInfo: describeWorkspace
+    workspace: new WorkspaceQueries(store, workspaceQueryPort)
   });
 
   let closing = false;

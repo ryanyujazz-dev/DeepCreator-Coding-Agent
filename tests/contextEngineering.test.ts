@@ -6,7 +6,7 @@ import test from "node:test";
 import { runAgent } from "../server/app/runner";
 import { getCompactThresholdTokens, getEffectiveInputBudgetTokens, prepareSessionContext } from "../server/app/contextBuilder";
 import { ContextEntry } from "../shared/contracts/context";
-import { reduceToolEvidence } from "../server/domain/evidence";
+import { reduceToolEvidence } from "../server/app/evidence";
 import { resolveGuidance, resolveInstructions, ruleSource } from "../server/infra/rules";
 import { capabilityDigest, capabilitySource, invokeCapability, searchCapabilities } from "../server/infra/capabilities";
 import { RunRegistry } from "../server/app/runRegistry";

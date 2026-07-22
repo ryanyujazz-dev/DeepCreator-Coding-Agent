@@ -5,7 +5,7 @@ import { RuntimeFilePreview } from "../runtimeApi";
 import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { PlanSurface } from "./PlanSurface";
-import { IconButton, RowAction } from "./ui/ControlPrimitives";
+import { IconButton, RowAction } from "../shared-ui/ControlPrimitives";
 
 export type Surface =
   | { id: string; kind: "file"; path: string }

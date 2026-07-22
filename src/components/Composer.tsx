@@ -2,7 +2,7 @@ import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, Chev
 import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
-import { FloatingSurface, IconButton, PillButton } from "./ui/ControlPrimitives";
+import { FloatingSurface, IconButton, PillButton } from "../shared-ui/ControlPrimitives";
 
 const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
   { description: "外部访问和有风险的操作会先询问", icon: ShieldAlert, key: "request_approval", label: "请求批准" },

@@ -37,7 +37,11 @@ test("yields a live command and settles it exactly once when stopped", async () 
     assert.equal(settlements, 1);
   } finally {
     await manager.stopAll();
-    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    try {
+      rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
   }
 });
 

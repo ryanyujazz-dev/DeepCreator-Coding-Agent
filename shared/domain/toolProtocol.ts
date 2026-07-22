@@ -1,5 +1,6 @@
-import { ContextEntry, modelMessageFromEntry } from "../contracts/context";
+import { ContextEntry } from "../contracts/context";
 import { ModelMessage, ToolCall } from "../contracts/provider";
+import { modelMessageFromEntry } from "./context";
 
 export type MissingToolResult = {
   assistant: ContextEntry;

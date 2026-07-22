@@ -2,7 +2,7 @@ import { Check, ChevronRight, Folder, Plus, Search, X } from "lucide-react";
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ProjectRef } from "../../shared/contracts/desktop";
 import { DraftWorkspace, projectDraftWorkspace } from "../workspaceSelection";
-import { FloatingSurface } from "./ui/ControlPrimitives";
+import { FloatingSurface } from "../shared-ui/ControlPrimitives";
 
 export function ProjectContextSelector({
   canAddProject,

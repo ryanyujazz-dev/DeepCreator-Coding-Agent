@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { reduceEvents } from "../shared/domain/reducer";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ApprovalChoice, isRunDone, AccessMode, Mode, Plan, PlanDecision, PlanEntry, SessionSummary, Session } from "../shared/contracts/runtime";
 import { ConnectionPhase } from "./components/ConnectionStatus";
 import { runtimeApi, RuntimeBalance, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError, RuntimeWorkspace } from "./runtimeApi";
 import { DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
+import { SessionEventStore, SessionUpdater } from "./features/runtime/sessionEventStore";
 
 export function useWorkspace() {
+  const [sessionStore] = useState(() => new SessionEventStore());
+  const session = useSyncExternalStore(
+    sessionStore.subscribe,
+    sessionStore.getSnapshot,
+    sessionStore.getSnapshot
+  );
+  const setSession = useCallback((next: SessionUpdater) => sessionStore.update(next), [sessionStore]);
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [session, setSession] = useState<Session | null>(null);
   const [connection, setConnection] = useState<ConnectionPhase>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [draftAccessMode, setDraftAccessMode] = useState<AccessMode>("request_approval");
@@ -71,7 +77,7 @@ export function useWorkspace() {
       afterOffset: session.lastOffset,
       onError: () => setConnection(navigator.onLine ? "reconnecting" : "offline"),
       onEvents: (events) => {
-        setSession((current) => current?.sessionId === sessionId ? reduceEvents(current, events) : current);
+        sessionStore.applyEvents(sessionId, events);
         if (events.some((item) => item.type === "run.finished")) void refreshSessions();
       },
       onOpen: () => {
@@ -79,10 +85,7 @@ export function useWorkspace() {
         void runtimeApi.getSession(sessionId)
           .then(({ session: snapshot }) => {
             if (disposed) return;
-            setSession((current) => {
-              if (current?.sessionId !== sessionId || snapshot.lastOffset < current.lastOffset) return current;
-              return snapshot;
-            });
+            sessionStore.replaceSnapshot(snapshot);
             setDraftAccessMode(snapshot.accessMode ?? "request_approval");
             setDraftMode(snapshot.mode ?? "work");
             setDraftPlanEntry(snapshot.planEntry ?? "suggest");
@@ -97,7 +100,7 @@ export function useWorkspace() {
       disposed = true;
       close();
     };
-  }, [refreshSessions, session?.sessionId]);
+  }, [refreshSessions, session?.sessionId, sessionStore]);
 
   useEffect(() => {
     if (!session?.sessionId) {

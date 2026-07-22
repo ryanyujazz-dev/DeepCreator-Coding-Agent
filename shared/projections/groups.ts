@@ -1,15 +1,18 @@
 import {
   Activity,
   Run,
+  ActionKind,
+  Changes
+} from "../contracts/runtime";
+import {
+  ActivityGroup,
   DetailKind,
   DetailRow,
-  ActivityGroup,
+  LiveStep,
   TimelineEntry,
-  ToolImportance,
-  ActionKind,
-  Changes,
-  LiveStep
-} from "../contracts/runtime";
+  ToolImportance
+} from "./types";
+import { toolImportance, toolTarget } from "./activityPresentation";
 
 type MutableGroup = ActivityGroup & { members: Activity[] };
 
@@ -125,11 +128,11 @@ function rebuildGroup(group: MutableGroup, changes: Changes): void {
   group.totalCalls = group.members.length;
   group.successCount = group.members.filter((activity) => activity.status === "completed").length;
   group.failureCount = group.members.filter((activity) => activity.status === "failed").length;
-  group.uniqueTargets = unique(group.members.map((activity) => activity.tool?.displayTarget ?? ""));
-  group.currentTarget = [...group.members]
+  group.uniqueTargets = unique(group.members.map((activity) => toolTarget(activity.tool)));
+  const currentActivity = [...group.members]
     .reverse()
-    .find((activity) => activity.status === "running" && activity.tool?.displayTarget)
-    ?.tool?.displayTarget;
+    .find((activity) => activity.status === "running" && toolTarget(activity.tool));
+  group.currentTarget = currentActivity ? toolTarget(currentActivity.tool) : undefined;
   group.status = group.members.some((activity) => activity.status === "running")
     ? "running"
     : group.failureCount > 0
@@ -141,7 +144,7 @@ function rebuildGroup(group: MutableGroup, changes: Changes): void {
     ? undefined
     : [...group.members].reverse().find((activity) => activity.finishedAt)?.finishedAt;
   group.importance = group.members.reduce(
-    (importance, activity) => maxImportance(importance, activity.tool?.importance ?? "routine"),
+    (importance, activity) => maxImportance(importance, toolImportance(activity.tool)),
     "routine" as ToolImportance
   );
   group.defaultExpanded = false;
@@ -157,7 +160,7 @@ function rebuildGroup(group: MutableGroup, changes: Changes): void {
       totalCalls: 0
     };
     existing.totalCalls += 1;
-    existing.targets = unique([...existing.targets, member.tool?.displayTarget ?? ""]);
+    existing.targets = unique([...existing.targets, toolTarget(member.tool)]);
     rows.set(kind, existing);
   }
   group.detailRows = [...rows.values()];
@@ -172,7 +175,7 @@ function createGroup(activity: Activity, category: ActionKind, changes: Changes)
     detailRows: [],
     failureCount: 0,
     groupId: `activity_group:${activity.runId}:${activity.activityId}`,
-    importance: activity.tool?.importance ?? "routine",
+    importance: toolImportance(activity.tool),
     memberActivityIds: [],
     members: [activity],
     status: activity.status,
@@ -214,11 +217,11 @@ function summarizeMixedLiveTools(members: Activity[]): LiveStep {
   const running = members.some((activity) => activity.status === "running");
   const failedCount = members.filter((activity) => activity.status === "failed").length;
   const cancelledCount = members.filter((activity) => activity.status === "cancelled").length;
-  const currentTarget = [...members]
+  const currentActivity = [...members]
     .reverse()
-    .find((activity) => activity.status === "running" && activity.tool?.displayTarget)
-    ?.tool?.displayTarget
-    ?? [...members].reverse().find((activity) => activity.tool?.displayTarget)?.tool?.displayTarget;
+    .find((activity) => activity.status === "running" && toolTarget(activity.tool))
+    ?? [...members].reverse().find((activity) => toolTarget(activity.tool));
+  const currentTarget = currentActivity ? toolTarget(currentActivity.tool) : undefined;
   const fileCount = unique(
     members
       .filter((activity) => activity.tool?.targetKind === "file")
@@ -245,7 +248,7 @@ function summarizeLiveTools(members: Activity[], changes: Changes): LiveStep {
     if (group) {
       return {
         category: group.category,
-        currentTarget: group.currentTarget ?? [...members].reverse().find((activity) => activity.tool?.displayTarget)?.tool?.displayTarget,
+        currentTarget: group.currentTarget ?? toolTarget([...members].reverse().find((activity) => toolTarget(activity.tool))?.tool),
         mode: "tools",
         status: group.status,
         summaryLabel: group.summaryLabel,

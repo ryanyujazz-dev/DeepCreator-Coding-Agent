@@ -7,7 +7,7 @@ import {
   TestTube2,
   Wrench
 } from "lucide-react";
-import { LiveStep } from "../../shared/contracts/runtime";
+import { LiveStep } from "../../shared/projections/types";
 import { useStreamText } from "../stream/useStreamText";
 import { MarkdownContent } from "./MarkdownContent";
 import { ThinkingLoader } from "./ThinkingLoader";

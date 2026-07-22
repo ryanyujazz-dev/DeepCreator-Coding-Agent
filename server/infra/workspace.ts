@@ -2,17 +2,9 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { WorkspaceFile, WorkspaceInfo, WorkspaceQueryPort } from "../app/workspaceQueries";
 
 const execFileAsync = promisify(execFile);
-
-export type WorkspaceInfo = {
-  branch?: string;
-  dirtyFiles: number;
-  exists: boolean;
-  git: boolean;
-  name: string;
-  projectRoot: string;
-};
 
 async function git(projectRoot: string, args: string[]): Promise<string | undefined> {
   try {
@@ -43,3 +35,23 @@ export async function describeWorkspace(projectRoot: string): Promise<WorkspaceI
     projectRoot: resolved
   };
 }
+
+export async function readWorkspaceFile(projectRoot: string, relativePath: string, maxChars: number): Promise<WorkspaceFile> {
+  const root = path.resolve(projectRoot);
+  const absolutePath = path.resolve(root, relativePath);
+  if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) {
+    throw new Error("路径必须位于项目根目录内。");
+  }
+  const contents = await fs.readFile(absolutePath, "utf8");
+  return {
+    content: contents.slice(0, maxChars),
+    path: relativePath,
+    projectRoot: root,
+    truncated: contents.length > maxChars
+  };
+}
+
+export const workspaceQueryPort: WorkspaceQueryPort = {
+  describe: describeWorkspace,
+  readText: readWorkspaceFile
+};

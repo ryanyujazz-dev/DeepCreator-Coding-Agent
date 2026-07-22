@@ -2,6 +2,8 @@ import { ActivityKind, Changes, ToolState } from "../../shared/contracts/runtime
 import { ToolSpec } from "../../shared/contracts/provider";
 import { Baseline, ToolProgress, ToolResult } from "../../shared/contracts/tool";
 
+export type PreparedToolState = ToolState & Required<Pick<ToolState, "detail" | "displayTarget" | "groupMode" | "importance">>;
+
 export interface ToolHost {
   readonly specs: ToolSpec[];
   capture(projectRoot: string): Promise<Baseline>;
@@ -32,7 +34,7 @@ export interface ToolHost {
     output?: string;
     projectRoot: string;
     result?: ToolResult;
-  }): ToolState;
+  }): PreparedToolState;
   retain(baseline: Baseline): void;
   runningCommands(runId: string): Array<{ commandId: string; elapsedMs: number }>;
   stopCommands(runId: string): Promise<void>;
