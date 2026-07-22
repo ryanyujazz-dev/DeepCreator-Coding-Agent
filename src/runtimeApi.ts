@@ -38,6 +38,18 @@ export type RuntimeConfig = {
   workspaceRoot: string;
 };
 
+// 账户余额查询结果(对应后端 GET /api/balance)。
+// 用于在 context-meter popover 显示 DeepSeek 账户剩余额度。
+export type RuntimeBalance = {
+  isAvailable: boolean;
+  balanceInfos: Array<{
+    currency: string;
+    totalBalance: number;
+    grantedBalance: number;
+    toppedUpBalance: number;
+  }>;
+};
+
 export type RuntimeContextSection = {
   section: string;
   source: string;
@@ -126,6 +138,7 @@ export class RuntimeClient {
   }
 
   config = () => this.request<RuntimeConfig>("/api/config");
+  getBalance = () => this.request<RuntimeBalance>("/api/balance");
   listSessions = (query = "") => this.request<{ sessions: import("../shared/contracts/runtime").SessionSummary[] }>(
     `/api/sessions${query.trim() ? `?query=${encodeURIComponent(query.trim())}` : ""}`
   );

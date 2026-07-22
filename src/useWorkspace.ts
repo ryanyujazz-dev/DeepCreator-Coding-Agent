@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { reduceEvents } from "../shared/domain/reducer";
 import { ApprovalChoice, isRunDone, AccessMode, Mode, Plan, PlanDecision, PlanEntry, SessionSummary, Session } from "../shared/contracts/runtime";
 import { ConnectionPhase } from "./components/ConnectionStatus";
-import { runtimeApi, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError, RuntimeWorkspace } from "./runtimeApi";
+import { runtimeApi, RuntimeBalance, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError, RuntimeWorkspace } from "./runtimeApi";
 
 export function useWorkspace() {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
@@ -16,6 +16,7 @@ export function useWorkspace() {
   const [contextObserver, setContextObserver] = useState<RuntimeContextObserver | null>(null);
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<RuntimeWorkspace | null>(null);
+  const [balance, setBalance] = useState<RuntimeBalance | null>(null);
 
   const refreshSessions = useCallback(async (query = "") => {
     const result = await runtimeApi.listSessions(query);
@@ -135,6 +136,25 @@ export function useWorkspace() {
       if (timer) window.clearInterval(timer);
     };
   }, [activeRun, session?.sessionId, session?.updatedAt]);
+
+  // 余额轮询:账户级数据,与 activeRun 解耦。60s 一次,仅在配置了 API key 时启动。
+  // 失败静默(.catch(() => undefined)),余额是辅助信息,查询失败不打扰用户。
+  useEffect(() => {
+    let disposed = false;
+    if (!config?.hasApiKey) {
+      setBalance(null);
+      return;
+    }
+    const refresh = () => void runtimeApi.getBalance()
+      .then((result) => { if (!disposed) setBalance(result); })
+      .catch(() => undefined);
+    refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [config?.hasApiKey]);
 
   useEffect(() => {
     if (!session) return;
@@ -331,6 +351,7 @@ export function useWorkspace() {
     answerQuestion,
     archiveProjectSessions,
     archiveSession,
+    balance,
     cancelRun,
     config,
     connection,
