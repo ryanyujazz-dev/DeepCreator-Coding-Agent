@@ -10,7 +10,7 @@ import {
   TestTube2,
   TerminalSquare
 } from "lucide-react";
-import { KeyboardEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Activity,
   FileChange,
@@ -20,6 +20,7 @@ import {
 } from "../../shared/contracts/runtime";
 import { CodeDiffViewer } from "./CodeEditorSurface";
 import { DetailPanel } from "./DetailPanel";
+import { DisclosureRow } from "./ui/ControlPrimitives";
 
 function groupIcon(group: ActivityGroup) {
   if (group.status === "failed") return <CircleAlert size={13} />;
@@ -147,20 +148,14 @@ function OperationMemberRow({
   const isFileReference = activity.tool?.targetKind === "file" && Boolean(activity.tool.displayTarget);
   return (
     <div className={`operation-member-call is-${activity.status}`}>
-      <div
-        aria-expanded={expanded}
+      <DisclosureRow
         className={`operation-call-row is-expandable is-${activity.status}`}
         onClick={(event) => {
           if ((event.target as HTMLElement).closest(".operation-file-reference button")) return;
           setExpanded((value) => !value);
         }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-          event.preventDefault();
-          setExpanded((value) => !value);
-        }}
-        role="button"
-        tabIndex={0}
+        expanded={expanded}
+        onToggle={() => setExpanded((value) => !value)}
       >
         <span>{memberIcon(activity)}</span>
         {isFileReference ? (
@@ -181,7 +176,7 @@ function OperationMemberRow({
           <span className={activity.status === "running" ? "working-glow" : ""} title={memberLabel(activity)}>{memberLabel(activity)}</span>
         )}
         <ChevronRight className="operation-member-chevron" size={12} />
-      </div>
+      </DisclosureRow>
       <div className={`operation-command-expander ${expanded ? "is-expanded" : ""}`}>
         <div>{expanded && (
           <DetailPanel copyValue={detailContent(activity)} title={detailTitle(activity)}>
@@ -207,21 +202,15 @@ export function ModificationFileRow({
   const [expanded, setExpanded] = useState(false);
   const hasPatch = Boolean(file.patch?.trim());
   return (
-    <div className={`operation-modification-file ${active ? "is-running" : ""} ${expanded ? "is-expanded" : ""}`}>
-      <div
-        aria-expanded={expanded}
+    <div className={`operation-modification-file ${showIcon ? "has-icon" : ""} ${active ? "is-running" : ""} ${expanded ? "is-expanded" : ""}`}>
+      <DisclosureRow
         className="operation-file-summary"
         onClick={(event) => {
           if ((event.target as HTMLElement).closest(".operation-file-summary-name")) return;
           setExpanded((value) => !value);
         }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-          event.preventDefault();
-          setExpanded((value) => !value);
-        }}
-        role="button"
-        tabIndex={0}
+        expanded={expanded}
+        onToggle={() => setExpanded((value) => !value)}
       >
         {showIcon && <span className="operation-file-summary-icon"><PencilLine size={13} /></span>}
         <span className={`operation-file-summary-action ${active ? "working-glow" : ""}`}>{modificationAction(file.operation, active)}</span>
@@ -238,7 +227,7 @@ export function ModificationFileRow({
         </button>
         <span className={`operation-diff-metrics ${active ? "is-live" : ""}`}><b>+{file.additions}</b> <i>-{file.deletions}</i></span>
         <ChevronRight className="operation-file-summary-chevron" size={13} />
-      </div>
+      </DisclosureRow>
       <div className={`operation-file-detail-expander ${expanded ? "is-expanded" : ""}`}>
         <div>{expanded && (
           <DetailPanel copyValue={file.patch ?? ""} title={file.path}>
@@ -290,11 +279,6 @@ export function ActivityGroupRenderer({
     setHasOpened(true);
     setExpanded((value) => !value);
   };
-  const handleSummaryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-    event.preventDefault();
-    toggleExpanded();
-  };
   const collapsedLabel = group.category === "modify"
     ? modificationGroupLabel(group, changedFiles)
     : directMember
@@ -303,16 +287,14 @@ export function ActivityGroupRenderer({
 
   return (
     <article className={`operation-group is-${group.status} ${expanded ? "is-expanded" : ""}`}>
-      <div
-        aria-expanded={expanded}
+      <DisclosureRow
         className={`operation-group-summary ${directFile && !expanded ? "has-direct-file" : ""}`}
         onClick={(event) => {
           if ((event.target as HTMLElement).closest(".operation-summary-file")) return;
           toggleExpanded();
         }}
-        onKeyDown={handleSummaryKeyDown}
-        role="button"
-        tabIndex={0}
+        expanded={expanded}
+        onToggle={toggleExpanded}
       >
         <span className="operation-group-icon">{groupIcon(group)}</span>
         <span className={`operation-group-action ${group.status === "running" ? "working-glow" : ""}`}>{expanded ? expandedActionLabel(group, members) : collapsedLabel}</span>
@@ -333,7 +315,7 @@ export function ActivityGroupRenderer({
           <span className="operation-diff-metrics"><b>+{metrics.additions}</b> <i>-{metrics.deletions}</i></span>
         )}
         <ChevronRight className="operation-summary-chevron" size={13} />
-      </div>
+      </DisclosureRow>
 
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>
         <div>
@@ -387,26 +369,19 @@ export function ActivityAggregateRenderer({
     setHasOpened(true);
     setExpanded((value) => !value);
   };
-  const handleSummaryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-    event.preventDefault();
-    toggleExpanded();
-  };
 
   return (
     <article className={`operation-group activity-aggregate is-${aggregate.status} ${expanded ? "is-expanded" : ""}`}>
-      <div
-        aria-expanded={expanded}
+      <DisclosureRow
         className="operation-group-summary"
         onClick={toggleExpanded}
-        onKeyDown={handleSummaryKeyDown}
-        role="button"
-        tabIndex={0}
+        expanded={expanded}
+        onToggle={toggleExpanded}
       >
         <span className="operation-group-icon">{aggregateIcon(aggregate)}</span>
         <span className="operation-group-action">{aggregate.summaryLabel}</span>
         <ChevronRight className="operation-summary-chevron" size={13} />
-      </div>
+      </DisclosureRow>
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>
         <div>
           {hasOpened && (

@@ -62,7 +62,7 @@ function ActivitySlotView({
   const isThinking = slot.visual.mode === "thinking";
   return (
     <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${isThinking ? " is-thinking" : ""}`}>
-      {!isThinking && <div className="work-dot">{indicatorIcon(slot.visual)}</div>}
+      <div className="work-dot">{isThinking ? <ThinkingLoader size={14} /> : indicatorIcon(slot.visual)}</div>
       <div className="work-body">
         {liveFile
           ? <ModificationFileRow active file={liveFile} onOpenFile={onOpenFile} showIcon={false} />
@@ -95,7 +95,6 @@ function ActivitySlotView({
               )
           : (
               <strong className={`activity-slot-label ${slot.logicalState === "active" ? "working-glow" : ""}`}>
-                {isThinking && <ThinkingLoader size={16} />}
                 <span className="activity-slot-label-text">{slot.visual.label}</span>
                 {commandElapsed && <span className="activity-slot-elapsed">{commandElapsed}</span>}
               </strong>

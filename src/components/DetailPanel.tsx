@@ -1,5 +1,6 @@
-import { ChevronRight, Copy } from "lucide-react";
+import { ChevronRight, Code2, Copy } from "lucide-react";
 import { ReactNode } from "react";
+import { IconButton } from "./ui/ControlPrimitives";
 
 export function DetailPanel({
   children,
@@ -25,6 +26,7 @@ export function DetailPanel({
   return (
     <section className={`operation-detail-panel ${expanded ? "is-expanded" : ""} ${className}`.trim()}>
       <header onClick={() => collapsible && onToggle?.()}>
+        <span aria-hidden="true" className="operation-detail-icon"><Code2 size={13} /></span>
         {onTitleClick ? (
           <button
             className="operation-detail-title is-interactive"
@@ -43,18 +45,17 @@ export function DetailPanel({
         {meta}
         <span className="operation-detail-spacer" />
         {copyValue !== undefined && (
-          <button
-            aria-label={`复制 ${title}`}
+          <IconButton
+            label={`复制 ${title}`}
             className="operation-detail-copy"
             onClick={(event) => {
               event.stopPropagation();
               void navigator.clipboard.writeText(copyValue);
             }}
             title="复制内容"
-            type="button"
           >
             <Copy size={12} />
-          </button>
+          </IconButton>
         )}
         {collapsible && <ChevronRight className="operation-detail-chevron" size={12} />}
       </header>

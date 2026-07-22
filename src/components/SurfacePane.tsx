@@ -5,6 +5,7 @@ import { RuntimeFilePreview } from "../runtimeApi";
 import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { PlanSurface } from "./PlanSurface";
+import { IconButton, RowAction } from "./ui/ControlPrimitives";
 
 export type Surface =
   | { id: string; kind: "file"; path: string }
@@ -38,14 +39,13 @@ function FileSurface({
       </nav>
       <div className="surface-toolbar">
         <span>{file.truncated ? "内容已截断" : "只读预览"}</span>
-        {window.deepseeker && <button aria-label="在 Finder 中显示" onClick={() => void window.deepseeker?.files.reveal(`${file.projectRoot}/${file.path}`)} type="button"><FolderOpen size={13} /></button>}
-        <button
-          aria-label="复制文件内容"
+        {window.deepseeker && <IconButton label="在 Finder 中显示" onClick={() => void window.deepseeker?.files.reveal(`${file.projectRoot}/${file.path}`)}><FolderOpen size={13} /></IconButton>}
+        <IconButton
+          label="复制文件内容"
           onClick={() => void navigator.clipboard?.writeText(file.content)}
-          type="button"
         >
           <Copy size={13} />
-        </button>
+        </IconButton>
       </div>
       <CodeFileViewer content={file.content} modelPath={`${file.projectRoot}/${file.path}`} path={file.path} />
     </>
@@ -79,24 +79,23 @@ function ReviewSurface({
           <span><b>+{totals.additions}</b> <i>-{totals.deletions}</i></span>
         </div>
         <div className="surface-review-actions">
-          <button aria-label="更多审阅操作" type="button"><MoreHorizontal size={14} /></button>
-          <button aria-label="审阅设置" type="button"><GitPullRequest size={14} /></button>
-          <button aria-label="复制当前 diff" onClick={() => void navigator.clipboard?.writeText(activeFile?.patch ?? "")} type="button"><Copy size={14} /></button>
+          <IconButton label="更多审阅操作"><MoreHorizontal size={14} /></IconButton>
+          <IconButton label="审阅设置"><GitPullRequest size={14} /></IconButton>
+          <IconButton label="复制当前 diff" onClick={() => void navigator.clipboard?.writeText(activeFile?.patch ?? "")}><Copy size={14} /></IconButton>
         </div>
       </div>
       <div className="surface-review-files">
         {files.map((item) => (
-          <button
+          <RowAction
             className={`surface-review-file ${item.path === activeFile?.path ? "is-active" : ""}`}
             key={item.path}
             onClick={() => setActivePath(item.path)}
             title={item.path}
-            type="button"
           >
             <FileCode2 size={13} />
             <span>{item.path}</span>
             <strong><b>+{item.additions}</b> <i>-{item.deletions}</i></strong>
-          </button>
+          </RowAction>
         ))}
       </div>
       {activeFile?.patch ? (
@@ -113,7 +112,7 @@ function BrowserSurface({ surface }: { surface: Extract<Surface, { kind: "browse
     <div className="surface-state">
       <Globe2 size={15} />
       <span>{surface.url}</span>
-      {window.deepseeker && <button aria-label="在默认浏览器中打开" onClick={() => void window.deepseeker?.files.openExternal(surface.url)} type="button"><ExternalLink size={14} /></button>}
+      {window.deepseeker && <IconButton label="在默认浏览器中打开" onClick={() => void window.deepseeker?.files.openExternal(surface.url)}><ExternalLink size={14} /></IconButton>}
     </div>
   );
 }
@@ -195,23 +194,22 @@ export function SurfacePane({
                 {surfaceIcon(candidate)}
                 <span>{surfaceTitle(candidate)}</span>
               </button>
-              <button
-                aria-label={`关闭 ${surfaceTitle(candidate)}`}
+              <IconButton
+                label={`关闭 ${surfaceTitle(candidate)}`}
                 className="surface-tab-close"
                 onClick={() => onCloseSurface(candidate.id)}
-                type="button"
               >
                 <X size={12} />
-              </button>
+              </IconButton>
             </div>
           ))}
         </div>
         <div className="surface-window-actions">
-          <button aria-label="新建标签" type="button"><Plus size={14} /></button>
-          <button aria-label="展开工作区" type="button"><Maximize2 size={13} /></button>
-          <button aria-label="最小化工作区" type="button"><Minus size={14} /></button>
-          <button aria-label="切换侧栏布局" type="button"><PanelRight size={14} /></button>
-          <button aria-label="关闭工作区侧栏" onClick={onClose} type="button"><X size={14} /></button>
+          <IconButton label="新建标签"><Plus size={14} /></IconButton>
+          <IconButton label="展开工作区"><Maximize2 size={13} /></IconButton>
+          <IconButton label="最小化工作区"><Minus size={14} /></IconButton>
+          <IconButton label="切换侧栏布局"><PanelRight size={14} /></IconButton>
+          <IconButton label="关闭工作区侧栏" onClick={onClose}><X size={14} /></IconButton>
         </div>
       </header>
       {surface.kind === "file"

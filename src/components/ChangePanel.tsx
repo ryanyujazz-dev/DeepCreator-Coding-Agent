@@ -1,6 +1,7 @@
 import { ChevronDown, FileCode2 } from "lucide-react";
 import { useState } from "react";
 import { FileChange, Changes } from "../../shared/contracts/runtime";
+import { IconButton, PillButton, RowAction } from "./ui/ControlPrimitives";
 
 function diffLineClass(line: string): string {
   if (line.startsWith("+++") || line.startsWith("---")) return "is-meta";
@@ -20,16 +21,15 @@ function FileChangeRow({ file, onOpenFile }: { file: FileChange; onOpenFile: (pa
           {file.path}
         </button>
         <strong><b>+{file.additions}</b> <i>-{file.deletions}</i></strong>
-        <button
+        <IconButton
           aria-expanded={expanded}
-          aria-label={`${expanded ? "收起" : "展开"} ${file.path} diff`}
+          label={`${expanded ? "收起" : "展开"} ${file.path} diff`}
           className="patch-toggle"
           disabled={!hasPatch}
           onClick={() => hasPatch && setExpanded((value) => !value)}
-          type="button"
         >
           <ChevronDown size={13} />
-        </button>
+        </IconButton>
       </div>
       {expanded && hasPatch && (
         <pre className="patch-diff" aria-label={`${file.path} diff`}>
@@ -58,24 +58,24 @@ export function ChangePanel({
   return (
     <section className="patch-card">
       <header>
-        <button className="patch-card-review-trigger" onClick={() => onOpenReview(delta)} type="button">
+        <RowAction className="patch-card-review-trigger" onClick={() => onOpenReview(delta)}>
           <FileCode2 size={17} />
           <strong>已更改 {delta.fileCount} 个文件</strong>
           <span><b>+{delta.additions}</b> <i>-{delta.deletions}</i></span>
-        </button>
+        </RowAction>
       </header>
       <div className="patch-list">
         {visibleFiles.map((file) => <FileChangeRow file={file} key={file.path} onOpenFile={onOpenFile} />)}
       </div>
       {hiddenCount > 0 && (
-        <button className="show-more-files" onClick={() => setShowAll(true)} type="button">
+        <PillButton className="show-more-files" onClick={() => setShowAll(true)}>
           展开更多 {hiddenCount} 个文件
-        </button>
+        </PillButton>
       )}
       {showAll && delta.files.length > 3 && (
-        <button className="show-more-files" onClick={() => setShowAll(false)} type="button">
+        <PillButton className="show-more-files" onClick={() => setShowAll(false)}>
           收起
-        </button>
+        </PillButton>
       )}
     </section>
   );

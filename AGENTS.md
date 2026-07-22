@@ -16,6 +16,8 @@
 
 Use strict TypeScript, two-space indentation, semicolons, and double quotes. React components and exported types use PascalCase; functions, variables, and file-local helpers use camelCase. Keep domain rules in `shared/` instead of duplicating them in components. Prefer small pure projection functions and discriminated unions. Follow existing filenames: PascalCase for React components and camelCase for services or projections. Run `npm run build` before submitting changes.
 
+Renderer work must follow [the design resource and layout guidelines](docs/design-resource-and-layout-guidelines.md). Use the shared HarmonyOS Sans font and semantic tokens; do not introduce isolated font stacks, arbitrary spacing, or one-off hover shapes. Reuse an existing UI primitive when the same interaction already exists.
+
 Route runtime commands through `resolveRuntimeShell`; never hard-code `/bin/zsh`, `/tmp`, or another platform-specific shell path. Tests that need a workspace must allocate it with `tmpdir()`.
 
 ## Testing Guidelines

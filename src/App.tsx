@@ -13,6 +13,7 @@ import { useWorkspace } from "./useWorkspace";
 import { Changes } from "../shared/contracts/runtime";
 import { ProjectRef } from "../shared/contracts/desktop";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { IconButton } from "./components/ui/ControlPrimitives";
 
 type SurfaceFileState = {
   error: string | null;
@@ -267,7 +268,7 @@ export function App() {
               <div className="thread-title"><Folder size={16} /><span>{session?.title ?? "DeepSeeker CodeAgent"}</span><MoreHorizontal size={14} /></div>
               <ConnectionStatus onRetry={window.deepseeker ? () => void retryRuntime() : undefined} phase={connection} />
             </header>
-            <div className="window-actions"><button className="icon-button" aria-label="视图设置"><SlidersHorizontal size={14} /></button><button className="icon-button" aria-label="工作区面板"><PanelRight size={14} /></button></div>
+            <div className="window-actions"><IconButton className="icon-button" label="视图设置"><SlidersHorizontal size={14} /></IconButton><IconButton className="icon-button" label="工作区面板"><PanelRight size={14} /></IconButton></div>
             <Inspector onOpenReview={openReviewSurface} session={session} workspace={workspace} />
             <Conversation onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
             {currentRun && (

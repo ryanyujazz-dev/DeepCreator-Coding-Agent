@@ -84,10 +84,10 @@ export function ActivityView({
   if (activity.kind === "thinking") {
     if (!runActive || (activity.status !== "running" && activity.status !== "suspended")) return null;
     return (
-      <article className="work-step thinking-step is-expanded">
+      <article className="work-step tool-step thinking-step is-expanded">
+        <div className="work-dot"><ThinkingLoader size={14} /></div>
         <div className="work-body">
           <strong className="working-glow">
-            <ThinkingLoader size={16} />
             正在思考
           </strong>
         </div>

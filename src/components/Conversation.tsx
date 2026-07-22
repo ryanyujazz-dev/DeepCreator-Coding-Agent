@@ -46,6 +46,8 @@ export function Conversation({
   // (= composer 跟底部的 margin + composer 上方可能出现的 hud/notice 高度 + composer 自身高度)
   // 用 composer.offsetTop 反推:bottom = main.clientHeight - composer.offsetTop
   const [composerBottomOffset, setComposerBottomOffset] = useState(0);
+  // 回到底部按钮必须以 composer 的真实中心为准，不能假设 main 与 composer 同中心。
+  const [composerCenterX, setComposerCenterX] = useState<number | null>(null);
   // 顶部偏移:.conversation-scroll 相对 .conversation-main 的 offsetTop
   const [scrollOffsetTop, setScrollOffsetTop] = useState(0);
   // Portal 目标:.conversation-main 元素
@@ -71,6 +73,9 @@ export function Conversation({
       const composer = portalTarget.querySelector(".composer") as HTMLElement | null;
       if (composer) {
         setComposerBottomOffset(portalTarget.clientHeight - composer.offsetTop);
+        const mainRect = portalTarget.getBoundingClientRect();
+        const composerRect = composer.getBoundingClientRect();
+        setComposerCenterX(composerRect.left - mainRect.left + composerRect.width / 2);
       }
     };
     updateLayout();
@@ -144,7 +149,7 @@ export function Conversation({
   // 蒙层 + 滚动按钮通过 Portal 渲染到 .conversation-main
   // - 顶部蒙层:top = scrollOffsetTop(对话区顶部相对 main 的偏移),紧贴对话区上沿
   // - 底部蒙层:bottom = composerBottomOffset(composer 上沿距 main 底部),紧贴对话框上沿
-  // - 滚动按钮:跟底部蒙层同 bottom,水平居中。用 absolute 而非 sticky,不占文档流空间,
+  // - 滚动按钮:跟底部蒙层同 bottom,按 composer 实际边界水平居中。用 absolute 而非 sticky,不占文档流空间,
   //   避免 sticky 占位导致 scrollHeight 变化引起滚到最末端时的抖动。
   const overlays = portalTarget ? createPortal(
     <>
@@ -167,7 +172,10 @@ export function Conversation({
           aria-label="滚动到底部"
           className="scroll-to-bottom-button"
           onClick={handleScrollToBottomClick}
-          style={{ bottom: `${composerBottomOffset + 12}px` }}
+          style={{
+            bottom: `${composerBottomOffset + 12}px`,
+            left: composerCenterX === null ? "50%" : `${composerCenterX}px`
+          }}
           title="滚动到底部"
           type="button"
         >

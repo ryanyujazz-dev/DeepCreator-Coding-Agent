@@ -17,7 +17,11 @@ src                React client
 desktop            Electron Main, Preload bridge, Runtime worker
 ```
 
-See [ADR 004](docs/adr/004-clean-runtime-architecture.md), [context architecture](docs/adr/003-context-operating-system.md), and the [naming conventions](docs/naming-conventions.md).
+See [ADR 004](docs/adr/004-clean-runtime-architecture.md), [context architecture](docs/adr/003-context-operating-system.md), [naming conventions](docs/naming-conventions.md), and the [design resource and layout guidelines](docs/design-resource-and-layout-guidelines.md).
+
+## Design and typography
+
+The interface uses the unmodified **HarmonyOS Sans SC** variable font. Copyright 2021 Huawei Device Co., Ltd.; used under the HarmonyOS Sans Fonts License Agreement. See [third-party notices](THIRD_PARTY_NOTICES.md) and the [complete bundled license](src/assets/fonts/LICENSE-HarmonyOS-Sans.txt).
 
 ## Development
 

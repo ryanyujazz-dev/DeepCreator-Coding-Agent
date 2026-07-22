@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { DesktopSettings } from "../../shared/contracts/desktop";
+import { IconButton } from "./ui/ControlPrimitives";
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<DesktopSettings | null>(null);
@@ -31,13 +32,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <form className="settings-dialog" onSubmit={(event) => void submit(event)}>
-        <header><div><h2>模型设置</h2><p>凭据由系统加密存储，保存后 Runtime 会重新启动。</p></div><button aria-label="关闭设置" onClick={onClose} type="button"><X size={15} /></button></header>
+    <div className="settings-backdrop ui-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="settings-dialog ui-floating-surface" onSubmit={(event) => void submit(event)}>
+        <header><div><h2>模型设置</h2><p>凭据由系统加密存储，保存后 Runtime 会重新启动。</p></div><IconButton label="关闭设置" onClick={onClose}><X size={15} /></IconButton></header>
         <label><span>默认模型</span><input onChange={(event) => setModel(event.target.value)} value={model} /></label>
         <label><span>DeepSeek API Key</span><input autoComplete="off" onChange={(event) => setApiKey(event.target.value)} placeholder={settings?.hasApiKey ? "已安全保存，留空则保持不变" : "输入 API Key"} type="password" value={apiKey} /></label>
         {error && <div className="settings-error">{error}</div>}
-        <footer><button className="settings-cancel" onClick={onClose} type="button">取消</button><button className="settings-save" disabled={saving || !model.trim()} type="submit">{saving ? "正在保存" : "保存并重启"}</button></footer>
+        <footer><button className="settings-cancel ui-dialog-button" onClick={onClose} type="button">取消</button><button className="settings-save ui-dialog-button is-primary" disabled={saving || !model.trim()} type="submit">{saving ? "正在保存" : "保存并重启"}</button></footer>
       </form>
     </div>
   );

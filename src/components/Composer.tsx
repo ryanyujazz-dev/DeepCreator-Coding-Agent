@@ -2,6 +2,7 @@ import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, Chev
 import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
+import { FloatingSurface, IconButton, PillButton } from "./ui/ControlPrimitives";
 
 const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
   { description: "外部访问和有风险的操作会先询问", icon: ShieldAlert, key: "request_approval", label: "请求批准" },
@@ -161,7 +162,7 @@ export function Composer({
       <form className="composer interaction-composer plan-review-composer" onSubmit={(event) => event.preventDefault()}>
         <header className="interaction-header">
           <strong>实施此计划？</strong>
-          <button aria-label="取消计划" disabled={interactionBusy} onClick={() => void resolvePlan("cancel")} title="取消计划" type="button"><X size={14} /></button>
+          <IconButton disabled={interactionBusy} label="取消计划" onClick={() => void resolvePlan("cancel")}><X size={14} /></IconButton>
         </header>
         <button className="interaction-primary-row" disabled={interactionBusy} onClick={() => void resolvePlan("start_work")} type="button">
           <span className="interaction-number">1</span>
@@ -175,16 +176,16 @@ export function Composer({
         </div>
         <footer className="interaction-footer">
           <div className="permission-selector">
-            <button className="access-button" type="button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
+            <PillButton className="access-button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
               <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
-            </button>
+            </PillButton>
             {accessMenuOpen && (
-              <div className="permission-menu" role="menu">
+              <FloatingSurface className="permission-menu" role="menu">
                 {accessOptions.map((option) => {
                   const Icon = option.icon;
                   return <button className={option.key === accessMode ? "is-selected" : ""} key={option.key} onClick={() => { onAccessModeChange(option.key); setAccessMenuOpen(false); }} role="menuitem" type="button"><Icon size={16} /><span><strong>{option.label}</strong><small>{option.description}</small></span>{option.key === accessMode && <Check size={15} />}</button>;
                 })}
-              </div>
+              </FloatingSurface>
             )}
           </div>
           <button disabled={interactionBusy} onClick={() => void resolvePlan("cancel")} type="button">取消计划</button>
@@ -200,7 +201,7 @@ export function Composer({
       <form className="composer interaction-composer question-composer" onSubmit={(event) => { event.preventDefault(); void submitAnswers(); }}>
         <header className="interaction-header">
           <strong>{prompt.prompt}</strong>
-          {pendingQuestion.prompts.length > 1 && <div className="question-pagination"><button disabled={questionIndex === 0} onClick={() => setQuestionIndex((value) => Math.max(0, value - 1))} type="button"><ChevronLeft size={13} /></button><span>{questionIndex + 1} of {pendingQuestion.prompts.length}</span><button disabled={questionIndex === pendingQuestion.prompts.length - 1} onClick={() => setQuestionIndex((value) => Math.min(pendingQuestion.prompts.length - 1, value + 1))} type="button"><ChevronRight size={13} /></button></div>}
+          {pendingQuestion.prompts.length > 1 && <div className="question-pagination"><IconButton disabled={questionIndex === 0} label="上一项" onClick={() => setQuestionIndex((value) => Math.max(0, value - 1))}><ChevronLeft size={13} /></IconButton><span>{questionIndex + 1} of {pendingQuestion.prompts.length}</span><IconButton disabled={questionIndex === pendingQuestion.prompts.length - 1} label="下一项" onClick={() => setQuestionIndex((value) => Math.min(pendingQuestion.prompts.length - 1, value + 1))}><ChevronRight size={13} /></IconButton></div>}
         </header>
         {prompt.options?.map((option, index) => (
           <button className={`interaction-option-row ${answers[prompt.questionId] === option ? "is-selected" : ""}`} key={option} onClick={() => setAnswers((current) => ({ ...current, [prompt.questionId]: option }))} type="button">
@@ -218,9 +219,9 @@ export function Composer({
       <div className="composer-row">
         <div className="composer-left">
           <div className="add-selector">
-            <button className={`plain-icon ${mode === "plan" ? "is-active" : ""}`} type="button" aria-label="添加" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((open) => !open)}><Plus size={20} /></button>
+            <IconButton className={`plain-icon ${mode === "plan" ? "is-active" : ""}`} label="添加" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((open) => !open)}><Plus size={20} /></IconButton>
             {addMenuOpen && (
-              <div className="add-menu" role="menu">
+              <FloatingSurface className="add-menu" role="menu">
                 <header>添加</header>
                 <button
                   className={mode === "plan" ? "is-selected" : ""}
@@ -237,15 +238,15 @@ export function Composer({
                   <span>计划模式</span>
                   {mode === "plan" && <Check size={15} />}
                 </button>
-              </div>
+              </FloatingSurface>
             )}
           </div>
           <div className="permission-selector">
-            <button className="access-button" type="button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
+            <PillButton className="access-button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
               <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
-            </button>
+            </PillButton>
             {accessMenuOpen && (
-              <div className="permission-menu" role="menu">
+              <FloatingSurface className="permission-menu" role="menu">
                 {accessOptions.map((option) => {
                   const Icon = option.icon;
                   return (
@@ -265,10 +266,10 @@ export function Composer({
                     </button>
                   );
                 })}
-              </div>
+              </FloatingSurface>
             )}
           </div>
-          {mode === "plan" && <button className="mode-indicator" disabled={isRunning || isWaiting} onClick={() => onModeChange("work")} title="退出计划模式" type="button"><Lightbulb size={14} /><span>计划</span></button>}
+          {mode === "plan" && <PillButton className="mode-indicator" disabled={isRunning || isWaiting} onClick={() => onModeChange("work")} title="退出计划模式"><Lightbulb size={14} /><span>计划</span></PillButton>}
         </div>
         <div className="composer-right">
           <div className="context-meter" tabIndex={0} aria-label="上下文用量">
@@ -276,12 +277,12 @@ export function Composer({
               className="context-meter-ring"
               style={{ "--context-progress": `${Math.max(2, contextSummary.utilization * 100)}%` } as CSSProperties}
             />
-            <div className="context-inspector-popover" role="tooltip">
+            <FloatingSurface className="context-inspector-popover" role="tooltip">
               <header>
                 <strong>上下文容量</strong>
                 <div className="context-header-actions">
                   <span>{formatTokens(contextSummary.used)}/{formatTokens(contextSummary.windowTokens)} ({(contextSummary.utilization * 100).toFixed(1)}%)</span>
-                  <button aria-label="上下文分类排序" onClick={() => setContextSortMenuOpen((open) => !open)} title="排序" type="button"><ArrowUpDown size={12} /></button>
+                  <IconButton label="上下文分类排序" onClick={() => setContextSortMenuOpen((open) => !open)} title="排序"><ArrowUpDown size={12} /></IconButton>
                   {contextSortMenuOpen && (
                     <div className="context-sort-menu">
                       <button className={contextSort === "protocol" ? "is-selected" : ""} onClick={() => { setContextSort("protocol"); setContextSortMenuOpen(false); }} type="button">按上下文顺序</button>
@@ -306,9 +307,9 @@ export function Composer({
               </div>
               <footer><span>账户余额</span><strong>{formatBalance(balance)}</strong></footer>
               <footer><span>平均缓存命中率</span><strong>{contextSummary.cacheRate === undefined ? "尚无数据" : `${(contextSummary.cacheRate * 100).toFixed(1)}%`}</strong></footer>
-            </div>
+            </FloatingSurface>
           </div>
-          <button className="model-button" type="button"><span>{model}</span><ChevronDown size={13} /></button><button className="plain-icon" disabled={isWaiting} type="button" aria-label="语音输入"><Mic size={16} /></button>{isRunning ? <button className="send-button stop-button" onClick={onCancel} type="button" aria-label="停止"><Square size={14} fill="currentColor" /></button> : <button className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || Boolean(disabledReason)} type="submit" aria-label="发送"><ArrowUp size={18} /></button>}
+          <PillButton className="model-button"><span>{model}</span><ChevronDown size={13} /></PillButton><IconButton className="plain-icon" disabled={isWaiting} label="语音输入"><Mic size={16} /></IconButton>{isRunning ? <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton> : <IconButton className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || Boolean(disabledReason)} label="发送" type="submit"><ArrowUp size={18} /></IconButton>}
         </div>
       </div>
     </form>

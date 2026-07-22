@@ -21,6 +21,7 @@ import { NewTaskIcon } from "./NewTaskIcon";
 import { OverflowFadeText } from "./OverflowFadeText";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { SidebarConfirmationDialog } from "./SidebarConfirmationDialog";
+import { FloatingSurface, IconButton, RowAction } from "./ui/ControlPrimitives";
 
 type AnchorRect = { bottom: number; left: number; right: number; top: number; width: number };
 type ProjectOverlay = { project: ProjectRef; rect: AnchorRect };
@@ -204,7 +205,7 @@ export function SessionSidebar({
     <aside className="sidebar">
       <div className="sidebar-brand-row">
         <div className="sidebar-brand-lockup"><strong className="sidebar-brand">DeepSeeker</strong><ChevronDown size={13} /></div>
-        <button className="icon-button" aria-label="搜索任务" onClick={() => setSearchOpen((open) => !open)}><Search size={15} /></button>
+        <IconButton className="icon-button" label="搜索任务" onClick={() => setSearchOpen((open) => !open)}><Search size={15} /></IconButton>
       </div>
       {searchOpen && (
         <div className="session-search">
@@ -222,7 +223,7 @@ export function SessionSidebar({
         </div>
       )}
       <nav className="primary-nav">
-        <button className="nav-row" onClick={() => onNewSession()} type="button"><NewTaskIcon size={17} /><span>新建任务</span></button>
+        <RowAction className="nav-row" onClick={() => onNewSession()}><NewTaskIcon size={17} /><span>新建任务</span></RowAction>
       </nav>
       <div className="sidebar-content">
         <section className="sidebar-section">
@@ -247,29 +248,27 @@ export function SessionSidebar({
                   onMouseEnter={(event) => setHoveredProject({ project, rect: anchorRect(event.currentTarget) })}
                   onMouseLeave={() => setHoveredProject(null)}
                 >
-                  <button
+                  <RowAction
                     aria-expanded={!collapsed}
                     className="project-title"
                     onClick={() => toggleProject(projectRoot)}
                     title={collapsed ? "展开项目任务" : "收起项目任务"}
-                    type="button"
                   >
                     <AnimatedFolderIcon expanded={!collapsed} />
                     <OverflowFadeText>{project.name}</OverflowFadeText>
-                  </button>
+                  </RowAction>
                   <div className="project-row-actions">
                     {desktopProjectsManaged && (
-                      <button
-                        aria-label={`${project.name} 更多操作`}
+                      <IconButton
+                        label={`${project.name} 更多操作`}
                         onClick={(event) => {
                           event.stopPropagation();
                           setHoveredProject(null);
                           setProjectMenu({ project, rect: anchorRect(event.currentTarget) });
                         }}
-                        type="button"
-                      ><MoreHorizontal size={15} /></button>
+                      ><MoreHorizontal size={15} /></IconButton>
                     )}
-                    <button aria-label={`在 ${project.name} 中新建任务`} onClick={() => onNewSession(projectRoot)} type="button"><NewTaskIcon size={16} /></button>
+                    <IconButton label={`在 ${project.name} 中新建任务`} onClick={() => onNewSession(projectRoot)}><NewTaskIcon size={16} /></IconButton>
                   </div>
                 </div>
                 {!collapsed && projectSessions.map((session) => (
@@ -283,22 +282,21 @@ export function SessionSidebar({
                     onMouseEnter={(event) => setHoveredSession({ project, rect: anchorRect(event.currentTarget), session })}
                     onMouseLeave={() => setHoveredSession(null)}
                   >
-                    <button className="thread-row" onClick={() => onSelectSession(session.sessionId)} type="button">
+                    <RowAction className="thread-row" onClick={() => onSelectSession(session.sessionId)}>
                       <OverflowFadeText>{session.title}</OverflowFadeText>
                       {session.active && <span className="session-running" />}
-                    </button>
+                    </RowAction>
                     <div className="thread-row-actions">
                       {onPinSession && (
-                        <button
-                          aria-label={session.pinned ? "取消置顶任务" : "置顶任务"}
+                        <IconButton
+                          label={session.pinned ? "取消置顶任务" : "置顶任务"}
                           className={session.pinned ? "is-active" : ""}
                           onClick={() => void runAction(() => onPinSession(session.sessionId, !session.pinned))}
-                          type="button"
-                        ><Pin fill={session.pinned ? "currentColor" : "none"} size={13} /></button>
+                        ><Pin fill={session.pinned ? "currentColor" : "none"} size={13} /></IconButton>
                       )}
                       {onArchiveSession && (
-                        <button
-                          aria-label="归档任务"
+                        <IconButton
+                          label="归档任务"
                           disabled={session.active}
                           onClick={() => requestConfirmation({
                             action: () => onArchiveSession(session.sessionId),
@@ -307,8 +305,7 @@ export function SessionSidebar({
                             title: `归档“${session.title}”？`
                           })}
                           title={session.active ? "请先中止正在运行的任务" : "归档任务"}
-                          type="button"
-                        ><Archive size={14} /></button>
+                        ><Archive size={14} /></IconButton>
                       )}
                     </div>
                   </div>
@@ -319,27 +316,27 @@ export function SessionSidebar({
         </section>
       </div>
       <div className="account-strip">
-        <div className="avatar">DS</div><div><strong>本地工作区</strong></div>{onSettings ? <button aria-label="打开设置" onClick={onSettings} type="button"><Settings size={15} /></button> : <CircleHelp size={16} />}
+        <div className="avatar">DS</div><div><strong>本地工作区</strong></div>{onSettings ? <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton> : <CircleHelp size={16} />}
       </div>
       <PanelResizeHandle ariaLabel="调整左侧栏宽度" edge="right" max={360} min={220} onChange={onWidthChange} onReset={onWidthReset} value={sidebarWidth} />
 
       {hoveredProject && !projectMenu && createPortal(
-        <aside className="sidebar-hover-card project-hover-card" style={overlayPosition(hoveredProject.rect, 360, 142)}>
+        <FloatingSurface className="sidebar-hover-card project-hover-card" role="tooltip" style={overlayPosition(hoveredProject.rect, 360, 142)}>
           <header><Folder size={18} /><strong>{hoveredProject.project.name}</strong>{hoveredProject.project.pinned && <Pin fill="currentColor" size={13} />}</header>
           <div><MessageCircle size={16} /><span>{sessions.filter((session) => session.projectRoot === hoveredProject.project.path).length} 个对话串</span></div>
           <div className="sidebar-hover-card-path"><Folder size={16} /><span>{hoveredProject.project.path}</span></div>
-        </aside>,
+        </FloatingSurface>,
         document.body
       )}
       {hoveredSession && createPortal(
-        <aside className="sidebar-hover-card session-hover-card" style={overlayPosition(hoveredSession.rect, 338, 96)}>
+        <FloatingSurface className="sidebar-hover-card session-hover-card" role="tooltip" style={overlayPosition(hoveredSession.rect, 338, 96)}>
           <header><strong>{hoveredSession.session.title}</strong><time>{hoveredSession.session.active ? "运行中" : ageLabel(hoveredSession.session.updatedAt)}</time></header>
           <div><Folder size={16} /><span>{hoveredSession.project.name}</span></div>
-        </aside>,
+        </FloatingSurface>,
         document.body
       )}
       {projectMenu && createPortal(
-        <div
+        <FloatingSurface
           className="sidebar-context-menu"
           ref={projectMenuRef}
           role="menu"
@@ -377,13 +374,13 @@ export function SessionSidebar({
               type="button"
             ><X size={16} /><span>移除</span></button>
           )}
-        </div>,
+        </FloatingSurface>,
         document.body
       )}
       {renamingProject && createPortal(
         <div className="sidebar-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setRenamingProject(null); }}>
           <form className="sidebar-rename-dialog" onSubmit={submitRename}>
-            <header><div><span>重命名项目</span><strong>{renamingProject.path}</strong></div><button aria-label="关闭" onClick={() => setRenamingProject(null)} type="button"><X size={16} /></button></header>
+            <header><div><span>重命名项目</span><strong>{renamingProject.path}</strong></div><IconButton label="关闭" onClick={() => setRenamingProject(null)}><X size={16} /></IconButton></header>
             <input autoFocus maxLength={80} onChange={(event) => setRenameValue(event.target.value)} value={renameValue} />
             <footer><button onClick={() => setRenamingProject(null)} type="button">取消</button><button className="is-primary" disabled={!renameValue.trim()} type="submit">保存</button></footer>
           </form>
@@ -401,7 +398,7 @@ export function SessionSidebar({
           title={confirmation.title}
         />
       )}
-      {actionError && <div className="sidebar-action-error" role="alert">{actionError}<button aria-label="关闭错误" onClick={() => setActionError(null)}><X size={12} /></button></div>}
+      {actionError && <div className="sidebar-action-error" role="alert">{actionError}<IconButton label="关闭错误" onClick={() => setActionError(null)}><X size={12} /></IconButton></div>}
     </aside>
   );
 }
