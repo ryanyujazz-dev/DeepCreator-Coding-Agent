@@ -263,7 +263,8 @@ export function createSession(input: SessionInput, offset = 0): Session {
     lastOffset: offset,
     runIds: [],
     runs: [],
-    updatedAt: input.createdAt
+    updatedAt: input.createdAt,
+    workspaceKind: input.workspaceKind ?? "project"
   };
 }
 

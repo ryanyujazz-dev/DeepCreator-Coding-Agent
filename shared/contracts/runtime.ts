@@ -342,6 +342,8 @@ export type Run = {
   lastOffset: number;
 };
 
+export type WorkspaceKind = "project" | "scratch";
+
 export type Session = {
   sessionId: string;
   title: string;
@@ -351,6 +353,7 @@ export type Session = {
   plans: Plan[];
   questions: Question[];
   projectRoot: string;
+  workspaceKind: WorkspaceKind;
   createdAt: string;
   updatedAt: string;
   runIds: string[];
@@ -367,11 +370,11 @@ export type Session = {
 export type SessionInput = Pick<
   Session,
   "sessionId" | "title" | "model" | "projectRoot" | "createdAt" | "contextWindowTokens" | "compactThresholdTokens"
-> & { accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry };
+> & { accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry; workspaceKind?: WorkspaceKind };
 
 export type SessionSummary = Pick<
   Session,
-  "sessionId" | "title" | "model" | "projectRoot" | "createdAt" | "updatedAt"
+  "sessionId" | "title" | "model" | "projectRoot" | "workspaceKind" | "createdAt" | "updatedAt"
 > & {
   runCount: number;
   active: boolean;

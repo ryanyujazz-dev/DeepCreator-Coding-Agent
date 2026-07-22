@@ -3,6 +3,7 @@ import { reduceEvents } from "../shared/domain/reducer";
 import { ApprovalChoice, isRunDone, AccessMode, Mode, Plan, PlanDecision, PlanEntry, SessionSummary, Session } from "../shared/contracts/runtime";
 import { ConnectionPhase } from "./components/ConnectionStatus";
 import { runtimeApi, RuntimeBalance, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError, RuntimeWorkspace } from "./runtimeApi";
+import { DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
 
 export function useWorkspace() {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
@@ -14,7 +15,8 @@ export function useWorkspace() {
   const [draftMode, setDraftMode] = useState<Mode>("work");
   const [draftPlanEntry, setDraftPlanEntry] = useState<PlanEntry>("suggest");
   const [contextObserver, setContextObserver] = useState<RuntimeContextObserver | null>(null);
-  const [projectRoot, setProjectRoot] = useState<string | null>(null);
+  const [draftWorkspace, setDraftWorkspace] = useState<DraftWorkspace | null>(null);
+  const [draftRevision, setDraftRevision] = useState(0);
   const [workspace, setWorkspace] = useState<RuntimeWorkspace | null>(null);
   const [balance, setBalance] = useState<RuntimeBalance | null>(null);
 
@@ -24,12 +26,16 @@ export function useWorkspace() {
     return result.sessions;
   }, []);
 
+  const reportError = useCallback((nextError: unknown) => {
+    setError(nextError instanceof Error ? nextError.message : String(nextError));
+  }, []);
+
   const selectSession = useCallback(async (sessionId: string) => {
     setError(null);
     try {
       const next = (await runtimeApi.getSession(sessionId)).session;
       setSession(next);
-      setProjectRoot(next.projectRoot);
+      setDraftRevision((current) => current + 1);
       setDraftAccessMode(next.accessMode ?? "request_approval");
       setDraftMode(next.mode ?? "work");
       setDraftPlanEntry(next.planEntry ?? "suggest");
@@ -47,7 +53,7 @@ export function useWorkspace() {
     void Promise.all([runtimeApi.config(), refreshSessions()])
       .then(([runtimeConfig, availableSessions]) => {
         setConfig(runtimeConfig);
-        if (!window.deepseeker) setProjectRoot(runtimeConfig.workspaceRoot);
+        if (!window.deepseeker) setDraftWorkspace(projectDraftWorkspace(runtimeConfig.workspaceRoot));
         setConnection("connected");
         if (availableSessions[0]) void selectSession(availableSessions[0].sessionId);
       })
@@ -175,11 +181,11 @@ export function useWorkspace() {
   const pendingApproval = activeRun?.approvals.find((approval) => approval.state === "pending");
   const model = config?.hasApiKey ? config.defaultModel : "mock-agent";
 
-  const startRun = useCallback(async (prompt: string) => {
+  const startRun = useCallback(async (prompt: string): Promise<boolean> => {
     setError(null);
-    if (!session && !projectRoot) {
-      setError("请先选择一个项目文件夹。");
-      return;
+    if (!session && !draftWorkspace) {
+      setError("请先选择工作项目或临时工作区。");
+      return false;
     }
     try {
       const result = await runtimeApi.startRun({
@@ -187,33 +193,32 @@ export function useWorkspace() {
         accessMode: draftAccessMode,
         mode: draftMode,
         planEntry: draftPlanEntry,
-        projectRoot: session ? undefined : projectRoot ?? undefined,
+        projectRoot: !session && draftWorkspace?.kind === "project" ? draftWorkspace.projectRoot : undefined,
         prompt,
-        sessionId: session?.sessionId
+        sessionId: session?.sessionId,
+        workspaceKind: session ? undefined : draftWorkspace?.kind
       });
       setSession(result.session);
-      setProjectRoot(result.session.projectRoot);
-      await refreshSessions();
+      void refreshSessions().catch((nextError) => {
+        setError(`任务已创建，但侧边栏刷新失败：${nextError instanceof Error ? nextError.message : String(nextError)}`);
+      });
+      return true;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
     }
-  }, [draftAccessMode, draftMode, draftPlanEntry, model, projectRoot, refreshSessions, session]);
+  }, [draftAccessMode, draftMode, draftPlanEntry, draftWorkspace, model, refreshSessions, session]);
 
-  const newSession = useCallback(async (preferredRoot?: string) => {
-    let nextRoot = preferredRoot;
-    if (!nextRoot && window.deepseeker) {
-      const selected = await window.deepseeker.projects.pick();
-      if (!selected) return;
-      nextRoot = selected.path;
-    }
+  const newSession = useCallback((nextWorkspace: DraftWorkspace) => {
     setSession(null);
     setWorkspace(null);
-    setProjectRoot(nextRoot ?? config?.workspaceRoot ?? null);
+    setDraftWorkspace(nextWorkspace);
+    setDraftRevision((current) => current + 1);
     setError(null);
     setDraftAccessMode("request_approval");
     setDraftMode("work");
     setDraftPlanEntry(config?.planEntry ?? "suggest");
-  }, [config]);
+  }, [config?.planEntry]);
 
   const retryRuntime = useCallback(async () => {
     if (!window.deepseeker) return;
@@ -261,6 +266,8 @@ export function useWorkspace() {
     try {
       await runtimeApi.setSessionSidebar(sessionId, { archived: true });
       if (session?.sessionId === sessionId) {
+        setDraftWorkspace(session.workspaceKind === "scratch" ? { kind: "scratch" } : projectDraftWorkspace(session.projectRoot));
+        setDraftRevision((current) => current + 1);
         setSession(null);
         setWorkspace(null);
       }
@@ -275,6 +282,8 @@ export function useWorkspace() {
     try {
       await runtimeApi.archiveProjectSessions(root);
       if (session?.projectRoot === root) {
+        setDraftWorkspace(projectDraftWorkspace(root));
+        setDraftRevision((current) => current + 1);
         setSession(null);
         setWorkspace(null);
       }
@@ -367,6 +376,8 @@ export function useWorkspace() {
     connection,
     contextObserver,
     currentRun: session?.runs.at(-1),
+    draftRevision,
+    draftWorkspace,
     error,
     model,
     mode: draftMode,
@@ -374,7 +385,8 @@ export function useWorkspace() {
     pendingApproval,
     pinSession,
     planEntry: draftPlanEntry,
-    projectRoot,
+    projectRoot: session?.projectRoot ?? (draftWorkspace?.kind === "project" ? draftWorkspace.projectRoot : null),
+    reportError,
     resolveApproval,
     resolvePlan,
     revisePlan,
@@ -382,6 +394,7 @@ export function useWorkspace() {
     searchSessions: (query: string) => void refreshSessions(query),
     selectSession,
     setAccessMode,
+    setDraftWorkspace,
     setMode,
     session,
     sessions,

@@ -84,6 +84,7 @@ function mapData(event: LegacyEvent, type: EventType): unknown {
       createdAt: String(record.createdAt ?? event.emittedAt),
       model: String(record.model ?? "deepseek-v4-flash"),
       projectRoot: String(record.projectRoot ?? ""),
+      workspaceKind: "project",
       sessionId: String(record.sessionId ?? record.sessionKey ?? event.scope.sessionKey),
       title: String(record.title ?? "历史会话")
     };
@@ -191,12 +192,13 @@ export function decodeStoredSession(input: unknown): Session {
     tasks?: unknown[];
     resume?: StoredResume;
   };
-  const source = input as Omit<Session, "mode" | "planEntry" | "plans" | "questions" | "runs"> & {
+  const source = input as Omit<Session, "mode" | "planEntry" | "plans" | "questions" | "runs" | "workspaceKind"> & {
     mode?: Session["mode"];
     planEntry?: Session["planEntry"];
     plans?: Session["plans"];
     questions?: Session["questions"];
     runs?: StoredRun[];
+    workspaceKind?: Session["workspaceKind"];
   };
   return {
     ...source,
@@ -204,6 +206,7 @@ export function decodeStoredSession(input: unknown): Session {
     planEntry: source.planEntry ?? "suggest",
     plans: source.plans ?? [],
     questions: source.questions ?? [],
+    workspaceKind: source.workspaceKind ?? "project",
     runs: (source.runs ?? []).map((run) => ({
       ...run,
       mode: run.mode ?? source.mode ?? "work",

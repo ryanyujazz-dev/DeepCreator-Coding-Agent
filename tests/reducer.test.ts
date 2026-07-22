@@ -28,6 +28,7 @@ function event(offset: number, type: Event["type"], data: unknown, activityId?: 
 
 test("reduces lifecycle signals and treats settlement as authoritative", () => {
   const initial = createSession(registration, 1);
+  assert.equal(initial.workspaceKind, "project");
   const events = [
     event(2, "run.started", { model: "deepseek-chat", prompt: "修复测试", startedAt: "2026-07-17T10:00:02.000Z" }),
     event(4, "activity.started", { audience: "debug", kind: "thinking", startedAt: "2026-07-17T10:00:04.000Z", title: "" }, "activity_1"),

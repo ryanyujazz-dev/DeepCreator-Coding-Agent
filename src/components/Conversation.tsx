@@ -69,8 +69,8 @@ export function Conversation({
       // 顶部蒙层 top = scroll 相对 main 的 offsetTop
       setScrollOffsetTop(scroll.offsetTop);
       // 底部蒙层 bottom = composer 上沿距 main 底部的距离
-      // composer 是 .conversation-main 的直接子元素(dock 已删除)
-      const composer = portalTarget.querySelector(".composer") as HTMLElement | null;
+      // 新任务使用 composer-stack，已有任务直接测量 composer，二者都以真实上沿为准。
+      const composer = portalTarget.querySelector(".composer-stack, .composer") as HTMLElement | null;
       if (composer) {
         setComposerBottomOffset(portalTarget.clientHeight - composer.offsetTop);
         const mainRect = portalTarget.getBoundingClientRect();
@@ -81,8 +81,8 @@ export function Conversation({
     updateLayout();
     const observer = new ResizeObserver(updateLayout);
     observer.observe(portalTarget);
-    // 观察 composer 以及它的兄弟(hud/notice 等显隐会改变 composer 位置)
-    const composer = portalTarget.querySelector(".composer");
+    // 观察输入区容器；上下文条和 Composer 高度变化都会同步更新遮罩边界。
+    const composer = portalTarget.querySelector(".composer-stack, .composer");
     if (composer) observer.observe(composer);
     return () => observer.disconnect();
   }, [portalTarget]);

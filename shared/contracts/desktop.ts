@@ -34,6 +34,7 @@ export type DesktopBridge = {
     reveal: (filePath: string) => Promise<void>;
   };
   projects: {
+    activate: (projectPath: string) => Promise<ProjectRef[]>;
     open: (projectPath: string) => Promise<void>;
     pick: () => Promise<ProjectRef | null>;
     pin: (projectPath: string, pinned: boolean) => Promise<ProjectRef[]>;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -258,9 +258,10 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
       url: "/api/sessions/session_http/runs"
     });
     assert.equal(created.statusCode, 200);
-    const body = created.json() as { run: { runId: string }; session: { sessionId: string } };
+    const body = created.json() as { run: { runId: string }; session: { sessionId: string; workspaceKind: string } };
     assert.match(body.run.runId, /^run_/);
     assert.equal(body.session.sessionId, "session_http");
+    assert.equal(body.session.workspaceKind, "project");
     const replay = await app.inject({ headers: { authorization: "Bearer runtime-test-token" }, method: "GET", url: "/api/sessions/session_http/events?afterOffset=0" });
     assert.equal(replay.statusCode, 200);
     assert.deepEqual((replay.json() as { events: Event[] }).events.map((item) => item.type), ["session.created", "run.started"]);
@@ -280,6 +281,38 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     const workspace = await app.inject({ headers: { authorization: "Bearer runtime-test-token" }, method: "GET", url: "/api/sessions/session_http/workspace" });
     assert.equal(workspace.statusCode, 200);
     assert.equal(workspace.json().workspace.exists, true);
+    const scratch = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      payload: { model: "mock-agent", prompt: "临时任务", workspaceKind: "scratch" },
+      url: "/api/sessions/session_scratch/runs"
+    });
+    assert.equal(scratch.statusCode, 200);
+    const scratchSession = scratch.json().session as { projectRoot: string; workspaceKind: string };
+    assert.equal(scratchSession.workspaceKind, "scratch");
+    assert.equal(path.dirname(scratchSession.projectRoot), path.join(directory, "scratch-workspaces"));
+    assert.equal(existsSync(scratchSession.projectRoot), true);
+    const illegalScratchRoot = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      payload: { projectRoot: directory, prompt: "非法临时任务", workspaceKind: "scratch" },
+      url: "/api/sessions/session_illegal_scratch/runs"
+    });
+    assert.equal(illegalScratchRoot.statusCode, 400);
+    const conflictingKind = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      payload: { prompt: "切换工作区", workspaceKind: "project" },
+      url: "/api/sessions/session_scratch/runs"
+    });
+    assert.equal(conflictingKind.statusCode, 409);
+    const conflictingRoot = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      payload: { projectRoot: path.join(directory, "other"), prompt: "切换项目" },
+      url: "/api/sessions/session_http/runs"
+    });
+    assert.equal(conflictingRoot.statusCode, 409);
   } finally {
     await app.close();
     store.close();

@@ -3,6 +3,7 @@ import { Folder, MoreHorizontal, PanelRight, SlidersHorizontal } from "lucide-re
 import { AppTopbar } from "./components/AppTopbar";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
+import { ProjectContextSelector } from "./components/ProjectContextSelector";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { Conversation } from "./components/Conversation";
 import { SessionSidebar } from "./components/SessionSidebar";
@@ -14,6 +15,7 @@ import { Changes } from "../shared/contracts/runtime";
 import { ProjectRef } from "../shared/contracts/desktop";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { IconButton } from "./components/ui/ControlPrimitives";
+import { defaultDraftWorkspace, DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
 
 type SurfaceFileState = {
   error: string | null;
@@ -50,7 +52,9 @@ export function App() {
   const [surfaceFiles, setSurfaceFiles] = useState<Record<string, SurfaceFileState>>({});
   const [surfaceClosing, setSurfaceClosing] = useState(false);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
+  const [projectsReady, setProjectsReady] = useState(!window.deepseeker);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const desktop = window.deepseeker;
   const {
     activeRun,
     archiveProjectSessions,
@@ -60,6 +64,8 @@ export function App() {
     connection,
     contextObserver,
     currentRun,
+    draftRevision,
+    draftWorkspace,
     balance,
     error,
     model,
@@ -67,6 +73,7 @@ export function App() {
     newSession,
     pendingApproval,
     pinSession,
+    reportError,
     accessMode,
     resolveApproval,
     resolvePlan,
@@ -75,14 +82,14 @@ export function App() {
     searchSessions,
     selectSession,
     setAccessMode,
+    setDraftWorkspace,
     setMode,
     session,
     sessions,
     startRun,
     stopCommand,
     retryRuntime,
-    workspace,
-    projectRoot
+    workspace
   } = useWorkspace();
   const activeTask = (currentRun?.tasks ?? []).find((task) => task.status === "running");
   const waitingRun = activeRun?.status === "waiting" ? activeRun : undefined;
@@ -119,6 +126,11 @@ export function App() {
   const surfaceWidthCap = compactWorkspace ? 420 : 960;
   const surfaceMaxWidth = Math.max(surfaceMinimum, Math.min(surfaceWidthCap, viewportWidth - visibleSidebarWidth - conversationMinimum));
   const effectiveSurfaceWidth = Math.min(surfaceWidth, surfaceMaxWidth);
+  const selectableProjects = useMemo<ProjectRef[]>(() => {
+    if (desktop || !config?.workspaceRoot) return projects;
+    const name = config.workspaceRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? config.workspaceRoot;
+    return [{ lastOpenedAt: "", name, path: config.workspaceRoot }, ...projects.filter((project) => project.path !== config.workspaceRoot)];
+  }, [config?.workspaceRoot, desktop, projects]);
   const openFileSurface = useCallback((filePath: string) => {
     if (!session?.sessionId) return;
     const surfaceId = `file:${filePath}`;
@@ -226,14 +238,58 @@ export function App() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
   useEffect(() => {
-    if (!window.deepseeker) return;
-    void window.deepseeker.projects.recent().then(setProjects);
-  }, [session?.projectRoot]);
+    if (!desktop) return;
+    void desktop.projects.recent()
+      .then(setProjects)
+      .catch(() => setProjects([]))
+      .finally(() => setProjectsReady(true));
+  }, [desktop]);
+  const activateDraftWorkspace = useCallback(async (next: DraftWorkspace) => {
+    if (desktop && next.kind === "project") {
+      setProjects(await desktop.projects.activate(next.projectRoot));
+    }
+    setDraftWorkspace(next);
+  }, [desktop, setDraftWorkspace]);
   const createSession = useCallback(async (preferredRoot?: string) => {
-    await newSession(preferredRoot);
-    if (window.deepseeker) setProjects(await window.deepseeker.projects.recent());
-  }, [newSession]);
-  const desktop = window.deepseeker;
+    const next = preferredRoot
+      ? projectDraftWorkspace(preferredRoot)
+      : defaultDraftWorkspace({
+        current: session,
+        currentExists: workspace?.exists !== false && (!desktop || projects.some((project) => project.path === session?.projectRoot)),
+        fallbackProjectRoot: desktop ? undefined : config?.workspaceRoot,
+        projects: selectableProjects
+      });
+    try {
+      await activateDraftWorkspace(next);
+      newSession(next);
+    } catch (nextError) {
+      reportError(nextError);
+    }
+  }, [activateDraftWorkspace, config?.workspaceRoot, desktop, newSession, reportError, selectableProjects, session, workspace?.exists]);
+  const pickProject = useCallback(async () => {
+    if (!desktop) return null;
+    const selected = await desktop.projects.pick();
+    if (selected) setProjects(await desktop.projects.recent());
+    return selected;
+  }, [desktop]);
+  const openSession = useCallback(async (sessionId: string) => {
+    const summary = sessions.find((candidate) => candidate.sessionId === sessionId);
+    if (desktop && summary?.workspaceKind === "project" && projects.some((project) => project.path === summary.projectRoot)) {
+      setProjects(await desktop.projects.activate(summary.projectRoot));
+    }
+    await selectSession(sessionId);
+  }, [desktop, projects, selectSession, sessions]);
+  useEffect(() => {
+    if (session || draftWorkspace || !config || !projectsReady) return;
+    const next = defaultDraftWorkspace({
+      fallbackProjectRoot: desktop ? undefined : config.workspaceRoot,
+      projects: selectableProjects
+    });
+    void activateDraftWorkspace(next).catch((nextError) => {
+      reportError(nextError);
+      setDraftWorkspace({ kind: "scratch" });
+    });
+  }, [activateDraftWorkspace, config, desktop, draftWorkspace, projectsReady, reportError, selectableProjects, session, setDraftWorkspace]);
   return (
     <AppErrorBoundary>
       <div className="app-frame">
@@ -250,7 +306,7 @@ export function App() {
           onRemoveProject={desktop ? async (root) => setProjects(await desktop.projects.remove(root)) : undefined}
           onRenameProject={desktop ? async (root, name) => setProjects(await desktop.projects.rename(root, name)) : undefined}
           onSearch={searchSessions}
-          onSelectSession={(sessionId) => void selectSession(sessionId)}
+          onSelectSession={(sessionId) => void openSession(sessionId)}
           onSettings={window.deepseeker ? () => setSettingsOpen(true) : undefined}
           onWidthChange={setSidebarWidth}
           onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
@@ -284,29 +340,40 @@ export function App() {
               </div>
             )}
             {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
-            {window.deepseeker && !session && projectRoot && <div className="composer-notice">新任务将运行在 <strong>{projectRoot}</strong></div>}
             {workspace?.exists === false && <div className="composer-error">项目目录不存在，请新建任务并重新选择项目。</div>}
             {error && <div className="composer-error">{error}</div>}
             <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
-            <Composer
-              balance={balance}
-              contextConfig={config}
-              contextObserver={contextObserver}
-              disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : projectRoot ? undefined : "请先选择项目文件夹"}
-              isRunning={agentRunning}
-              isWaiting={Boolean(waitingRun)}
-              model={model}
-              onCancel={() => void cancelRun()}
-              onAccessModeChange={(mode) => void setAccessMode(mode)}
-              onModeChange={(nextMode) => void setMode(nextMode)}
-              onAnswerQuestion={answerQuestion}
-              onResolvePlan={resolvePlan}
-              onSubmit={(prompt) => void startRun(prompt)}
-              pendingPlan={pendingPlan}
-              pendingQuestion={pendingQuestion}
-              accessMode={accessMode}
-              mode={mode}
-            />
+            <div className={`composer-stack ${!session ? "has-project-context" : ""}`}>
+              {!session && draftWorkspace && (
+                <ProjectContextSelector
+                  canAddProject={Boolean(desktop)}
+                  onAddProject={pickProject}
+                  onChange={activateDraftWorkspace}
+                  projects={selectableProjects}
+                  selection={draftWorkspace}
+                />
+              )}
+              <Composer
+                balance={balance}
+                contextConfig={config}
+                contextObserver={contextObserver}
+                disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : draftWorkspace ? undefined : "正在准备工作区"}
+                isRunning={agentRunning}
+                isWaiting={Boolean(waitingRun)}
+                model={model}
+                onCancel={() => void cancelRun()}
+                onAccessModeChange={(mode) => void setAccessMode(mode)}
+                onModeChange={(nextMode) => void setMode(nextMode)}
+                onAnswerQuestion={answerQuestion}
+                onResolvePlan={resolvePlan}
+                onSubmit={startRun}
+                pendingPlan={pendingPlan}
+                pendingQuestion={pendingQuestion}
+                resetKey={session?.sessionId ?? `draft:${draftRevision}`}
+                accessMode={accessMode}
+                mode={mode}
+              />
+            </div>
           </div>
           <SurfacePane
             activeSurfaceId={activeSurface?.id ?? null}

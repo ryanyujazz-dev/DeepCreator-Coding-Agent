@@ -14,11 +14,14 @@ export function EnvironmentPanel({
   const run = session?.runs.at(-1);
   const delta = run?.changes.comparisonBase === "run_start" ? run.changes : undefined;
   const fileCount = delta?.fileCount ?? 0;
+  const workspaceLabel = session?.workspaceKind === "scratch"
+    ? "临时工作区"
+    : workspace?.name ?? session?.projectRoot ?? "尚未选择项目";
   return (
     <section className="environment-section">
       <header><span>运行环境</span></header>
       <div className="environment-row"><HardDrive size={15} /><span>本地 Runtime</span></div>
-      <div className="environment-row" title={session?.projectRoot}><FolderGit2 size={15} /><span>{workspace?.name ?? session?.projectRoot ?? "尚未选择项目"}</span></div>
+      <div className="environment-row" title={session?.workspaceKind === "scratch" ? "临时工作区" : session?.projectRoot}><FolderGit2 size={15} /><span>{workspaceLabel}</span></div>
       <div className="environment-row"><GitBranch size={15} /><span>{workspace?.git ? workspace.branch || "detached HEAD" : session ? "非 Git 工作区" : "尚未连接"}</span></div>
       {fileCount > 0 ? (
         <button className="environment-row" onClick={() => onOpenReview(delta)} type="button">

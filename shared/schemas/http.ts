@@ -31,6 +31,7 @@ export const runInputSchema = {
     properties: {
       model: id,
       projectRoot: id,
+      workspaceKind: { type: "string", enum: ["project", "scratch"] },
       prompt: id,
       accessMode: { type: "string", enum: ["request_approval", "smart_approval", "full_access"] },
       mode: { type: "string", enum: ["work", "plan"] },

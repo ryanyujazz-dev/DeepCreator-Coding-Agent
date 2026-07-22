@@ -1,4 +1,4 @@
-import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, Session } from "../shared/contracts/runtime";
+import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, Session, WorkspaceKind } from "../shared/contracts/runtime";
 
 export class RuntimeRequestError extends Error {
   status: number;
@@ -146,7 +146,7 @@ export class RuntimeClient {
   getWorkspace = (sessionId: string) => this.request<{ workspace: RuntimeWorkspace }>(`/api/sessions/${encodeURIComponent(sessionId)}/workspace`);
   getContextObserver = (sessionId: string) => this.request<{ observer: RuntimeContextObserver }>(`/api/sessions/${encodeURIComponent(sessionId)}/context-observer`);
   getFile = (sessionId: string, path: string) => this.request<RuntimeFilePreview>(`/api/sessions/${encodeURIComponent(sessionId)}/files?path=${encodeURIComponent(path)}`);
-  startRun = (input: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; projectRoot?: string; prompt: string; sessionId?: string }) => {
+  startRun = (input: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; projectRoot?: string; prompt: string; sessionId?: string; workspaceKind?: WorkspaceKind }) => {
     const sessionId = input.sessionId ?? `session_${crypto.randomUUID()}`;
     return this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { body: JSON.stringify(input), method: "POST" });
   };

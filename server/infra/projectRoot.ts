@@ -17,7 +17,9 @@ export async function resolveProjectRoot(input: {
   prompt: string;
 }): Promise<string> {
   if (input.explicitRoot?.trim()) {
-    return (await existingDirectory(input.explicitRoot.trim())) ?? path.resolve(input.fallbackRoot);
+    const directory = await existingDirectory(input.explicitRoot.trim());
+    if (!directory) throw new Error(`Project directory does not exist: ${path.resolve(input.explicitRoot.trim())}`);
+    return directory;
   }
 
   const prompt = input.prompt.trimStart();

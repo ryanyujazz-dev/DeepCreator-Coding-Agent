@@ -25,7 +25,7 @@ import { FloatingSurface, IconButton, RowAction } from "./ui/ControlPrimitives";
 
 type AnchorRect = { bottom: number; left: number; right: number; top: number; width: number };
 type ProjectOverlay = { project: ProjectRef; rect: AnchorRect };
-type SessionOverlay = { project: ProjectRef; rect: AnchorRect; session: SessionSummary };
+type SessionOverlay = { projectName: string; rect: AnchorRect; session: SessionSummary };
 type SidebarConfirmation = {
   action: () => Promise<void> | void;
   confirmLabel: string;
@@ -67,11 +67,13 @@ export function partitionSidebarItems(projectRoots: string[], projects: ProjectR
   const pinnedProjectPaths = new Set(projects.filter((project) => project.pinned).map((project) => project.path));
   const pinnedProjectRoots = projectRoots.filter((projectRoot) => pinnedProjectPaths.has(projectRoot));
   const pinnedSessions = sessions.filter((session) => session.pinned);
+  const regularScratchSessions = sessions.filter((session) => session.workspaceKind === "scratch" && !session.pinned);
   return {
     hasPinnedItems: pinnedProjectRoots.length > 0 || pinnedSessions.length > 0,
     pinnedProjectRoots,
     pinnedSessions,
-    regularProjectRoots: projectRoots.filter((projectRoot) => !pinnedProjectPaths.has(projectRoot))
+    regularProjectRoots: projectRoots.filter((projectRoot) => !pinnedProjectPaths.has(projectRoot)),
+    regularScratchSessions
   };
 }
 
@@ -131,7 +133,7 @@ export function SessionSidebar({
   const projectByPath = useMemo(() => new Map(projects.map((project) => [project.path, project])), [projects]);
   const projectRoots = useMemo(() => desktopProjectsManaged
     ? projects.map((project) => project.path)
-    : [...new Set([...projects.map((project) => project.path), ...sessions.map((session) => session.projectRoot)])],
+    : [...new Set([...projects.map((project) => project.path), ...sessions.filter((session) => session.workspaceKind !== "scratch").map((session) => session.projectRoot)])],
   [desktopProjectsManaged, projects, sessions]);
   const projectMenuSessions = projectMenu
     ? sessions.filter((session) => session.projectRoot === projectMenu.project.path)
@@ -223,15 +225,17 @@ export function SessionSidebar({
     path: projectRoot
   };
 
-  const renderSessionRow = (session: SessionSummary, project: ProjectRef, topLevel = false) => (
+  const renderSessionRow = (session: SessionSummary, project?: ProjectRef, topLevel = false) => {
+    const projectName = session.workspaceKind === "scratch" ? "临时工作区" : project?.name ?? "项目";
+    return (
     <div
       className={`thread-row-shell ${topLevel ? "is-top-level" : ""} ${selectedSessionKey === session.sessionId ? "active-thread" : ""}`}
       key={`session:${session.sessionId}`}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredSession(null); }}
       onFocus={(event) => {
-        if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredSession({ project, rect: anchorRect(event.currentTarget), session });
+        if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredSession({ projectName, rect: anchorRect(event.currentTarget), session });
       }}
-      onMouseEnter={(event) => setHoveredSession({ project, rect: anchorRect(event.currentTarget), session })}
+      onMouseEnter={(event) => setHoveredSession({ projectName, rect: anchorRect(event.currentTarget), session })}
       onMouseLeave={() => setHoveredSession(null)}
     >
       <RowAction className="thread-row" onClick={() => onSelectSession(session.sessionId)}>
@@ -253,7 +257,7 @@ export function SessionSidebar({
             onClick={() => requestConfirmation({
               action: () => onArchiveSession(session.sessionId),
               confirmLabel: "归档任务",
-              description: `这会将该任务从 ${project.name} 中归档。你稍后可以在已归档任务中找到它。`,
+              description: `这会将该任务从 ${projectName} 中归档。你稍后可以在已归档任务中找到它。`,
               title: `归档“${session.title}”？`
             })}
             title={session.active ? "请先中止正在运行的任务" : "归档任务"}
@@ -261,11 +265,12 @@ export function SessionSidebar({
         )}
       </div>
     </div>
-  );
+    );
+  };
 
   const renderProjectGroup = (projectRoot: string, pinnedSection = false) => {
     const project = resolveProject(projectRoot);
-    const projectSessions = sessions.filter((session) => session.projectRoot === projectRoot && !session.pinned);
+    const projectSessions = sessions.filter((session) => session.workspaceKind !== "scratch" && session.projectRoot === projectRoot && !session.pinned);
     const collapsed = collapsedProjects.has(projectRoot);
     return (
       <div className={`project-group ${pinnedSection ? "is-pinned-project" : ""} ${collapsed ? "is-collapsed" : ""}`} key={`project:${projectRoot}`}>
@@ -335,16 +340,22 @@ export function SessionSidebar({
           <section className="sidebar-section pinned-section">
             <h2>置顶</h2>
             <div className="pinned-items">
-              {sidebarSections.pinnedSessions.map((session) => renderSessionRow(session, resolveProject(session.projectRoot), true))}
+              {sidebarSections.pinnedSessions.map((session) => renderSessionRow(session, session.workspaceKind === "project" ? resolveProject(session.projectRoot) : undefined, true))}
               {sidebarSections.pinnedProjectRoots.map((projectRoot) => renderProjectGroup(projectRoot, true))}
             </div>
           </section>
         )}
         <section className="sidebar-section">
           <h2>项目</h2>
-          {projectRoots.length === 0 && <div className="sidebar-empty">暂无会话</div>}
+          {projectRoots.length === 0 && <div className="sidebar-empty">暂无项目</div>}
           {sidebarSections.regularProjectRoots.map((projectRoot) => renderProjectGroup(projectRoot))}
         </section>
+        {sidebarSections.regularScratchSessions.length > 0 && (
+          <section className="sidebar-section scratch-task-section">
+            <h2>任务</h2>
+            {sidebarSections.regularScratchSessions.map((scratchSession) => renderSessionRow(scratchSession, undefined, true))}
+          </section>
+        )}
       </div>
       <div className="account-strip">
         <div className="avatar">DS</div><div><strong>本地工作区</strong></div>{onSettings ? <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton> : <CircleHelp size={16} />}
@@ -362,7 +373,7 @@ export function SessionSidebar({
       {hoveredSession && createPortal(
         <FloatingSurface className="sidebar-hover-card session-hover-card" role="tooltip" style={overlayPosition(hoveredSession.rect, 338, 96)}>
           <header><strong>{hoveredSession.session.title}</strong><time>{hoveredSession.session.active ? "运行中" : ageLabel(hoveredSession.session.updatedAt)}</time></header>
-          <div><Folder size={16} /><span>{hoveredSession.project.name}</span></div>
+          <div><Folder size={16} /><span>{hoveredSession.projectName}</span></div>
         </FloatingSurface>,
         document.body
       )}

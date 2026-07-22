@@ -25,3 +25,23 @@ test("uses the longest existing leading directory for a new session", async () =
     rmSync(directory, { force: true, recursive: true });
   }
 });
+
+test("rejects an explicit project directory that does not exist", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-explicit-root-"));
+  try {
+    await assert.rejects(
+      resolveProjectRoot({
+        explicitRoot: path.join(directory, "missing"),
+        fallbackRoot: directory,
+        prompt: "分析项目"
+      }),
+      /Project directory does not exist/
+    );
+    assert.equal(
+      await resolveProjectRoot({ explicitRoot: directory, fallbackRoot: path.join(directory, "fallback"), prompt: "分析项目" }),
+      directory
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

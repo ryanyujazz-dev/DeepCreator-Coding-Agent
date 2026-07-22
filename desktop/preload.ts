@@ -7,6 +7,7 @@ const bridge: DesktopBridge = {
     reveal: (filePath) => ipcRenderer.invoke("desktop:reveal", filePath)
   },
   projects: {
+    activate: (projectPath) => ipcRenderer.invoke("desktop:activate-project", projectPath),
     open: (projectPath) => ipcRenderer.invoke("desktop:open-project", projectPath),
     pick: () => ipcRenderer.invoke("desktop:pick-project"),
     pin: (projectPath, pinned) => ipcRenderer.invoke("desktop:pin-project", projectPath, pinned),

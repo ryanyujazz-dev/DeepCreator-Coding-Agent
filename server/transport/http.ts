@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import Fastify, { FastifyInstance } from "fastify";
-import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, Session } from "../../shared/contracts/runtime";
+import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, Session, WorkspaceKind } from "../../shared/contracts/runtime";
 import { MemoryFact } from "../../shared/contracts/context";
 import { Provider, ToolSpec } from "../../shared/contracts/provider";
 import { CapabilitySource } from "../../shared/contracts/capability";
@@ -25,6 +25,7 @@ import { answerQuestion, resolvePlan, ResumeRun, revisePlan } from "../app/planR
 import { RuntimeStore } from "../infra/runtimeStore";
 import { WorkspaceInfo } from "../infra/workspace";
 import { CommandManager } from "../infra/commandManager";
+import { ensureScratchWorkspace } from "../infra/sessionWorkspace";
 
 export type HttpConfig = {
   authToken?: string;
@@ -122,6 +123,7 @@ function createContextPreview(): ReturnType<typeof prepareSessionContext>["telem
     grants: [],
     accessMode: "request_approval",
     projectRoot: workspaceRoot,
+    workspaceKind: "project",
     sessionId: "context_preview",
     title: "Context preview",
     updatedAt: now
@@ -355,18 +357,50 @@ app.get<{ Params: { runId: string } }>("/api/runs/:runId", { schema: runParamsSc
 
 app.post<{
   Params: { sessionId: string };
-  Body: { model?: string; accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry; projectRoot?: string; prompt?: string; sessionId?: string };
+  Body: { model?: string; accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry; projectRoot?: string; prompt?: string; sessionId?: string; workspaceKind?: WorkspaceKind };
 }>("/api/sessions/:sessionId/runs", { schema: runInputSchema }, async (request, reply) => {
   const prompt = request.body.prompt?.trim();
   if (!prompt) return reply.code(400).send({ error: "prompt is required" });
   const model = request.body.model ?? defaultModel;
   const sessionId = request.params.sessionId;
   let session = store.getSession(sessionId);
-  const projectRoot = session?.projectRoot ?? await resolveProjectRoot({
-    explicitRoot: request.body.projectRoot,
-    fallbackRoot: workspaceRoot,
-    prompt
-  });
+  let projectRoot: string;
+  if (session) {
+    if (request.body.workspaceKind && request.body.workspaceKind !== session.workspaceKind) {
+      return reply.code(409).send({ error: "This task is locked to its original workspace." });
+    }
+    if (request.body.projectRoot && path.resolve(request.body.projectRoot) !== path.resolve(session.projectRoot)) {
+      return reply.code(409).send({ error: "This task is locked to its original project directory." });
+    }
+    if (session.workspaceKind === "scratch" && request.body.projectRoot) {
+      return reply.code(409).send({ error: "Scratch tasks cannot switch to a project directory." });
+    }
+    if (session.workspaceKind === "scratch") {
+      const expectedRoot = await ensureScratchWorkspace(dataDirectory, sessionId);
+      if (path.resolve(expectedRoot) !== path.resolve(session.projectRoot)) {
+        return reply.code(409).send({ error: "Scratch workspace metadata is inconsistent." });
+      }
+      projectRoot = expectedRoot;
+    } else {
+      projectRoot = session.projectRoot;
+    }
+  } else {
+    const workspaceKind = request.body.workspaceKind ?? "project";
+    if (workspaceKind === "scratch" && request.body.projectRoot) {
+      return reply.code(400).send({ error: "projectRoot is not allowed for a scratch workspace." });
+    }
+    try {
+      projectRoot = workspaceKind === "scratch"
+        ? await ensureScratchWorkspace(dataDirectory, sessionId)
+        : await resolveProjectRoot({
+          explicitRoot: request.body.projectRoot,
+          fallbackRoot: workspaceRoot,
+          prompt
+        });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : "Unable to prepare workspace." });
+    }
+  }
   if (!session) {
     const mode = request.body.mode ?? (explicitPlanMode(prompt) ? "plan" : "work");
     session = store.createSession({
@@ -377,6 +411,7 @@ app.post<{
       planEntry: request.body.planEntry ?? "suggest",
       accessMode: request.body.accessMode ?? "request_approval",
       projectRoot,
+      workspaceKind: request.body.workspaceKind ?? "project",
       sessionId,
       title: prompt.slice(0, 42) || "新任务"
     });

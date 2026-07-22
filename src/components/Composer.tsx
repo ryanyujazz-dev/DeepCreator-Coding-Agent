@@ -24,6 +24,7 @@ export function Composer({
   onAnswerQuestion,
   onResolvePlan,
   onSubmit,
+  resetKey,
   pendingPlan,
   pendingQuestion,
   accessMode,
@@ -41,13 +42,15 @@ export function Composer({
   onModeChange: (mode: Mode) => void;
   onAnswerQuestion: (interactionId: string, answers: Record<string, string>) => Promise<void> | void;
   onResolvePlan: (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => Promise<void> | void;
-  onSubmit: (prompt: string) => void;
+  onSubmit: (prompt: string) => Promise<boolean>;
   pendingPlan?: Plan;
   pendingQuestion?: Question;
+  resetKey: string | number;
   accessMode: AccessMode;
   mode: Mode;
 }) {
   const [draft, setDraft] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   // textarea 自适应高度:初始 2 行,随内容增长最高到 8 行,超过 8 行内部滚动。
   // CSS 里 min-height/max-height 已经把范围限定到 2~8 行,JS 只需根据 scrollHeight 设置 height。
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -64,6 +67,10 @@ export function Composer({
   useEffect(() => {
     autoGrow();
   }, [draft, autoGrow]);
+  useEffect(() => {
+    setDraft("");
+    if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+  }, [resetKey]);
   const [accessMenuOpen, setAccessMenuOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
@@ -116,18 +123,22 @@ export function Composer({
       windowTokens
     };
   }, [contextConfig, contextObserver, contextSort]);
-  function sendDraft() {
+  async function sendDraft() {
     const prompt = draft.trim();
-    if (!prompt || isRunning || isWaiting || disabledReason) return;
-    setDraft("");
-    // 发送后 textarea 高度回到 2 行(清空内容后 autoGrow 会通过 useEffect 触发,
-    // 但 inline style.height 可能卡在大值,这里显式重置让 useEffect 立即生效)
-    if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
-    onSubmit(prompt);
+    if (!prompt || isRunning || isWaiting || disabledReason || submitting) return;
+    setSubmitting(true);
+    try {
+      const succeeded = await onSubmit(prompt);
+      if (!succeeded) return;
+      setDraft("");
+      if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+    } finally {
+      setSubmitting(false);
+    }
   }
   function submit(event: FormEvent) {
     event.preventDefault();
-    sendDraft();
+    void sendDraft();
   }
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Enter 发送,Shift+Enter 换行;Cmd/Ctrl+Enter 不触发(留给未来可能的强制发送)
@@ -135,7 +146,7 @@ export function Composer({
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
-      sendDraft();
+      void sendDraft();
     }
   }
   const resolvePlan = async (decision: PlanDecision) => {
@@ -214,8 +225,8 @@ export function Composer({
     );
   }
   return (
-    <form className="composer" onSubmit={submit}>
-      <textarea aria-label="输入任务" disabled={isRunning || isWaiting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "Agent 正在处理" : "随心输入")} ref={textareaRef} value={draft} />
+    <form aria-busy={submitting} className="composer" onSubmit={submit}>
+      <textarea aria-label="输入任务" disabled={isRunning || isWaiting || submitting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "Agent 正在处理" : submitting ? "正在创建任务" : "随心输入")} ref={textareaRef} value={draft} />
       <div className="composer-row">
         <div className="composer-left">
           <div className="add-selector">
@@ -309,7 +320,7 @@ export function Composer({
               <footer><span>平均缓存命中率</span><strong>{contextSummary.cacheRate === undefined ? "尚无数据" : `${(contextSummary.cacheRate * 100).toFixed(1)}%`}</strong></footer>
             </FloatingSurface>
           </div>
-          <PillButton className="model-button"><span>{model}</span><ChevronDown size={13} /></PillButton><IconButton className="plain-icon" disabled={isWaiting} label="语音输入"><Mic size={16} /></IconButton>{isRunning ? <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton> : <IconButton className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || Boolean(disabledReason)} label="发送" type="submit"><ArrowUp size={18} /></IconButton>}
+          <PillButton className="model-button"><span>{model}</span><ChevronDown size={13} /></PillButton><IconButton className="plain-icon" disabled={isWaiting || submitting} label="语音输入"><Mic size={16} /></IconButton>{isRunning ? <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton> : <IconButton className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || submitting || Boolean(disabledReason)} label="发送" type="submit"><ArrowUp size={18} /></IconButton>}
         </div>
       </div>
     </form>

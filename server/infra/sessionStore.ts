@@ -5,7 +5,7 @@ import { Database } from "./database";
 function searchText(session: Session): string {
   return [
     session.title,
-    session.projectRoot,
+    session.workspaceKind === "scratch" ? "临时工作区 不在项目中工作" : session.projectRoot,
     ...session.runs.flatMap((run) => [
       run.prompt,
       run.answer,
@@ -88,7 +88,8 @@ export class SessionStore {
       runCount: session.runs.length,
       sessionId: session.sessionId,
       title: session.title,
-      updatedAt: session.updatedAt
+      updatedAt: session.updatedAt,
+      workspaceKind: session.workspaceKind
     }));
   }
 

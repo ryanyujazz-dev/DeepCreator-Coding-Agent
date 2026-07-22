@@ -21,6 +21,13 @@ function registerIpc(): void {
   ipcMain.handle("runtime:connection", (event) => { trusted(event); return runtime.connection(); });
   ipcMain.handle("runtime:retry", (event) => { trusted(event); return runtime.restart(); });
   ipcMain.handle("desktop:recent-projects", (event) => { trusted(event); return store.recentProjects(); });
+  ipcMain.handle("desktop:activate-project", (event, projectPath: string) => {
+    trusted(event);
+    const resolved = path.resolve(projectPath);
+    if (!store.recentProjects().some((project) => project.path === resolved)) throw new Error("只能激活最近项目列表中的目录。");
+    store.addProject(resolved);
+    return store.recentProjects();
+  });
   ipcMain.handle("desktop:pin-project", (event, projectPath: string, pinned: boolean) => {
     trusted(event);
     return store.pinProject(projectPath, Boolean(pinned));

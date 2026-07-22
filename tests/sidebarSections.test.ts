@@ -8,7 +8,7 @@ function project(path: string, pinned = false): ProjectRef {
   return { lastOpenedAt: "2026-07-22T00:00:00.000Z", name: path, path, pinned };
 }
 
-function session(sessionId: string, projectRoot: string, pinned = false): SessionSummary {
+function session(sessionId: string, projectRoot: string, pinned = false, workspaceKind: SessionSummary["workspaceKind"] = "project"): SessionSummary {
   return {
     active: false,
     createdAt: "2026-07-22T00:00:00.000Z",
@@ -18,7 +18,8 @@ function session(sessionId: string, projectRoot: string, pinned = false): Sessio
     runCount: 1,
     sessionId,
     title: sessionId,
-    updatedAt: "2026-07-22T00:00:00.000Z"
+    updatedAt: "2026-07-22T00:00:00.000Z",
+    workspaceKind
   };
 }
 
@@ -33,6 +34,19 @@ test("separates pinned projects and tasks from the regular project area", () => 
   assert.deepEqual(sections.pinnedProjectRoots, ["alpha"]);
   assert.deepEqual(sections.pinnedSessions.map((item) => item.sessionId), ["pinned-task"]);
   assert.deepEqual(sections.regularProjectRoots, ["beta"]);
+  assert.deepEqual(sections.regularScratchSessions, []);
+});
+
+test("keeps scratch tasks in their own section and removes pinned duplicates", () => {
+  const sections = partitionSidebarItems(
+    ["alpha"],
+    [project("alpha")],
+    [session("scratch", "hidden-hash", false, "scratch"), session("pinned-scratch", "hidden-hash-2", true, "scratch")]
+  );
+
+  assert.deepEqual(sections.regularScratchSessions.map((item) => item.sessionId), ["scratch"]);
+  assert.deepEqual(sections.pinnedSessions.map((item) => item.sessionId), ["pinned-scratch"]);
+  assert.deepEqual(sections.regularProjectRoots, ["alpha"]);
 });
 
 test("omits the pinned area when no project or task is pinned", () => {

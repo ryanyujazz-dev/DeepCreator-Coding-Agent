@@ -59,6 +59,8 @@
   --theme-blue-darker: #164f7a;
   --theme-blue-light: #e8f2ff;
   --theme-blue-muted: #9fbde6;
+  --theme-blue-gray-surface: #edf3f8;
+  --theme-blue-gray-hover: #dfeaf4;
   --color-text: #282f33;
   --color-text-secondary: #5f6a70;
   --color-text-muted: #778188;
@@ -7011,5 +7013,224 @@ body {
 
   .ui-confirmation-dialog {
     padding: 22px 20px 20px;
+  }
+}
+
+/* New-task workspace context is visually attached behind the composer. */
+.composer-stack {
+  position: relative;
+  z-index: 6;
+  width: min(var(--layout-composer-width), calc(100% - 44px));
+  max-width: var(--layout-composer-width);
+  margin: 0 auto 18px;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.composer-stack > .composer {
+  left: auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.project-context-shelf {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 72px;
+  margin: 0 20px -28px;
+  padding: 5px 20px 33px;
+  align-items: flex-start;
+  border: 0;
+  border-radius: 28px 28px 18px 18px;
+  background: var(--theme-blue-gray-surface);
+}
+
+.project-context-trigger {
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(520px, 82%);
+  height: 34px;
+  padding: 0 4px;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  gap: 10px;
+}
+
+.project-context-trigger:hover,
+.project-context-trigger[aria-expanded="true"] {
+  background: var(--theme-blue-gray-hover);
+  color: var(--theme-blue-darker);
+}
+
+.project-context-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--type-body-size);
+  font-weight: 540;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-context-trigger > svg {
+  flex: 0 0 auto;
+}
+
+.composer-stack.has-project-context > .composer {
+  border-radius: 28px;
+}
+
+.composer-stack.has-project-context > .composer textarea {
+  min-height: 96px;
+  padding: 24px 18px 6px;
+  border-radius: 28px 28px 0 0;
+}
+
+.composer-stack.has-project-context > .composer .composer-row {
+  min-height: 50px;
+  padding: 0 12px 10px 14px;
+  border-radius: 0 0 28px 28px;
+}
+
+.project-context-popover {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: min(392px, calc(100vw - 40px));
+  max-height: min(500px, calc(100vh - 120px));
+  padding: 8px 10px 10px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-floating);
+}
+
+.project-context-search {
+  display: flex;
+  height: 42px;
+  padding: 0 10px;
+  align-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: var(--color-text-subtle);
+  gap: 8px;
+}
+
+.project-context-search:focus-within {
+  background: transparent;
+  box-shadow: inset 0 -1px 0 rgba(49, 136, 244, 0.22);
+  color: var(--theme-blue-dark);
+}
+
+.project-context-search input {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.project-context-options {
+  max-height: min(270px, 36vh);
+  margin: 2px -2px 8px;
+  padding: 0 2px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.project-context-options::-webkit-scrollbar {
+  display: none;
+}
+
+.project-context-option,
+.project-context-actions button {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 10px;
+  align-items: center;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  gap: 9px;
+  text-align: left;
+}
+
+.project-context-option:hover,
+.project-context-option:focus-visible,
+.project-context-actions button:hover,
+.project-context-actions button:focus-visible {
+  outline: 0;
+  background: var(--theme-blue-gray-hover);
+  color: var(--theme-blue-darker);
+}
+
+.project-context-option span,
+.project-context-actions button span {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  font-size: var(--type-control-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-context-option[aria-current="true"] {
+  color: var(--theme-blue-darker);
+}
+
+.project-context-actions {
+  padding-top: 7px;
+  border-top: 1px solid var(--app-border);
+}
+
+.project-context-empty,
+.project-context-error {
+  padding: 14px 10px;
+  color: var(--color-text-subtle);
+  font-size: var(--type-meta-size);
+}
+
+.project-context-error {
+  padding-block: 8px 2px;
+  color: var(--color-danger);
+}
+
+.scratch-task-section {
+  margin-top: 14px;
+}
+
+@media (min-width: 1601px) {
+  .composer-stack {
+    left: -150px;
+  }
+}
+
+@media (max-width: 760px) {
+  .composer-stack {
+    width: calc(100% - 24px);
+    margin-bottom: 12px;
+  }
+
+  .project-context-shelf {
+    margin-inline: 12px;
+    border-radius: 24px 24px 16px 16px;
+  }
+
+  .project-context-trigger {
+    max-width: 100%;
+  }
+
+  .project-context-popover {
+    width: min(392px, calc(100vw - 24px));
   }
 }
