@@ -37,6 +37,8 @@ function fileActionLabel(activity: Activity): string {
   if (activity.status === "failed") return "失败";
   if (activity.status === "cancelled") return "已取消";
   if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
+  if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "已搜索";
+  if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "已匹配";
   if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
   if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
   return activity.status === "running" ? "正在处理" : "已处理";

@@ -1,18 +1,20 @@
 # DeepSeeker CodeAgent 工具清单与缺口分析
 
 > 对标对象:Claude Code / OpenAI Codex / Cursor
-> 基线版本:DeepSeeker CodeAgent v0.1.0(14 个已注册工具)
+> 基线版本:DeepSeeker CodeAgent v0.1.0(14 个已注册工具 → 当前 16 个,新增 grep/glob)
 > 编写日期:2026-07-20
 
 ---
 
 ## 一、项目现状概览
 
-### 1.1 已注册的 14 个工具
+### 1.1 已注册的 16 个工具
 
 | 类别 | 工具 | 用途 |
 |---|---|---|
 | 文件系统 | `list_files` `read_file` `write_file` `edit_file` `delete_file` | 项目内文件增删改查 |
+| 文件搜索 | `grep` ✅(2026-07-20 新增) | 项目文件内容搜索(正则,跳过依赖/密钥文件) |
+| 文件搜索 | `glob` ✅(2026-07-20 新增) | minimatch 文件路径匹配(可选 size/mtime) |
 | Shell 执行 | `run_command` | 本地命令执行(走 `/bin/zsh -lc`) |
 | Git | `git_status` | 工作区状态 + diff 摘要 |
 | 记忆 | `search_memory` | 关键词检索已确认的 MemoryFact |
@@ -31,7 +33,9 @@
 
 ## 二、Tier 1 —— 核心缺口(高优先级)
 
-### #1 Grep —— 内容搜索工具
+### #1 Grep —— 内容搜索工具 ✅ 已实现(2026-07-20)
+
+> 实现位置:`server/infra/tools.ts` `grepFiles()` 函数 + `toolRegistry` 注册。纯 Node 实现(不依赖外部 `rg`),搜索前用 `isSensitivePath` 排除 `.env`/密钥文件,输出过 `redactSensitiveText` 兜底,响应 `AbortSignal`。支持 `output_mode: content|json` 双模式、`glob` 过滤、`case_sensitive`、`context` 上下文行、`max_results` 截断。测试:`tests/grep.test.ts`(13 个用例全绿)。
 
 **用法**
 ```
@@ -55,7 +59,9 @@ grep(query="TODO", glob="**/*.ts", output_mode="content", -n=true, max_results=1
 
 ---
 
-### #2 Glob —— 文件名匹配工具
+### #2 Glob —— 文件名匹配工具 ✅ 已实现(2026-07-20)
+
+> 实现位置:`server/infra/tools.ts` `globFiles()` 函数 + `toolRegistry` 注册。基于已直接依赖的 `minimatch@10.2.5`,跳过 `IGNORED_DIRECTORIES` 与敏感路径,响应 `AbortSignal`。默认纯路径列表,`detail=true` 附加 size/mtime。测试:`tests/glob.test.ts`(9 个用例全绿)。
 
 **用法**
 ```

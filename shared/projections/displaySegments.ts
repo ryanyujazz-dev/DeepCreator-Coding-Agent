@@ -68,6 +68,8 @@ function toolStartLabel(activity: Activity): string {
   let action = "正在执行";
   if (activity.tool?.toolName === "read_file") action = "正在读取";
   else if (activity.tool?.toolName === "list_files") action = "正在列出";
+  else if (activity.tool?.toolName === "grep") action = "正在搜索";
+  else if (activity.tool?.toolName === "glob") action = "正在匹配";
   else if (activity.tool?.toolName === "write_file") action = "正在创建";
   else if (activity.tool?.toolName === "edit_file") action = "正在编辑";
   else if (activity.tool?.toolName === "delete_file") action = "正在删除";
