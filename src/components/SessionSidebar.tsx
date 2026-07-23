@@ -239,8 +239,8 @@ export function SessionSidebar({
       onMouseLeave={() => setHoveredSession(null)}
     >
       <RowAction className="thread-row" onClick={() => onSelectSession(session.sessionId)}>
-        <OverflowFadeText>{session.title}</OverflowFadeText>
         {session.active && <span className="session-running" />}
+        <OverflowFadeText>{session.title}</OverflowFadeText>
       </RowAction>
       <div className="thread-row-actions">
         {onPinSession && (
