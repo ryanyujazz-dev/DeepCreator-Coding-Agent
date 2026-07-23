@@ -663,13 +663,13 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   assert.equal(first.hash, second.hash);
   // 系统提示词已升级为英文(对标 Codex/Claude Code)。
   // P0: safety 1.0.0(安全拒绝)、coding_behavior 3.3.0(preamble WHAT+WHY+HOW 三要素)
-  // ADR-007 标签统一: identity 2.2.0、tool_policy 2.3.0、plan_policy 2.1.0
+  // ADR-007 标签统一: identity 2.2.0、tool_policy 2.3.0、plan_policy 2.2.0(+execution tracking)
   // 消除重叠: final_response 2.1.0、output_style 1.6.0(abstraction: 不暴露工具名)
   assert.match(first.version, /safety@1\.0\.0/);
   assert.match(first.version, /identity@2\.2\.0/);
   assert.match(first.version, /coding_behavior@3\.3\.0/);
   assert.match(first.version, /tool_policy@2\.3\.0/);
-  assert.match(first.version, /plan_policy@2\.1\.0/);
+  assert.match(first.version, /plan_policy@2\.2\.0/);
   assert.match(first.version, /final_response@2\.1\.0/);
   assert.match(first.version, /doing_tasks@1\.1\.0/);
   assert.match(first.version, /output_style@1\.6\.0/);
