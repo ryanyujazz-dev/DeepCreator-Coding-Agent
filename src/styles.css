@@ -7308,24 +7308,25 @@ body {
   color: #2b6cb0;
 }
 
-/* ── 模型切换提示 ── */
+/* ── 对话流内系统通知(模型切换等) ── */
 
-.model-switch-notice {
+.conversation-notice {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 6px 16px;
+  margin: 4px 0;
   color: #8a9296;
   font-size: 12px;
   text-align: center;
 }
 
-.model-switch-notice::before,
-.model-switch-notice::after {
+.conversation-notice::before,
+.conversation-notice::after {
   content: "";
   flex: 1;
-  max-width: 120px;
+  max-width: 80px;
   height: 1px;
   background: rgba(43, 55, 60, 0.12);
 }

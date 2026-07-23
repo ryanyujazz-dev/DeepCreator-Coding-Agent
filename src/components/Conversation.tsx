@@ -26,12 +26,14 @@ const EDGE_THRESHOLD = 8;
 type FollowMode = "follow" | "paused";
 
 export function Conversation({
+  notices,
   onOpenFile,
   onOpenPlan,
   onOpenReview,
   onStopCommand,
   session
 }: {
+  notices?: string[];
   onOpenFile: (path: string) => void;
   onOpenPlan: (runId: string, callId: string) => void;
   onOpenReview: (delta: Changes) => void;
@@ -194,6 +196,9 @@ export function Conversation({
     >
       {session && session.runs.length > 0 ? (
         <div className="conversation-column">
+          {notices?.map((notice, index) => (
+            <div className="conversation-notice" key={`notice-${index}`}>{notice}</div>
+          ))}
           {session.runs.map((run) => (
             <div className="conversation-turn" key={run.runId}>
               <section className="user-turn"><p>{run.prompt}</p></section>
