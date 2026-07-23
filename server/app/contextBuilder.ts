@@ -285,7 +285,7 @@ function recoveryText(resume: ResumeState): string {
     } : undefined,
     tasks: resume.tasks
   }));
-  return systemReminder("recovery", `The following facts were recovered by the Runtime from interrupted or failed work. This is not a new user request. Verify the workspace before proceeding; do not repeat completed operations.\n${body}`);
+  return systemReminder("recovery", `Runtime recovered these facts from interrupted or failed work. Not a new user request. Verify workspace before proceeding; do not repeat completed operations.\n${body}`);
 }
 
 function escapeEnvelopeText(value: string): string {
@@ -300,7 +300,7 @@ function modeText(session: Session): string {
     mode,
     plan: plan ? { planId: plan.planId, revision: plan.revision, status: plan.status, title: plan.title } : undefined
   }));
-  return systemReminder("mode", `mode="${mode}" plan_entry="${planEntry}"\nThis is the Runtime's current working mode, not a new user request. Whether a tool may execute is ultimately decided by Runtime policy.\n${body}`);
+  return systemReminder("mode", `mode="${mode}" plan_entry="${planEntry}"\nRuntime working mode. Not a user request. Tool execution is ultimately decided by Runtime policy.\n${body}`);
 }
 
 function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {

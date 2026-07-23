@@ -26,7 +26,7 @@ import {
   SessionPort
 } from "./runtimeRepo";
 import { finishRun } from "./runLifecycle";
-import { classifyInteraction, requiresWorkspaceAction } from "./interaction";
+import { classifyInteraction } from "./interaction";
 import { ToolHost } from "./toolHost";
 import { ToolPipeline } from "./toolPipeline";
 import { PlanArgumentStream } from "./planStream";
@@ -60,10 +60,6 @@ export class ModelProtocolError extends Error {
     super(message);
     this.name = "ModelProtocolError";
   }
-}
-
-function looksLikeDeferredWork(answer: string): boolean {
-  return /(?:我(?:将|会|来|先)|接下来|下一步).{0,40}(?:读取|检查|查看|分析|修改|实现|执行|优化|开始|按计划)|(?:先读取|需要了解|以便基于实际代码|再按计划执行)/s.test(answer);
 }
 
 function tryParseArguments(text: string): Record<string, unknown> | undefined {
@@ -147,7 +143,7 @@ async function streamWithRecovery(
       await waitForRetry(400 * 2 ** (attempt - 1), input.signal);
     }
   }
-  throw new Error("Provider recovery exhausted.");
+  throw new Error("Provider 重试已耗尽。");
 }
 
 function persistAssistantRecord(input: RuntimeInput, message: ModelMessage): ContextEntry | undefined {
@@ -201,7 +197,7 @@ function semanticTranscript(records: ContextEntry[], maxChars: number): string {
   if (text.length <= maxChars) return text;
   const head = Math.floor(maxChars * 0.65);
   const tail = maxChars - head;
-  return `${text.slice(0, head)}\n\n[older dialogue omitted by Runtime]\n\n${text.slice(-tail)}`;
+  return `${text.slice(0, head)}\n\n[Runtime 已省略较早的对话]\n\n${text.slice(-tail)}`;
 }
 
 async function prepareRuntimeContext(
@@ -291,8 +287,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
   let answer = "";
   let protocolCorrectionCount = 0;
   let consecutiveToolProtocolErrors = 0;
-  let deferredWorkCorrectionCount = 0;
-  let unfinishedCommandCorrectionCount = 0;
   let providerRequestCount = 0;
 
   while (true) {
@@ -493,43 +487,10 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           : "DeepSeek 推理资源不足，本轮未完成。");
     }
     if (response.toolCalls.length === 0) {
-      const runningCommandIds = new Set([
-        ...input.tools.runningCommands(input.runId).map((command) => command.commandId),
-        ...(input.store.getRun(input.runId)?.activities ?? [])
-          .filter((activity) => activity.status === "running" && Boolean(activity.command?.commandId))
-          .map((activity) => activity.command!.commandId!)
-      ]);
-      if (runningCommandIds.size > 0) {
-        unfinishedCommandCorrectionCount += 1;
-        if (unfinishedCommandCorrectionCount >= 3) {
-          throw new ModelProtocolError("模型连续三次尝试在命令仍运行时结束本轮。Runtime 已停止本次运行的命令。");
-        }
-        messages.push({
-          role: "user",
-          text: `Runtime 检测到仍在运行或正在收尾的命令：${[...runningCommandIds].join(", ")}。当前文本不能作为最终回答；请调用 wait_command 继续等待，或在不再需要命令时调用 stop_command。不要重复启动同一命令。`
-        });
-        continue;
-      }
-      const currentMode = input.store.getSession(input.sessionId)?.mode ?? session.mode;
-      if (currentMode === "plan") {
-        messages.push({
-          role: "user",
-          text: "当前处于计划模式。普通文本不能结束本轮：若信息不足，请调用 ask_user；若方案已经完整，请调用 submit_plan 提交可审阅方案。不要执行任何实现操作。"
-        });
-        continue;
-      }
-      if (
-        tools.length > 0 &&
-        deferredWorkCorrectionCount === 0 &&
-        (looksLikeDeferredWork(answer) || requiresWorkspaceAction(input.prompt))
-      ) {
-        deferredWorkCorrectionCount += 1;
-        messages.push({
-          role: "user",
-          text: "Runtime 检测到这是需要在工作区执行的任务，但当前回答没有任何工具证据。请现在使用结构化工具读取、检查或修改真实文件；不得把计划、代码示例或准备执行的描述当作已完成结果。"
-        });
-        continue;
-      }
+      // ADR-008: 信任模型——不调工具即视为完成。
+      // 对标 ZCode/Codex/Claude Code:三家都不在代码层检测"延迟工作"或强制重试。
+      // 纪律由提示词层保证(doing_tasks/final_response slot),不由代码层强制。
+      // 唯一例外:如果有托管命令仍在运行,runAgent 的 finally 块会统一停止它们。
       input.store.append({
         runId: input.runId,
         data: await input.tools.changes(input.projectRoot, input.workspaceBaseline),

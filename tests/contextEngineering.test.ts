@@ -111,15 +111,13 @@ test("resolves broad, local, path-scoped, and nested instructions with provenanc
   try {
     mkdirSync(path.join(directory, ".deepseeker", "rules"), { recursive: true });
     mkdirSync(path.join(directory, "src", "feature"), { recursive: true });
-    writeFileSync(path.join(directory, "DEEPSEEKER.md"), "项目规则", "utf8");
-    writeFileSync(path.join(directory, "DEEPSEEKER.local.md"), "本地规则", "utf8");
-    writeFileSync(path.join(directory, "src", "feature", "DEEPSEEKER.md"), "功能目录规则", "utf8");
+    writeFileSync(path.join(directory, "AGENTS.md"), "项目规则", "utf8");
+    writeFileSync(path.join(directory, "src", "feature", "AGENTS.md"), "功能目录规则", "utf8");
     writeFileSync(path.join(directory, ".deepseeker", "rules", "typescript.md"), [
       "---", "paths:", "  - 'src/**/*.ts'", "---", "TypeScript 路径规则"
     ].join("\n"), "utf8");
     const instructions = resolveInstructions({ activePaths: ["src/feature/view.ts"], projectRoot: directory });
     assert.ok(instructions.some((item) => item.text === "项目规则" && item.scope === "project"));
-    assert.ok(instructions.some((item) => item.text === "本地规则" && item.scope === "local"));
     assert.ok(instructions.some((item) => item.text === "功能目录规则" && item.loadPolicy === "on_path_access"));
     assert.ok(instructions.some((item) => item.text === "TypeScript 路径规则" && item.appliesTo[0] === "src/**/*.ts"));
     assert.ok(instructions.every((item) => item.hash.length === 64 && item.sourcePath.length > 0));
@@ -133,7 +131,7 @@ test("project guidance metadata cannot elevate its authority or break the envelo
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-guidance-trust-"));
   let store: RuntimeStore | undefined;
   try {
-    writeFileSync(path.join(directory, "DEEPSEEKER.md"), [
+    writeFileSync(path.join(directory, "AGENTS.md"), [
       "---",
       "origin: personal",
       "trust: user_owned",
@@ -165,7 +163,7 @@ test("project guidance metadata cannot elevate its authority or break the envelo
 test("freezes startup guidance in the stable session envelope", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-guidance-freeze-"));
   try {
-    writeFileSync(path.join(directory, "DEEPSEEKER.md"), "稳定规范 v1", "utf8");
+    writeFileSync(path.join(directory, "AGENTS.md"), "稳定规范 v1", "utf8");
     const now = new Date().toISOString();
     const session = {
       compactThresholdTokens: 850_000, contextTokens: 0, contextWindowTokens: 1_000_000,
@@ -184,7 +182,7 @@ test("freezes startup guidance in the stable session envelope", () => {
       recordId: "session_context_1",
       sequence: 1
     };
-    writeFileSync(path.join(directory, "DEEPSEEKER.md"), "稳定规范 v2", "utf8");
+    writeFileSync(path.join(directory, "AGENTS.md"), "稳定规范 v2", "utf8");
     const second = prepareSessionContext({
       runId: "run_2", model: "deepseek-v4-flash", projectRoot: directory,
       prompt: "继续", records: [frozenRecord], session, rules: ruleSource, tools: toolSpecs
@@ -664,17 +662,17 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   const second = prompts.compileSystem("deepseek-v4-flash");
   assert.equal(first.hash, second.hash);
   // 系统提示词已升级为英文(对标 Codex/Claude Code)。
-  // P0: safety 1.0.0(安全拒绝)、coding_behavior 2.4.0(+reasoning approach)
-  // ADR-007 标签统一: identity 2.1.0、tool_policy 2.2.0、plan_policy 2.1.0
-  // 消除重叠: final_response 2.1.0
+  // P0: safety 1.0.0(安全拒绝)、coding_behavior 3.3.0(preamble WHAT+WHY+HOW 三要素)
+  // ADR-007 标签统一: identity 2.2.0、tool_policy 2.3.0、plan_policy 2.1.0
+  // 消除重叠: final_response 2.1.0、output_style 1.6.0(abstraction: 不暴露工具名)
   assert.match(first.version, /safety@1\.0\.0/);
-  assert.match(first.version, /identity@2\.1\.0/);
-  assert.match(first.version, /coding_behavior@2\.4\.0/);
-  assert.match(first.version, /tool_policy@2\.2\.0/);
+  assert.match(first.version, /identity@2\.2\.0/);
+  assert.match(first.version, /coding_behavior@3\.3\.0/);
+  assert.match(first.version, /tool_policy@2\.3\.0/);
   assert.match(first.version, /plan_policy@2\.1\.0/);
   assert.match(first.version, /final_response@2\.1\.0/);
   assert.match(first.version, /doing_tasks@1\.1\.0/);
-  assert.match(first.version, /output_style@1\.3\.0/);
+  assert.match(first.version, /output_style@1\.6\.0/);
   assert.match(first.text, /structured tool_calls/);
   assert.match(first.text, /Refuse to write or explain code that appears designed for malicious/);
   assert.match(first.text, /Match your ambition to the context/);
