@@ -2716,13 +2716,22 @@ textarea:disabled {
   font-size: 12px;
 }
 
+@keyframes session-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
 .session-running {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
+  position: absolute;
+  top: calc(50% - 4px);
+  left: 8px;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--theme-blue);
-  box-shadow: 0 0 0 3px rgba(49, 136, 244, 0.1);
+  animation: session-pulse 1.8s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .connection-status {
@@ -6201,10 +6210,6 @@ body {
   padding-left: 4px;
   background: var(--sidebar-item-surface);
   gap: 1px;
-}
-
-.session-running {
-  margin-right: 6px;
 }
 
 .sidebar-hover-card,
