@@ -238,8 +238,8 @@ export function SessionSidebar({
       onMouseEnter={(event) => setHoveredSession({ projectName, rect: anchorRect(event.currentTarget), session })}
       onMouseLeave={() => setHoveredSession(null)}
     >
+      {session.active && <span className="session-running" />}
       <RowAction className="thread-row" onClick={() => onSelectSession(session.sessionId)}>
-        {session.active && <span className="session-running" />}
         <OverflowFadeText>{session.title}</OverflowFadeText>
       </RowAction>
       <div className="thread-row-actions">
