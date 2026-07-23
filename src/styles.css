@@ -7234,3 +7234,98 @@ body {
     width: min(392px, calc(100vw - 24px));
   }
 }
+
+/* ── 模型选择器 ── */
+
+.model-selector-wrapper {
+  position: relative;
+}
+
+.model-menu {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  width: 320px;
+  overflow: hidden;
+  padding: 5px;
+  border: 1px solid rgba(43, 55, 60, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow:
+    0 18px 44px rgba(31, 39, 42, 0.14),
+    0 1px 5px rgba(31, 39, 42, 0.06);
+  gap: 2px;
+}
+
+.model-menu > header {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px 4px;
+  color: #8a9296;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.model-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #505b60;
+  cursor: pointer;
+  gap: 9px;
+  text-align: left;
+}
+
+.model-option:hover,
+.model-option.is-selected {
+  background: #f4f5f4;
+}
+
+.model-option-label {
+  display: block;
+  color: #313a3e;
+  font-size: 13px;
+  font-weight: 640;
+}
+
+.model-option-desc {
+  display: block;
+  color: #8a9296;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.model-option-check {
+  color: #2b6cb0;
+}
+
+/* ── 模型切换提示 ── */
+
+.model-switch-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  color: #8a9296;
+  font-size: 12px;
+  text-align: center;
+}
+
+.model-switch-notice::before,
+.model-switch-notice::after {
+  content: "";
+  flex: 1;
+  max-width: 120px;
+  height: 1px;
+  background: rgba(43, 55, 60, 0.12);
+}

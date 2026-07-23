@@ -21,11 +21,13 @@ export type ProjectRef = {
 export type DesktopSettings = {
   defaultModel: string;
   hasApiKey: boolean;
+  hasZhipuApiKey: boolean;
 };
 
 export type DesktopSettingsInput = {
   apiKey?: string;
   defaultModel: string;
+  zhipuApiKey?: string;
 };
 
 export type DesktopBridge = {

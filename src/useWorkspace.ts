@@ -172,7 +172,12 @@ export function useWorkspace() {
   }, [session?.mode, session?.planEntry]);
 
   const pendingApproval = activeRun?.approvals.find((approval) => approval.state === "pending");
-  const model = config?.hasApiKey ? config.defaultModel : "mock-agent";
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const model = selectedModel || (config?.hasApiKey ? config.defaultModel : "mock-agent");
+
+  const changeModel = useCallback((next: string) => {
+    setSelectedModel(next);
+  }, []);
 
   const startRun = useCallback(async (prompt: string): Promise<boolean> => {
     setError(null);
@@ -365,6 +370,7 @@ export function useWorkspace() {
     archiveSession,
     balance,
     cancelRun,
+    changeModel,
     config,
     connection,
     contextObserver,

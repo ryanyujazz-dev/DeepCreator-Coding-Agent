@@ -83,6 +83,9 @@ export class RuntimeHost {
     const migrations = app.isPackaged
       ? path.join(process.resourcesPath, "migrations")
       : path.join(app.getAppPath(), "server/infra/migrations");
+    // 每次 spawn 时重新读 config,确保前端刚保存的 key/locale 能被 worker 拿到。
+    const { loadUserConfig } = await import("../server/infra/userConfig");
+    const userConfig = loadUserConfig();
     const child = utilityProcess.fork(path.join(__dirname, "runtime-worker.js"), [], {
       env: {
         ...process.env,
@@ -92,7 +95,8 @@ export class RuntimeHost {
         RUNTIME_DATA_DIR: this.prepareDataDirectory(),
         RUNTIME_FRONTEND_URL: this.frontendUrl,
         RUNTIME_MIGRATIONS_DIR: migrations,
-        RUNTIME_WORKSPACE_ROOT: app.getPath("home")
+        RUNTIME_WORKSPACE_ROOT: app.getPath("home"),
+        DEEPSEEK_LOCALE: userConfig.locale
       },
       serviceName: "DeepSeeker Runtime",
       stdio: "pipe"

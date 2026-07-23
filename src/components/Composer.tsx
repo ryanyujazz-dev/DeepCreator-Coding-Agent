@@ -1,6 +1,7 @@
 import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
 import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
+import { ModelOption } from "../../shared/contracts/provider";
 import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 import { FloatingSurface, IconButton, PillButton } from "../shared-ui/ControlPrimitives";
 
@@ -18,10 +19,12 @@ export function Composer({
   isRunning,
   isWaiting,
   model,
+  models,
   onCancel,
   onAccessModeChange,
   onModeChange,
   onAnswerQuestion,
+  onModelChange,
   onRefreshBalance,
   onResolvePlan,
   onSubmit,
@@ -38,10 +41,12 @@ export function Composer({
   isRunning: boolean;
   isWaiting: boolean;
   model: string;
+  models: ModelOption[];
   onCancel: () => void;
   onAccessModeChange: (mode: AccessMode) => void;
   onModeChange: (mode: Mode) => void;
   onAnswerQuestion: (interactionId: string, answers: Record<string, string>) => Promise<void> | void;
+  onModelChange: (model: string) => void;
   onRefreshBalance: () => void;
   onResolvePlan: (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => Promise<void> | void;
   onSubmit: (prompt: string) => Promise<boolean>;
@@ -53,6 +58,7 @@ export function Composer({
 }) {
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   // textarea 自适应高度:初始 2 行,随内容增长最高到 8 行,超过 8 行内部滚动。
   // CSS 里 min-height/max-height 已经把范围限定到 2~8 行,JS 只需根据 scrollHeight 设置 height。
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -322,7 +328,21 @@ export function Composer({
               <footer><span>平均缓存命中率</span><strong>{contextSummary.cacheRate === undefined ? "尚无数据" : `${(contextSummary.cacheRate * 100).toFixed(1)}%`}</strong></footer>
             </FloatingSurface>
           </div>
-          <PillButton className="model-button"><span>{model}</span><ChevronDown size={13} /></PillButton><IconButton className="plain-icon" disabled={isWaiting || submitting} label="语音输入"><Mic size={16} /></IconButton>{isRunning ? <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton> : <IconButton className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || submitting || Boolean(disabledReason)} label="发送" type="submit"><ArrowUp size={18} /></IconButton>}
+          <div className="model-selector-wrapper">
+            <PillButton aria-expanded={modelMenuOpen} className="model-button" disabled={isRunning} onClick={() => setModelMenuOpen((open) => !open)}><span>{models.find((item) => item.id === model)?.label ?? model}</span><ChevronDown size={13} /></PillButton>
+            {modelMenuOpen && (
+              <FloatingSurface className="model-menu">
+                <header><span>选择模型</span></header>
+                {models.map((option) => (
+                  <button className={"model-option" + (option.id === model ? " is-selected" : "")} key={option.id} onClick={() => { onModelChange(option.id); setModelMenuOpen(false); }} type="button">
+                    <span><span className="model-option-label">{option.label}</span><span className="model-option-desc">{option.description}</span></span>
+                    {option.id === model && <Check size={14} className="model-option-check" />}
+                  </button>
+                ))}
+              </FloatingSurface>
+            )}
+          </div>
+          <IconButton className="plain-icon" disabled={isWaiting || submitting} label="语音输入"><Mic size={16} /></IconButton>{isRunning ? <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton> : <IconButton className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || submitting || Boolean(disabledReason)} label="发送" type="submit"><ArrowUp size={18} /></IconButton>}
         </div>
       </div>
     </form>

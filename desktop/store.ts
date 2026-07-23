@@ -2,6 +2,7 @@ import { app, safeStorage } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DesktopSettings, DesktopSettingsInput, ProjectRef } from "../shared/contracts/desktop";
+import { loadUserConfig, saveUserConfig } from "../server/infra/userConfig";
 
 type WindowBounds = { height: number; width: number; x?: number; y?: number };
 type StoredDesktopState = {
@@ -26,12 +27,16 @@ export class DesktopStore {
   }
 
   apiKey(): string {
-    if (!this.state.apiKey || !safeStorage.isEncryptionAvailable()) return process.env.DEEPSEEK_API_KEY ?? "";
-    try {
-      return safeStorage.decryptString(Buffer.from(this.state.apiKey, "base64"));
-    } catch {
-      return process.env.DEEPSEEK_API_KEY ?? "";
+    // ADR-009: 优先从 ~/.deepseeker/config.json 读取
+    const configKey = loadUserConfig().apiKey;
+    if (configKey) return configKey;
+    // 降级:Electron safeStorage(旧版 UI 输入的 key)
+    if (this.state.apiKey && safeStorage.isEncryptionAvailable()) {
+      try {
+        return safeStorage.decryptString(Buffer.from(this.state.apiKey, "base64"));
+      } catch { /* fall through */ }
     }
+    return "";
   }
 
   addProject(projectPath: string): ProjectRef {
@@ -77,7 +82,7 @@ export class DesktopStore {
   }
 
   settings(): DesktopSettings {
-    return { defaultModel: this.state.defaultModel, hasApiKey: Boolean(this.apiKey()) };
+    return { defaultModel: this.state.defaultModel, hasApiKey: Boolean(this.apiKey()), hasZhipuApiKey: Boolean(loadUserConfig().zhipuApiKey) };
   }
 
   saveSettings(input: DesktopSettingsInput): DesktopSettings {
@@ -86,6 +91,12 @@ export class DesktopStore {
       if (!input.apiKey.trim()) delete this.state.apiKey;
       else if (!safeStorage.isEncryptionAvailable()) throw new Error("系统加密存储当前不可用，API Key 未保存。");
       else this.state.apiKey = safeStorage.encryptString(input.apiKey.trim()).toString("base64");
+    }
+    // 智谱 key 直接写入 ~/.deepseeker/config.json(与 ADR-009 一致,config.json 是唯一配置来源)。
+    if (input.zhipuApiKey !== undefined) {
+      const config = loadUserConfig();
+      config.zhipuApiKey = input.zhipuApiKey.trim();
+      saveUserConfig(config);
     }
     this.write();
     return this.settings();

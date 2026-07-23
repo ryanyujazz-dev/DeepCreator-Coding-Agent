@@ -1,7 +1,7 @@
 import Fastify, { FastifyInstance } from "fastify";
 import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, WorkspaceKind } from "../../shared/contracts/runtime";
 import { MemoryFact } from "../../shared/contracts/context";
-import { Provider } from "../../shared/contracts/provider";
+import { Provider, ModelOption } from "../../shared/contracts/provider";
 import {
   accessInputSchema,
   approvalInputSchema,
@@ -30,6 +30,7 @@ export type HttpConfig = {
   defaultModel: string;
   frontendUrl: string;
   hasApiKey: boolean;
+  models: ModelOption[];
   workspaceRoot: string;
 };
 
@@ -48,7 +49,7 @@ export type HttpDeps = {
 
 export function createHttp(deps: HttpDeps): FastifyInstance {
   const { cancelRun, config, contextQueries, launcher, providerFor, registry, sessions, startRun, store, workspace } = deps;
-  const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, workspaceRoot } = config;
+  const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, models, workspaceRoot } = config;
   const app = Fastify({ logger: false });
   const frontendOrigin = new URL(frontendUrl).origin;
 
@@ -119,6 +120,7 @@ app.get("/api/config", async () => ({
   defaultModel,
   hasApiKey,
   eventContract: "deepseeker.events/v2",
+  models,
   planEntry: "suggest",
   workspaceRoot
 }));

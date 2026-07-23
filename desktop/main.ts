@@ -1,11 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
-import dotenv from "dotenv";
 import { DesktopSettingsInput } from "../shared/contracts/desktop";
 import { RuntimeHost } from "./runtime-host";
 import { DesktopStore } from "./store";
+import { ensureUserConfig, loadUserConfig } from "../server/infra/userConfig";
 
-dotenv.config({ path: path.join(process.cwd(), ".env.local") });
+// ADR-009: 配置统一从 ~/.deepseeker/config.json 读取(不再使用 dotenv/.env.local)
+ensureUserConfig();
+const userConfig = loadUserConfig();
 console.log("[desktop] main started");
 
 let mainWindow: BrowserWindow | null = null;

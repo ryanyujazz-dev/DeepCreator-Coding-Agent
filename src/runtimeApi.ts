@@ -1,4 +1,5 @@
 import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, Session, WorkspaceKind } from "../shared/contracts/runtime";
+import { ModelOption } from "../shared/contracts/provider";
 
 export class RuntimeRequestError extends Error {
   status: number;
@@ -34,6 +35,7 @@ export type RuntimeConfig = {
   defaultModel: string;
   hasApiKey: boolean;
   eventContract: string;
+  models: ModelOption[];
   planEntry: PlanEntry;
   workspaceRoot: string;
 };

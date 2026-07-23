@@ -54,6 +54,7 @@ export function App() {
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [projectsReady, setProjectsReady] = useState(!window.deepseeker);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [modelNotice, setModelNotice] = useState<string | null>(null);
   const desktop = window.deepseeker;
   const {
     activeRun,
@@ -67,6 +68,7 @@ export function App() {
     draftRevision,
     draftWorkspace,
     balance,
+    changeModel,
     error,
     model,
     mode,
@@ -92,6 +94,12 @@ export function App() {
     retryRuntime,
     workspace
   } = useWorkspace();
+  const handleModelChange = useCallback((nextModel: string) => {
+    const prevLabel = (config?.models ?? []).find((item) => item.id === model)?.label ?? model;
+    const nextLabel = (config?.models ?? []).find((item) => item.id === nextModel)?.label ?? nextModel;
+    changeModel(nextModel);
+    setModelNotice(`已从 ${prevLabel} 切换至 ${nextLabel}`);
+  }, [changeModel, config?.models, model]);
   const activeTask = (currentRun?.tasks ?? []).find((task) => task.status === "running");
   const waitingRun = activeRun?.status === "waiting" ? activeRun : undefined;
   const pendingPlan = waitingRun
@@ -328,6 +336,7 @@ export function App() {
             <div className="window-actions"><IconButton className="icon-button" label="视图设置"><SlidersHorizontal size={14} /></IconButton><IconButton className="icon-button" label="工作区面板"><PanelRight size={14} /></IconButton></div>
             <Inspector onOpenReview={openReviewSurface} session={session} workspace={workspace} />
             <Conversation onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
+            {modelNotice && <div className="model-switch-notice">{modelNotice}</div>}
             {currentRun && (
               <div
                 aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
@@ -362,10 +371,12 @@ export function App() {
                 isRunning={agentRunning}
                 isWaiting={Boolean(waitingRun)}
                 model={model}
+                models={config?.models ?? []}
                 onCancel={() => void cancelRun()}
                 onAccessModeChange={(mode) => void setAccessMode(mode)}
                 onModeChange={(nextMode) => void setMode(nextMode)}
                 onAnswerQuestion={answerQuestion}
+                onModelChange={handleModelChange}
                 onRefreshBalance={refreshBalance}
                 onResolvePlan={resolvePlan}
                 onSubmit={startRun}

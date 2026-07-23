@@ -243,7 +243,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
   const contextQueries = new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory });
   const app = createHttp({
     cancelRun: new CancelRun(registry, commandManager),
-    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
+    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, models: [], workspaceRoot: directory },
     contextQueries,
     launcher,
     providerFor,
@@ -384,7 +384,7 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
   const contextQueries = new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory });
   const app = createHttp({
     cancelRun: new CancelRun(registry, commandManager),
-    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, workspaceRoot: directory },
+    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, models: [], workspaceRoot: directory },
     contextQueries,
     launcher,
     providerFor,
