@@ -2906,7 +2906,7 @@ body.is-resizing-panel * {
 
 .sidebar {
   border-right-color: rgba(76, 105, 116, 0.08);
-  background: #e5f2f7;
+  background: #f2f4f5;
   color: #4f6269;
 }
 
@@ -3035,7 +3035,7 @@ body.is-resizing-panel * {
 
 .account-strip::before {
   inset: -22px 0 100%;
-  background: linear-gradient(180deg, rgba(229, 242, 247, 0), #e5f2f7);
+  background: linear-gradient(180deg, rgba(242, 244, 245, 0), #f2f4f5);
 }
 
 .account-strip .avatar {
