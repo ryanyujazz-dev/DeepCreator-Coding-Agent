@@ -99,6 +99,21 @@ export type ProviderBalance = {
   }>;
 };
 
+/** 模型供应商标识。 */
+export type ProviderFamily = "deepseek" | "zhipu" | "mock";
+
+/** 可选模型的元数据,供前端渲染模型选择器和路由判断使用。 */
+export type ModelOption = {
+  /** 传给 API 的模型标识(如 "deepseek-v4-flash"、"glm-4.5")。 */
+  id: string;
+  /** 用户可读名称。 */
+  label: string;
+  /** 供应商。 */
+  provider: ProviderFamily;
+  /** 简短描述。 */
+  description: string;
+};
+
 export interface Provider {
   readonly capabilities: ModelCaps;
   summarizeContext?(request: SummaryRequest): Promise<Summary>;
