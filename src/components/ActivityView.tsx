@@ -1,7 +1,12 @@
 import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, TerminalSquare, Wrench } from "lucide-react";
 import { useState } from "react";
 import { Activity, Plan } from "../../shared/contracts/runtime";
-import { activityTitle, toolTarget } from "../../shared/projections/activityPresentation";
+import {
+  activityTitle,
+  fileDisplayName,
+  toolDisplayTarget,
+  toolTarget
+} from "../../shared/projections/activityPresentation";
 import { useStreamText } from "../stream/useStreamText";
 import { MarkdownContent } from "./MarkdownContent";
 import { InlinePlanCard } from "./InlinePlanCard";
@@ -23,7 +28,7 @@ function completedTitle(activity: Activity): string {
   if (activity.kind === "command") {
     return activity.command?.command ? `已运行 ${activity.command.command}` : "命令执行完成";
   }
-  const target = toolTarget(activity.tool);
+  const target = toolDisplayTarget(activity.tool);
   if (activity.tool && target) {
     if (activity.tool.action === "task") return "已更新执行任务";
     if (activity.tool.action === "plan") return "已更新方案";
@@ -136,7 +141,7 @@ export function ActivityView({
           <strong className="inline-file-reference">
             <span className={activity.status === "running" ? "working-glow" : ""}>{fileActionLabel(activity)}</span>
             <button onClick={() => onOpenFile(fileTarget.normalizedTarget)} title={fileLabel} type="button">
-              {fileLabel}
+              {fileDisplayName(fileLabel)}
             </button>
           </strong>
         ) : (

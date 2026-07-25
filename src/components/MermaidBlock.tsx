@@ -1,67 +1,77 @@
 import { Check, Code2, Copy, Download, Eye, LoaderCircle, Maximize2, Minus, Plus, RotateCcw, X } from "lucide-react";
-import { Highlight, themes } from "prism-react-renderer";
+import { Highlight } from "prism-react-renderer";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ThemeVariant } from "../../shared/contracts/theme";
+import { useTheme } from "../theme/ThemeProvider";
 
 type MermaidApi = typeof import("mermaid")["default"];
 
 let mermaidReady: Promise<MermaidApi> | null = null;
+let mermaidRenderQueue: Promise<unknown> = Promise.resolve();
 
 function loadMermaid(): Promise<MermaidApi> {
   if (!mermaidReady) {
-    mermaidReady = import("mermaid").then((mod) => {
-      const mermaid = mod.default;
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: "base",
-        themeVariables: {
-          background: "transparent",
-          fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-          fontSize: "14px",
-          primaryColor: "#ffffff",
-          primaryTextColor: "#1a1a1a",
-          primaryBorderColor: "#2a2a2a",
-          lineColor: "#3a3a3a",
-          secondaryColor: "#f0f2f4",
-          tertiaryColor: "#f5f7f9",
-          textColor: "#1a1a1a",
-          nodeBorder: "#2a2a2a",
-          clusterBkg: "transparent",
-          clusterBorder: "#bfbfbf",
-          edgeLabelBackground: "#ffffff",
-          mainBkg: "#ffffff",
-          secondBkg: "#f0f2f4",
-          oddColor: "#fafbfc",
-          evenColor: "transparent",
-          // sequence diagram
-          actorBkg: "#f5f5f5",
-          actorBorder: "#2a2a2a",
-          actorTextColor: "#1a1a1a",
-          actorLineColor: "#3a3a3a",
-          signalColor: "#2a2a2a",
-          signalTextColor: "#1a1a1a",
-          labelBoxBkgColor: "#f5f5f5",
-          labelBoxBorderColor: "#2a2a2a",
-          labelTextColor: "#1a1a1a",
-          loopTextColor: "#1a1a1a",
-          noteBkgColor: "#ededed",
-          noteBorderColor: "#2a2a2a",
-          noteTextColor: "#1a1a1a",
-          activationBorderColor: "#2a2a2a",
-          activationBkgColor: "#d4d4d4",
-          // sequence number
-          sequenceNumberColor: "#1a1a1a"
-        },
-        securityLevel: "strict",
-        suppressErrorRendering: true,
-        flowchart: { useMaxWidth: false, htmlLabels: true, curve: "linear" },
-        sequence: { useMaxWidth: false },
-        gantt: { useMaxWidth: false }
-      });
-      return mermaid;
-    });
+    mermaidReady = import("mermaid").then((mod) => mod.default);
   }
   return mermaidReady;
+}
+
+function renderMermaid(code: string, domId: string, variant: ThemeVariant): Promise<string> {
+  const task = mermaidRenderQueue.then(async () => {
+    const mermaid = await loadMermaid();
+    const { colors, typography } = variant;
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      themeVariables: {
+        activationBkgColor: colors.surfaceSubtle,
+        activationBorderColor: colors.border,
+        actorBkg: colors.surfaceSubtle,
+        actorBorder: colors.border,
+        actorLineColor: colors.muted,
+        actorTextColor: colors.foreground,
+        background: "transparent",
+        clusterBkg: "transparent",
+        clusterBorder: colors.border,
+        edgeLabelBackground: colors.surface,
+        evenColor: "transparent",
+        fontFamily: typography.uiFont,
+        fontSize: "14px",
+        labelBoxBkgColor: colors.surfaceSubtle,
+        labelBoxBorderColor: colors.border,
+        labelTextColor: colors.foreground,
+        lineColor: colors.muted,
+        loopTextColor: colors.foreground,
+        mainBkg: colors.surface,
+        nodeBorder: colors.border,
+        noteBkgColor: colors.surfaceSubtle,
+        noteBorderColor: colors.border,
+        noteTextColor: colors.foreground,
+        oddColor: colors.surfaceSubtle,
+        primaryBorderColor: colors.border,
+        primaryColor: colors.surface,
+        primaryTextColor: colors.foreground,
+        secondBkg: colors.surfaceSubtle,
+        secondaryColor: colors.surfaceSubtle,
+        sequenceNumberColor: colors.foreground,
+        signalColor: colors.foreground,
+        signalTextColor: colors.foreground,
+        tertiaryColor: colors.hover,
+        textColor: colors.foreground
+      },
+      securityLevel: "strict",
+      suppressErrorRendering: true,
+      flowchart: { useMaxWidth: false, htmlLabels: true, curve: "linear" },
+      sequence: { useMaxWidth: false },
+      gantt: { useMaxWidth: false }
+    });
+    await mermaid.parse(code);
+    const result = await mermaid.render(domId, code);
+    return result.svg;
+  });
+  mermaidRenderQueue = task.catch(() => undefined);
+  return task;
 }
 
 type View = "render" | "code";
@@ -127,7 +137,7 @@ function getSvgVectorSize(svgEl: SVGSVGElement): { width: number; height: number
   return { width: 800, height: 600 };
 }
 
-function downloadSvgAsPng(originalSvg: string): Promise<void> {
+function downloadSvgAsPng(originalSvg: string, background: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(originalSvg, "image/svg+xml");
@@ -162,7 +172,7 @@ function downloadSvgAsPng(originalSvg: string): Promise<void> {
         canvas.height = targetHeight;
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("canvas 2d context unavailable");
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = background;
         ctx.fillRect(0, 0, targetWidth, targetHeight);
         ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
         URL.revokeObjectURL(url);
@@ -348,6 +358,7 @@ function MermaidLightbox({ svg, onClose }: { svg: string; onClose: () => void })
 }
 
 export function MermaidBlock({ code }: { code: string; followOutput: boolean }) {
+  const { activeVariant, prismTheme, resolvedScheme } = useTheme();
   const [svg, setSvg] = useState<string | null>(null);
   const [view, setView] = useState<View>("render");
   const [loading, setLoading] = useState(true);
@@ -360,20 +371,11 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
     let cancelled = false;
     const myId = ++renderIdRef.current;
     const timer = setTimeout(async () => {
-      let mermaid: MermaidApi;
       try {
-        mermaid = await loadMermaid();
-      } catch {
-        if (!cancelled) setLoading(false);
-        return;
-      }
-      if (cancelled || myId !== renderIdRef.current) return;
-      try {
-        await mermaid.parse(code);
         const domId = `mermaid-${myId.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        const result = await mermaid.render(domId, code);
+        const result = await renderMermaid(code, domId, activeVariant);
         if (cancelled || myId !== renderIdRef.current) return;
-        setSvg(normalizeSvgForDisplay(result.svg));
+        setSvg(normalizeSvgForDisplay(result));
         setLoading(false);
         setView("render");
       } catch {
@@ -387,7 +389,7 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [code]);
+  }, [activeVariant, code, resolvedScheme]);
 
   const headerActions = (
     <span className="markdown-code-actions">
@@ -416,7 +418,7 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
             if (!svg || downloading) return;
             setDownloading(true);
             try {
-              await downloadSvgAsPng(svg);
+              await downloadSvgAsPng(svg, activeVariant.colors.background);
             } finally {
               setDownloading(false);
             }
@@ -465,7 +467,7 @@ export function MermaidBlock({ code }: { code: string; followOutput: boolean }) 
           ) : null}
         </div>
       ) : (
-        <Highlight code={code} language="text" theme={themes.github}>
+        <Highlight code={code} language="text" theme={prismTheme}>
           {({ className, getLineProps, getTokenProps, style, tokens }) => (
             <pre className={className} style={{ ...style, background: "transparent" }}>
               <code>

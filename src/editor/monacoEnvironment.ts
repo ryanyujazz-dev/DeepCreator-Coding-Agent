@@ -5,8 +5,7 @@ import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import typescriptWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
-
-export const MONACO_LIGHT_THEME = "deepseeker-light";
+import { ColorScheme, ThemeVariant } from "../../shared/contracts/theme";
 
 type MonacoWorkerEnvironment = {
   getWorker: (moduleId: string, label: string) => Worker;
@@ -26,56 +25,84 @@ workerScope.MonacoEnvironment = {
 
 loader.config({ monaco });
 
-let themeRegistered = false;
+export function monacoThemeName(themeId: string, scheme: ColorScheme, variant: ThemeVariant): string {
+  const signature = [
+    variant.code.background,
+    variant.code.foreground,
+    variant.code.keyword,
+    variant.code.string,
+    variant.code.added,
+    variant.code.removed
+  ].join("").replaceAll("#", "").slice(0, 36);
+  return `deepseeker-${themeId}-${scheme}-${signature}`;
+}
 
-export function prepareMonaco(instance: typeof monaco): void {
-  if (themeRegistered) return;
-  instance.editor.defineTheme(MONACO_LIGHT_THEME, {
-    base: "vs",
+export function prepareMonacoTheme(
+  instance: typeof monaco,
+  name: string,
+  scheme: ColorScheme,
+  variant: ThemeVariant
+): void {
+  const code = variant.code;
+  const alpha = (color: string, opacity: string) => color.length === 7 ? `${color}${opacity}` : color;
+  instance.editor.defineTheme(name, {
+    base: scheme === "dark" ? "vs-dark" : "vs",
     inherit: true,
     rules: [
-      { foreground: "6A737D", token: "comment" },
-      { foreground: "D73A49", token: "keyword" },
-      { foreground: "032F62", token: "string" },
-      { foreground: "005CC5", token: "number" },
-      { foreground: "6F42C1", token: "type.identifier" },
-      { foreground: "6F42C1", token: "type" }
+      { foreground: code.comment.slice(1), token: "comment" },
+      { foreground: code.comment.slice(1), token: "comment.doc" },
+      { foreground: code.keyword.slice(1), token: "keyword" },
+      { foreground: code.keyword.slice(1), token: "keyword.control" },
+      { foreground: code.keyword.slice(1), token: "keyword.declaration" },
+      { foreground: code.keyword.slice(1), token: "operator" },
+      { foreground: code.string.slice(1), token: "string" },
+      { foreground: code.string.slice(1), token: "string.escape" },
+      { foreground: code.string.slice(1), token: "regexp" },
+      { foreground: code.number.slice(1), token: "number" },
+      { foreground: code.type.slice(1), token: "type.identifier" },
+      { foreground: code.type.slice(1), token: "type" },
+      { foreground: code.type.slice(1), token: "class" },
+      { foreground: code.type.slice(1), token: "class.identifier" },
+      { foreground: code.type.slice(1), token: "function" },
+      { foreground: code.type.slice(1), token: "function.declaration" },
+      { foreground: code.foreground.slice(1), token: "identifier" },
+      { foreground: code.foreground.slice(1), token: "delimiter" }
     ],
     colors: {
-      "editor.background": "#FFFFFF",
-      "editor.foreground": "#1f2328",
-      "editor.lineHighlightBackground": "#F6F8FA",
-      "editor.selectionBackground": "#ADD6FF80",
-      "editor.inactiveSelectionBackground": "#E5EBF1",
-      "editorLineNumber.foreground": "#7d8590",
-      "editorLineNumber.activeForeground": "#57606a",
-      "editorGutter.background": "#FFFFFF",
-      "editorGutter.addedBackground": "#1f883d",
-      "editorGutter.deletedBackground": "#cf222e",
-      "editorGutter.modifiedBackground": "#9a6700",
-      "editorIndentGuide.background1": "#EEF0F1",
-      "editorIndentGuide.activeBackground1": "#CDD2D5",
-      "editorWidget.background": "#FFFFFF",
-      "editorWidget.border": "#DDE1E3",
-      "editorHoverWidget.background": "#FFFFFF",
-      "editorHoverWidget.border": "#DDE1E3",
-      "diffEditor.insertedLineBackground": "#dafbe180",
-      "diffEditor.removedLineBackground": "#ffebe980",
-      "diffEditor.insertedTextBackground": "#aceebb7a",
-      "diffEditor.removedTextBackground": "#ffcecb7a",
-      "diffEditorGutter.insertedLineBackground": "#dafbe180",
-      "diffEditorGutter.removedLineBackground": "#ffebe980",
-      "diffEditorOverview.insertedForeground": "#1f883d99",
-      "diffEditorOverview.removedForeground": "#cf222e99",
-      "diffEditor.unchangedRegionBackground": "#f6f8fa",
-      "diffEditor.unchangedRegionForeground": "#6e7781",
-      "diffEditor.unchangedCodeBackground": "#f6f8fa",
-      "diffEditor.diagonalFill": "#d0d7de66",
+      "editor.background": code.background,
+      "editor.foreground": code.foreground,
+      "editor.lineHighlightBackground": code.lineHighlight,
+      "editor.selectionBackground": code.selection,
+      "editor.inactiveSelectionBackground": code.selection,
+      "editorLineNumber.foreground": code.lineNumber,
+      "editorLineNumber.activeForeground": code.foreground,
+      "editorGutter.background": code.background,
+      "editorGutter.addedBackground": code.addedGutter,
+      "editorGutter.deletedBackground": code.removedGutter,
+      "editorGutter.modifiedBackground": variant.colors.warning,
+      "editorIndentGuide.background1": variant.colors.border,
+      "editorIndentGuide.activeBackground1": variant.colors.muted,
+      "editorWidget.background": variant.colors.surfaceElevated,
+      "editorWidget.border": variant.colors.border,
+      "editorHoverWidget.background": variant.colors.surfaceElevated,
+      "editorHoverWidget.border": variant.colors.border,
+      "diffEditor.insertedLineBackground": code.added,
+      "diffEditor.removedLineBackground": code.removed,
+      "diffEditor.insertedTextBackground": code.added,
+      "diffEditor.removedTextBackground": code.removed,
+      "diffEditorGutter.insertedLineBackground": code.added,
+      "diffEditorGutter.removedLineBackground": code.removed,
+      "diffEditorOverview.insertedForeground": code.addedGutter,
+      "diffEditorOverview.removedForeground": code.removedGutter,
+      "diffEditor.unchangedRegionBackground": code.lineHighlight,
+      "diffEditor.unchangedRegionForeground": code.lineNumber,
+      "diffEditor.unchangedRegionShadow": "#00000000",
+      "diffEditor.unchangedCodeBackground": code.lineHighlight,
+      "diffEditor.diagonalFill": variant.colors.border,
       "scrollbar.shadow": "#00000000",
-      "scrollbarSlider.background": "#8C959F33",
-      "scrollbarSlider.hoverBackground": "#8C959F55",
-      "scrollbarSlider.activeBackground": "#6E778166"
+      "scrollbarSlider.background": alpha(variant.colors.muted, "33"),
+      "scrollbarSlider.hoverBackground": alpha(variant.colors.muted, "55"),
+      "scrollbarSlider.activeBackground": alpha(variant.colors.muted, "77")
     }
   });
-  themeRegistered = true;
 }

@@ -1,6 +1,7 @@
 import { ChevronDown, FileCode2 } from "lucide-react";
 import { useState } from "react";
 import { FileChange, Changes } from "../../shared/contracts/runtime";
+import { fileDisplayName } from "../../shared/projections/activityPresentation";
 import { IconButton, PillButton, RowAction } from "../shared-ui/ControlPrimitives";
 
 function diffLineClass(line: string): string {
@@ -18,7 +19,7 @@ function FileChangeRow({ file, onOpenFile }: { file: FileChange; onOpenFile: (pa
     <div className={`patch-file ${expanded ? "is-expanded" : ""}`}>
       <div className="patch-row">
         <button className="file-reference-button" onClick={() => onOpenFile(file.path)} title={file.path} type="button">
-          {file.path}
+          {fileDisplayName(file.path)}
         </button>
         <strong><b>+{file.additions}</b> <i>-{file.deletions}</i></strong>
         <IconButton

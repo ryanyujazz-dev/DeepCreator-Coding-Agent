@@ -17,7 +17,12 @@ import {
   Changes
 } from "../../shared/contracts/runtime";
 import { ActivityGroup, ToolAggregate } from "../../shared/projections/types";
-import { activityTitle, toolTarget } from "../../shared/projections/activityPresentation";
+import {
+  activityTitle,
+  fileDisplayName,
+  toolDisplayTarget,
+  toolTarget
+} from "../../shared/projections/activityPresentation";
 import { CodeDiffViewer } from "./CodeEditorSurface";
 import { DetailPanel } from "./DetailPanel";
 import { DisclosureRow } from "../shared-ui/ControlPrimitives";
@@ -41,7 +46,7 @@ function memberIcon(activity: Activity) {
 }
 
 function memberLabel(activity: Activity): string {
-  const target = toolTarget(activity.tool) || activityTitle(activity);
+  const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
   if (activity.command?.timedOut) return `已超时 ${target}`;
   if (activity.status === "failed") return `失败 ${target}`;
   if (activity.status === "cancelled") return `已取消 ${target}`;
@@ -53,6 +58,18 @@ function memberLabel(activity: Activity): string {
   if (activity.tool?.action === "search") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
   if (activity.tool?.action === "modify") return `${activity.status === "running" ? "正在修改" : "已修改"} ${target}`;
   return `${activity.status === "running" ? "正在执行" : "已完成"} ${target}`;
+}
+
+function FailureAwareLabel({ label }: { label: string }) {
+  const failureIndex = label.indexOf("失败");
+  if (failureIndex < 0) return <>{label}</>;
+  return (
+    <>
+      {label.slice(0, failureIndex)}
+      <span className="operation-failure-word">失败</span>
+      {label.slice(failureIndex + 2)}
+    </>
+  );
 }
 
 function fileActionLabel(activity: Activity): string {
@@ -127,7 +144,7 @@ function detailTitle(activity: Activity): string {
   if (activity.tool?.toolName === "run_command") return "Shell";
   if (activity.tool?.toolName === "grep") return "grep";
   if (activity.tool?.toolName === "glob") return "glob";
-  if (activity.tool?.toolName === "read_file") return toolTarget(activity.tool) || "文件内容";
+  if (activity.tool?.toolName === "read_file") return fileDisplayName(toolTarget(activity.tool)) || "文件内容";
   if (activity.tool?.toolName === "list_files") return "目录内容";
   if (activity.tool?.action === "search") return "搜索结果";
   return toolTarget(activity.tool) || activityTitle(activity) || "执行结果";
@@ -162,7 +179,7 @@ function OperationMemberRow({
         <span>{memberIcon(activity)}</span>
         {isFileReference ? (
           <span className="operation-file-reference">
-            <span>{fileActionLabel(activity)}</span>
+            <span><FailureAwareLabel label={fileActionLabel(activity)} /></span>
             <button
               onClick={(event) => {
                 event.stopPropagation();
@@ -171,11 +188,13 @@ function OperationMemberRow({
               title={target}
               type="button"
             >
-              {target}
+              {fileDisplayName(target)}
             </button>
           </span>
         ) : (
-          <span className={activity.status === "running" ? "working-glow" : ""} title={memberLabel(activity)}>{memberLabel(activity)}</span>
+          <span className={activity.status === "running" ? "working-glow" : ""} title={memberLabel(activity)}>
+            <FailureAwareLabel label={memberLabel(activity)} />
+          </span>
         )}
         <ChevronRight className="operation-member-chevron" size={12} />
       </DisclosureRow>
@@ -225,14 +244,14 @@ export function ModificationFileRow({
           title={file.path}
           type="button"
         >
-          {file.path}
+          {fileDisplayName(file.path)}
         </button>
         <span className={`operation-diff-metrics ${active ? "is-live" : ""}`}><b>+{file.additions}</b> <i>-{file.deletions}</i></span>
         <ChevronRight className="operation-file-summary-chevron" size={13} />
       </DisclosureRow>
       <div className={`operation-file-detail-expander ${expanded ? "is-expanded" : ""}`}>
         <div>{expanded && (
-          <DetailPanel copyValue={file.patch ?? ""} title={file.path}>
+          <DetailPanel copyValue={file.patch ?? ""} title={fileDisplayName(file.path)}>
             {hasPatch
               ? <CodeDiffViewer compact patch={file.patch!} path={file.path} />
               : <div className="operation-detail-empty">暂无可展示的变更内容。</div>}
@@ -299,7 +318,9 @@ export function ActivityGroupRenderer({
         onToggle={toggleExpanded}
       >
         <span className="operation-group-icon">{groupIcon(group)}</span>
-        <span className={`operation-group-action ${group.status === "running" ? "working-glow" : ""}`}>{expanded ? expandedActionLabel(group, members) : collapsedLabel}</span>
+        <span className={`operation-group-action ${group.status === "running" ? "working-glow" : ""}`}>
+          <FailureAwareLabel label={expanded ? expandedActionLabel(group, members) : collapsedLabel} />
+        </span>
         {directFile && !expanded && (
           <button
             className="operation-summary-file"
@@ -310,7 +331,7 @@ export function ActivityGroupRenderer({
             title={directFile}
             type="button"
           >
-            {directFile}
+              {fileDisplayName(directFile)}
           </button>
         )}
         {metrics && !expanded && (
@@ -344,6 +365,21 @@ export function ActivityGroupRenderer({
 
 function aggregateIcon(aggregate: ToolAggregate) {
   return aggregate.status === "failed" ? <CircleAlert size={13} /> : <CheckCircle2 size={13} />;
+}
+
+function AggregateSummary({ aggregate }: { aggregate: ToolAggregate }) {
+  const failureLabel = aggregate.failureCount > 0 ? ` · ${aggregate.failureCount} 项失败` : "";
+  const cancelledLabel = aggregate.cancelledCount > 0 ? ` · ${aggregate.cancelledCount} 项已取消` : "";
+  const baseLabel = aggregate.summaryLabel
+    .replace(failureLabel, "")
+    .replace(cancelledLabel, "");
+  return (
+    <>
+      <span>{baseLabel}</span>
+      {failureLabel && <span className="operation-group-failure">{failureLabel}</span>}
+      {cancelledLabel && <span className="operation-group-cancelled">{cancelledLabel}</span>}
+    </>
+  );
 }
 
 export function ActivityAggregateRenderer({
@@ -381,7 +417,7 @@ export function ActivityAggregateRenderer({
         onToggle={toggleExpanded}
       >
         <span className="operation-group-icon">{aggregateIcon(aggregate)}</span>
-        <span className="operation-group-action">{aggregate.summaryLabel}</span>
+        <span className="operation-group-action"><AggregateSummary aggregate={aggregate} /></span>
         <ChevronRight className="operation-summary-chevron" size={13} />
       </DisclosureRow>
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>

@@ -25,9 +25,11 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@pierre/diffs": "1.2.12",
     "@vitejs/plugin-react": "^6.0.3",
     "dotenv": "^17.4.2",
     "fastify": "^5.10.0",
+    "jsonc-parser": "^3.3.1",
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.468.0",
     "mermaid": "^11.16.0",

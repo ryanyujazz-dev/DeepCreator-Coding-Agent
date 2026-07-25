@@ -13,7 +13,6 @@ import { contextConfig } from "../infra/contextConfig";
 import { DeepSeekProvider } from "../infra/deepseek";
 import { ZhipuProvider } from "../infra/zhipu";
 import { MockProvider } from "../infra/mock";
-import { ensureProjectSetup } from "../infra/projectSetup";
 import { resolveProjectRoot } from "../infra/projectRoot";
 import { ruleSource } from "../infra/rules";
 import { RuntimeStore } from "../infra/runtimeStore";
@@ -98,8 +97,6 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   const defaultModel = options.defaultModel ?? "deepseek-v4-flash";
   const apiKey = options.apiKey ?? "";
   const context = contextConfig();
-  // ADR-009: 确保项目目录结构就绪(.deepseeker/ + AGENTS.md 模板 + file-history/)
-  ensureProjectSetup(options.workspaceRoot);
   const store = new RuntimeStore(path.resolve(options.dataDirectory), options.migrationDirectory);
   for (const summary of store.listSessions()) {
     const session = store.getSession(summary.sessionId);

@@ -1,3 +1,11 @@
+import {
+  ThemeImportInput,
+  ThemePack,
+  ThemePreference,
+  ThemeSummary,
+  WindowChromeTheme
+} from "./theme";
+
 export type RuntimePhase = "starting" | "ready" | "restarting" | "stopped" | "failed";
 
 export type RuntimeConnection = {
@@ -31,6 +39,11 @@ export type DesktopSettingsInput = {
 };
 
 export type DesktopBridge = {
+  appearance: {
+    applyChrome: (theme: WindowChromeTheme) => Promise<void>;
+    read: () => Promise<ThemePreference>;
+    save: (preference: ThemePreference) => Promise<ThemePreference>;
+  };
   files: {
     openExternal: (url: string) => Promise<void>;
     reveal: (filePath: string) => Promise<void>;
@@ -52,5 +65,13 @@ export type DesktopBridge = {
   settings: {
     read: () => Promise<DesktopSettings>;
     save: (input: DesktopSettingsInput) => Promise<DesktopSettings>;
+  };
+  themes: {
+    exportFile: (themeId: string) => Promise<boolean>;
+    get: (themeId: string) => Promise<ThemePack | null>;
+    importFile: (input: ThemeImportInput) => Promise<ThemePack | null>;
+    list: () => Promise<ThemeSummary[]>;
+    remove: (themeId: string) => Promise<ThemeSummary[]>;
+    save: (theme: ThemePack) => Promise<ThemePack>;
   };
 };

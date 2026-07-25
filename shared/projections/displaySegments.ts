@@ -10,7 +10,7 @@ import {
   DisplaySegment,
   ToolAggregate
 } from "./types";
-import { activityTitle, toolTarget } from "./activityPresentation";
+import { activityTitle, toolDisplayTarget, toolTarget } from "./activityPresentation";
 
 type IndexedActivity = {
   activity: Activity;
@@ -67,7 +67,7 @@ function createDraft(activity: Activity): SegmentDraft {
 }
 
 function toolStartLabel(activity: Activity): string {
-  const target = toolTarget(activity.tool) || activityTitle(activity);
+  const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
   let action = "正在执行";
   if (activity.tool?.toolName === "read_file") action = "正在读取";
   else if (activity.tool?.toolName === "list_files") action = "正在列出";

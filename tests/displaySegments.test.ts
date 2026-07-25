@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { projectDisplayTimeline } from "../shared/projections/displaySegments";
+import { fileDisplayName } from "../shared/projections/activityPresentation";
 import { Activity, Run, ToolState, emptyChanges } from "../shared/contracts/runtime";
+
+test("uses only the file name for visible file targets", () => {
+  assert.equal(fileDisplayName("src/components/App.tsx"), "App.tsx");
+  assert.equal(fileDisplayName("src\\components\\styles.css"), "styles.css");
+  assert.equal(fileDisplayName(".env"), ".env");
+});
 
 function tool(overrides: Partial<ToolState> = {}): ToolState {
   return {
@@ -105,7 +112,7 @@ test("holds suspended thinking visually without treating it as terminal", () => 
   const runningRead = activity(2, { finishedAt: undefined, status: "running" });
   const active = onlySegment(run([thinking(1, "suspended"), runningRead]));
   assert.equal(active.activitySlots[0]?.logicalState, "active");
-  assert.equal(active.activitySlots[0]?.visual.label, "正在读取 src/App.tsx");
+  assert.equal(active.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 });
 
 test("creates no empty aggregate on tool start and creates it immediately on done", () => {
@@ -113,13 +120,13 @@ test("creates no empty aggregate on tool start and creates it immediately on don
   const runningRead = activity(2, { finishedAt: undefined, status: "running" });
   const before = onlySegment(run([content, runningRead]));
   assert.equal(before.aggregate, undefined);
-  assert.equal(before.activitySlots[0]?.visual.label, "正在读取 src/App.tsx");
+  assert.equal(before.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 
   const completedRead = activity(2);
   const after = onlySegment(run([content, completedRead]));
   assert.equal(after.aggregate?.summaryLabel, "已读取 1 个文件");
   assert.equal(after.activitySlots[0]?.logicalState, "empty");
-  assert.equal(after.activitySlots[0]?.visual.label, "正在读取 src/App.tsx");
+  assert.equal(after.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 });
 
 test("holds an empty activity slot until the next transient state takes over", () => {
@@ -190,13 +197,13 @@ test("supports a tool-only segment while preserving the held start label", () =>
   assert.equal(segment.mainActivity, undefined);
   assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件");
   assert.equal(segment.activitySlots[0]?.logicalState, "empty");
-  assert.equal(segment.activitySlots[0]?.visual.label, "正在读取 src/App.tsx");
+  assert.equal(segment.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 });
 
 test("starts content after a tool-only segment without moving its aggregate header", () => {
   const toolOnly = [thinking(1, "completed"), activity(2)];
   const before = projectDisplayTimeline(run(toolOnly));
-  assert.equal(before[0].type === "display_segment" && before[0].segment.activitySlots[0]?.visual.label, "正在读取 src/App.tsx");
+  assert.equal(before[0].type === "display_segment" && before[0].segment.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 
   const after = projectDisplayTimeline(run([...toolOnly, message(3, "检查完成。")]));
   assert.equal(after.length, 2);
@@ -241,7 +248,7 @@ test("allocates one stable activity slot per concurrent tool and removes only th
     tool: tool({ callId: "call_3", displayTarget: ".env", normalizedTarget: ".env" })
   });
   const running = onlySegment(run([message(1, "开始检查。"), first, second]));
-  assert.deepEqual(running.activitySlots.map((slot) => slot.visual.label), ["正在读取 src/App.tsx", "正在读取 .env"]);
+  assert.deepEqual(running.activitySlots.map((slot) => slot.visual.label), ["正在读取 App.tsx", "正在读取 .env"]);
 
   const partiallySettled = onlySegment(run([message(1, "开始检查。"), activity(2), second]));
   assert.deepEqual(partiallySettled.activitySlots.map((slot) => slot.visual.label), ["正在读取 .env"]);

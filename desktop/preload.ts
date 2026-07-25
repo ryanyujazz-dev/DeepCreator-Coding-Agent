@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from "electron";
 import { DesktopBridge, DesktopSettingsInput, RuntimeState } from "../shared/contracts/desktop";
 
 const bridge: DesktopBridge = {
+  appearance: {
+    applyChrome: (theme) => ipcRenderer.invoke("desktop:appearance:apply-chrome", theme),
+    read: () => ipcRenderer.invoke("desktop:appearance:read"),
+    save: (preference) => ipcRenderer.invoke("desktop:appearance:save", preference)
+  },
   files: {
     openExternal: (url) => ipcRenderer.invoke("desktop:open-external", url),
     reveal: (filePath) => ipcRenderer.invoke("desktop:reveal", filePath)
@@ -27,6 +32,14 @@ const bridge: DesktopBridge = {
   settings: {
     read: () => ipcRenderer.invoke("desktop:settings:read"),
     save: (input: DesktopSettingsInput) => ipcRenderer.invoke("desktop:settings:save", input)
+  },
+  themes: {
+    exportFile: (themeId) => ipcRenderer.invoke("desktop:themes:export", themeId),
+    get: (themeId) => ipcRenderer.invoke("desktop:themes:get", themeId),
+    importFile: (input) => ipcRenderer.invoke("desktop:themes:import", input),
+    list: () => ipcRenderer.invoke("desktop:themes:list"),
+    remove: (themeId) => ipcRenderer.invoke("desktop:themes:remove", themeId),
+    save: (theme) => ipcRenderer.invoke("desktop:themes:save", theme)
   }
 };
 

@@ -44,22 +44,23 @@ export function Conversation({
   const modeRef = useRef<FollowMode>("follow");
   const [notAtBottom, setNotAtBottom] = useState(false);
   const [notAtTop, setNotAtTop] = useState(false);
-  // 底部蒙层的 bottom:从 main 底部到 composer 上沿的距离
-  // (= composer 跟底部的 margin + composer 上方可能出现的 hud/notice 高度 + composer 自身高度)
-  // 用 composer.offsetTop 反推:bottom = main.clientHeight - composer.offsetTop
+  // 底部蒙层的 bottom:从 main 底部到 composer 上沿的距离。
+  // HUD 依附 composer-stack 绝对悬浮，不参与布局，也不会改变这条边界。
+  // 用 composer.offsetTop 反推:bottom = main.clientHeight - composer.offsetTop。
   const [composerBottomOffset, setComposerBottomOffset] = useState(0);
-  // 回到底部按钮必须以 composer 的真实中心为准，不能假设 main 与 composer 同中心。
-  const [composerCenterX, setComposerCenterX] = useState<number | null>(null);
   // 顶部偏移:.conversation-scroll 相对 .conversation-main 的 offsetTop
   const [scrollOffsetTop, setScrollOffsetTop] = useState(0);
   // Portal 目标:.conversation-main 元素
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  // 滚动按钮直接挂到 Composer 容器，天然继承所有响应式位移和宽度变化。
+  const [composerPortalTarget, setComposerPortalTarget] = useState<HTMLElement | null>(null);
 
   // 找到 .conversation-main 作为 Portal 目标
   useLayoutEffect(() => {
     const parent = scrollRef.current?.parentElement;
     if (parent && parent.classList.contains("conversation-main")) {
       setPortalTarget(parent);
+      setComposerPortalTarget(parent.querySelector<HTMLElement>(".composer-stack"));
     }
   }, []);
 
@@ -75,9 +76,6 @@ export function Conversation({
       const composer = portalTarget.querySelector(".composer-stack, .composer") as HTMLElement | null;
       if (composer) {
         setComposerBottomOffset(portalTarget.clientHeight - composer.offsetTop);
-        const mainRect = portalTarget.getBoundingClientRect();
-        const composerRect = composer.getBoundingClientRect();
-        setComposerCenterX(composerRect.left - mainRect.left + composerRect.width / 2);
       }
     };
     updateLayout();
@@ -148,11 +146,10 @@ export function Conversation({
     scrollToBottom();
   }, [setMode, scrollToBottom]);
 
-  // 蒙层 + 滚动按钮通过 Portal 渲染到 .conversation-main
+  // 蒙层通过 Portal 渲染到 .conversation-main，滚动按钮挂到 .composer-stack。
   // - 顶部蒙层:top = scrollOffsetTop(对话区顶部相对 main 的偏移),紧贴对话区上沿
   // - 底部蒙层:bottom = composerBottomOffset(composer 上沿距 main 底部),紧贴对话框上沿
-  // - 滚动按钮:跟底部蒙层同 bottom,按 composer 实际边界水平居中。用 absolute 而非 sticky,不占文档流空间,
-  //   避免 sticky 占位导致 scrollHeight 变化引起滚到最末端时的抖动。
+  // - 滚动按钮:由 Composer 作为定位父级，因此始终跟随输入框的真实中心。
   const overlays = portalTarget ? createPortal(
     <>
       {notAtTop && (
@@ -169,23 +166,20 @@ export function Conversation({
           aria-hidden="true"
         />
       )}
-      {notAtBottom && (
-        <button
-          aria-label="滚动到底部"
-          className="scroll-to-bottom-button"
-          onClick={handleScrollToBottomClick}
-          style={{
-            bottom: `${composerBottomOffset + 12}px`,
-            left: composerCenterX === null ? "50%" : `${composerCenterX}px`
-          }}
-          title="滚动到底部"
-          type="button"
-        >
-          <ChevronDown size={18} />
-        </button>
-      )}
     </>,
     portalTarget
+  ) : null;
+  const scrollButton = composerPortalTarget && notAtBottom ? createPortal(
+    <button
+      aria-label="滚动到底部"
+      className="scroll-to-bottom-button"
+      onClick={handleScrollToBottomClick}
+      title="滚动到底部"
+      type="button"
+    >
+      <ChevronDown size={18} />
+    </button>,
+    composerPortalTarget
   ) : null;
 
   return (
@@ -218,6 +212,7 @@ export function Conversation({
         <div className="conversation-empty-state"><h1>我们该构建什么？</h1></div>
       )}
       {overlays}
+      {scrollButton}
     </section>
   );
 }

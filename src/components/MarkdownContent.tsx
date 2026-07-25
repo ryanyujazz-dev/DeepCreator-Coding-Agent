@@ -5,6 +5,7 @@ import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { StreamFragment } from "../stream/textFlow";
 import { MermaidBlock } from "./MermaidBlock";
+import { useOptionalTheme } from "../theme/ThemeProvider";
 
 type FadeRange = {
   end: number;
@@ -108,6 +109,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
 };
 
 function PlainCodeBlock({ code, followOutput, language }: { code: string; followOutput: boolean; language: string }) {
+  const prismTheme = useOptionalTheme()?.prismTheme ?? themes.github;
   const [copied, setCopied] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
   const stickToEnd = useRef(true);
@@ -134,7 +136,7 @@ function PlainCodeBlock({ code, followOutput, language }: { code: string; follow
           {copied ? <Check size={13} /> : <Copy size={13} />}
         </button>
       </header>
-      <Highlight code={code} language={language} theme={themes.github}>
+      <Highlight code={code} language={language} theme={prismTheme}>
         {({ className, getLineProps, getTokenProps, style, tokens }) => (
           <pre
             className={className}

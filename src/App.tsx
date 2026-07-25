@@ -8,14 +8,16 @@ import { ConnectionStatus } from "./components/ConnectionStatus";
 import { Conversation } from "./components/Conversation";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { Inspector } from "./components/Inspector";
+import { TaskProgress } from "./components/TaskProgress";
 import { Surface, SurfacePane } from "./components/SurfacePane";
 import { RuntimeFilePreview, runtimeApi } from "./runtimeApi";
 import { useWorkspace } from "./useWorkspace";
 import { Changes } from "../shared/contracts/runtime";
 import { ProjectRef } from "../shared/contracts/desktop";
-import { SettingsDialog } from "./components/SettingsDialog";
+import { SettingsWorkspace } from "./components/settings/SettingsWorkspace";
 import { IconButton } from "./shared-ui/ControlPrimitives";
 import { defaultDraftWorkspace, DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
+import { resolveCompactSidebar, useInspectorLayout } from "./inspectorLayout";
 
 type SurfaceFileState = {
   error: string | null;
@@ -45,6 +47,8 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { message: str
 export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepseeker.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
+  const [compactSidebar, setCompactSidebar] = useState(() => resolveCompactSidebar(window.innerWidth, DEFAULT_SIDEBAR_WIDTH));
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false);
   const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepseeker.surfaceWidth", DEFAULT_SURFACE_WIDTH));
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [surfaces, setSurfaces] = useState<Surface[]>([]);
@@ -55,6 +59,7 @@ export function App() {
   const [projectsReady, setProjectsReady] = useState(!window.deepseeker);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelNotices, setModelNotices] = useState<string[]>([]);
+  const { layout: inspectorLayout, targetRef: conversationMainRef } = useInspectorLayout();
   const desktop = window.deepseeker;
   const {
     activeRun,
@@ -120,16 +125,13 @@ export function App() {
       : currentRun?.status === "cancelled"
         ? "工作已取消"
         : "工作已结束";
-  const currentDelta = currentRun?.changes.comparisonBase === "run_start"
-    ? currentRun.changes
-    : { additions: 0, deletions: 0, fileCount: 0 };
   const activeSurface = useMemo(
     () => surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0] ?? null,
     [activeSurfaceId, surfaces]
   );
   const activeFileState = activeSurface?.kind === "file" ? surfaceFiles[activeSurface.path] : undefined;
   const compactWorkspace = viewportWidth <= 760;
-  const visibleSidebarWidth = compactWorkspace ? 0 : sidebarWidth;
+  const visibleSidebarWidth = compactSidebar || !sidebarOpen ? 0 : sidebarWidth;
   const conversationMinimum = compactWorkspace ? 280 : 420;
   const surfaceMinimum = compactWorkspace ? 280 : 360;
   const surfaceWidthCap = compactWorkspace ? 420 : 960;
@@ -247,6 +249,12 @@ export function App() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
   useEffect(() => {
+    setCompactSidebar((previous) => resolveCompactSidebar(viewportWidth, sidebarWidth, previous));
+  }, [sidebarWidth, viewportWidth]);
+  useEffect(() => {
+    if (!compactSidebar) setSidebarOverlayOpen(false);
+  }, [compactSidebar]);
+  useEffect(() => {
     if (!desktop) return;
     void desktop.projects.recent()
       .then(setProjects)
@@ -302,8 +310,18 @@ export function App() {
   return (
     <AppErrorBoundary>
       <div className="app-frame">
-        <AppTopbar onToggleSidebar={() => setSidebarOpen((open) => !open)} />
-        <div className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+        <AppTopbar onToggleSidebar={() => {
+          if (compactSidebar) {
+            setSidebarOverlayOpen((open) => !open);
+            return;
+          }
+          setSidebarOpen((open) => !open);
+        }} />
+        <div
+          className={`app-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}${sidebarOverlayOpen ? " sidebar-overlay-open" : ""}`}
+          hidden={settingsOpen}
+          style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+        >
         <SessionSidebar
           desktopProjectsManaged={Boolean(desktop)}
           onArchiveProject={(root) => archiveProjectSessions(root)}
@@ -316,7 +334,7 @@ export function App() {
           onRenameProject={desktop ? async (root, name) => setProjects(await desktop.projects.rename(root, name)) : undefined}
           onSearch={searchSessions}
           onSelectSession={(sessionId) => void openSession(sessionId)}
-          onSettings={window.deepseeker ? () => setSettingsOpen(true) : undefined}
+          onSettings={() => setSettingsOpen(true)}
           onWidthChange={setSidebarWidth}
           onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
           selectedSessionKey={session?.sessionId ?? null}
@@ -324,35 +342,46 @@ export function App() {
           sessions={sessions}
           projects={projects}
         />
+        {compactSidebar && sidebarOverlayOpen && (
+          <button
+            aria-label="关闭侧边栏"
+            className="sidebar-overlay-scrim"
+            onClick={() => setSidebarOverlayOpen(false)}
+            type="button"
+          />
+        )}
         <main
           className={`workspace conversation-workspace ${surfaces.length > 0 ? "has-surface" : ""}`}
           style={{ "--surface-width": `${effectiveSurfaceWidth}px` } as CSSProperties}
         >
-          <div className="conversation-main">
+          <div className={`conversation-main inspector-layout-${inspectorLayout}`} ref={conversationMainRef}>
             <header className="thread-header">
               <div className="thread-title"><Folder size={16} /><span>{session?.title ?? "DeepSeeker CodeAgent"}</span><MoreHorizontal size={14} /></div>
               <ConnectionStatus onRetry={window.deepseeker ? () => void retryRuntime() : undefined} phase={connection} />
             </header>
             <div className="window-actions"><IconButton className="icon-button" label="视图设置"><SlidersHorizontal size={14} /></IconButton><IconButton className="icon-button" label="工作区面板"><PanelRight size={14} /></IconButton></div>
-            <Inspector onOpenReview={openReviewSurface} session={session} workspace={workspace} />
+            <Inspector
+              compact={inspectorLayout === "compact"}
+              connection={connection}
+              onOpenPlan={openPlanSurface}
+              onOpenReview={openReviewSurface}
+              session={session}
+              workspace={workspace}
+            />
             <Conversation notices={modelNotices} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
-            {currentRun && (
-              <div
-                aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
-                className={`composer-hud is-${currentRun.status} ${activeRun && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}
-              >
-                <div className="composer-hud-primary">
-                  <span className={agentRunning ? "working-glow" : ""}>{waitingRun ? "等待决定" : activeRun ? "正在执行" : "最近工作"}</span>
-                  <strong className={agentRunning ? "working-glow" : ""}>{workLabel}</strong>
-                </div>
-                <span className="composer-hud-changes">{currentDelta.fileCount} 个文件已更改 <b>+{currentDelta.additions}</b> <i>-{currentDelta.deletions}</i></span>
-              </div>
-            )}
             {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
             {workspace?.exists === false && <div className="composer-error">项目目录不存在，请新建任务并重新选择项目。</div>}
             {error && <div className="composer-error">{error}</div>}
             <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
             <div className={`composer-stack ${!session ? "has-project-context" : ""}`}>
+              {currentRun && (
+                <div
+                  aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
+                  className={`composer-hud is-${currentRun.status} ${activeRun && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}
+                >
+                  <TaskProgress active={agentRunning} label={workLabel} tasks={currentRun.tasks} />
+                </div>
+              )}
               {!session && draftWorkspace && (
                 <ProjectContextSelector
                   canAddProject={Boolean(desktop)}
@@ -406,7 +435,18 @@ export function App() {
             runs={session?.runs ?? []}
           />
         </main>
-        {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        </div>
+        <div
+          className="app-shell settings-shell"
+          hidden={!settingsOpen}
+          style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+        >
+          <SettingsWorkspace
+            onClose={() => setSettingsOpen(false)}
+            onWidthChange={setSidebarWidth}
+            onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+            sidebarWidth={sidebarWidth}
+          />
         </div>
       </div>
     </AppErrorBoundary>

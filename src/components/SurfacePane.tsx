@@ -1,6 +1,7 @@
 import { CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { FileChange, Plan, Run, isRunDone } from "../../shared/contracts/runtime";
+import { fileDisplayName } from "../../shared/projections/activityPresentation";
 import { RuntimeFilePreview } from "../runtimeApi";
 import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
 import { PanelResizeHandle } from "./PanelResizeHandle";
@@ -93,7 +94,7 @@ function ReviewSurface({
             title={item.path}
           >
             <FileCode2 size={13} />
-            <span>{item.path}</span>
+            <span>{fileDisplayName(item.path)}</span>
             <strong><b>+{item.additions}</b> <i>-{item.deletions}</i></strong>
           </RowAction>
         ))}

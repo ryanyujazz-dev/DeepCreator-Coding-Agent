@@ -26,6 +26,16 @@ export function toolTarget(tool: ToolState | undefined): string {
   return tool?.displayTarget || tool?.normalizedTarget || "";
 }
 
+export function fileDisplayName(filePath: string): string {
+  const normalized = filePath.replaceAll("\\", "/");
+  return normalized.split("/").filter(Boolean).at(-1) ?? filePath;
+}
+
+export function toolDisplayTarget(tool: ToolState | undefined): string {
+  const target = toolTarget(tool);
+  return tool?.targetKind === "file" ? fileDisplayName(target) : target;
+}
+
 export function toolImportance(tool: ToolState | undefined): ToolImportance {
   if (tool?.importance) return tool.importance;
   if (tool?.toolName === "delete_file") return "critical";

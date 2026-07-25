@@ -2,17 +2,21 @@ import { app, safeStorage } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DesktopSettings, DesktopSettingsInput, ProjectRef } from "../shared/contracts/desktop";
+import { ThemePreference } from "../shared/contracts/theme";
+import { DEFAULT_THEME_PREFERENCE, normalizeThemePreference } from "../shared/themeCatalog";
 import { loadUserConfig, saveUserConfig } from "../server/infra/userConfig";
 
 type WindowBounds = { height: number; width: number; x?: number; y?: number };
 type StoredDesktopState = {
   apiKey?: string;
+  appearance: ThemePreference;
   defaultModel: string;
   recentProjects: ProjectRef[];
   window?: WindowBounds;
 };
 
 const defaults: StoredDesktopState = {
+  appearance: DEFAULT_THEME_PREFERENCE,
   defaultModel: "deepseek-v4-flash",
   recentProjects: []
 };
@@ -85,6 +89,20 @@ export class DesktopStore {
     return { defaultModel: this.state.defaultModel, hasApiKey: Boolean(this.apiKey()), hasZhipuApiKey: Boolean(loadUserConfig().zhipuApiKey) };
   }
 
+  appearance(): ThemePreference {
+    return structuredClone(this.state.appearance);
+  }
+
+  saveAppearance(preference: ThemePreference): ThemePreference {
+    this.state.appearance = {
+      codeThemeId: preference.codeThemeId?.trim() || undefined,
+      mode: preference.mode === "dark" || preference.mode === "light" ? preference.mode : "system",
+      themeId: preference.themeId.trim() || DEFAULT_THEME_PREFERENCE.themeId
+    };
+    this.write();
+    return this.appearance();
+  }
+
   saveSettings(input: DesktopSettingsInput): DesktopSettings {
     this.state.defaultModel = input.defaultModel.trim() || defaults.defaultModel;
     if (input.apiKey !== undefined) {
@@ -117,6 +135,7 @@ export class DesktopStore {
       const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as Partial<StoredDesktopState>;
       return {
         apiKey: parsed.apiKey,
+        appearance: normalizeThemePreference(parsed.appearance),
         defaultModel: parsed.defaultModel || defaults.defaultModel,
         recentProjects: Array.isArray(parsed.recentProjects) ? parsed.recentProjects : [],
         window: parsed.window

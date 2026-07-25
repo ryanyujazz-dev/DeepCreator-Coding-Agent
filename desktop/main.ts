@@ -1,8 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { DesktopSettingsInput } from "../shared/contracts/desktop";
+import { ThemeImportInput, ThemePack, ThemePreference, WindowChromeTheme } from "../shared/contracts/theme";
+import { DEFAULT_THEME_ID, isHexColor } from "../shared/themeCatalog";
 import { RuntimeHost } from "./runtime-host";
 import { DesktopStore } from "./store";
+import { importThemeFile } from "./themeImport";
+import { ThemeStore } from "./themeStore";
 import { ensureUserConfig, loadUserConfig } from "../server/infra/userConfig";
 
 // ADR-009: 配置统一从 ~/.deepseeker/config.json 读取(不再使用 dotenv/.env.local)
@@ -13,6 +18,7 @@ console.log("[desktop] main started");
 let mainWindow: BrowserWindow | null = null;
 let runtime: RuntimeHost;
 let store: DesktopStore;
+let themes: ThemeStore;
 let gracefulQuit = false;
 
 function trusted(event: Electron.IpcMainInvokeEvent): void {
@@ -20,6 +26,25 @@ function trusted(event: Electron.IpcMainInvokeEvent): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("desktop:appearance:read", (event) => { trusted(event); return store.appearance(); });
+  ipcMain.handle("desktop:appearance:save", (event, preference: ThemePreference) => {
+    trusted(event);
+    if (!themes.get(preference.themeId)) throw new Error("所选主题不存在。");
+    if (preference.codeThemeId && !themes.get(preference.codeThemeId)) throw new Error("所选代码主题不存在。");
+    return store.saveAppearance(preference);
+  });
+  ipcMain.handle("desktop:appearance:apply-chrome", (event, theme: WindowChromeTheme) => {
+    trusted(event);
+    if (!isHexColor(theme.backgroundColor) || !isHexColor(theme.symbolColor)) throw new Error("窗口主题颜色无效。");
+    nativeTheme.themeSource = theme.mode;
+    mainWindow?.setBackgroundColor(theme.backgroundColor);
+    if (process.platform === "darwin") {
+      mainWindow?.setVibrancy(theme.translucentSidebar ? "sidebar" : null);
+    } else if (process.platform === "win32") {
+      mainWindow?.setBackgroundMaterial(theme.translucentSidebar ? "mica" : "none");
+      mainWindow?.setTitleBarOverlay({ color: theme.backgroundColor, height: 42, symbolColor: theme.symbolColor });
+    }
+  });
   ipcMain.handle("runtime:connection", (event) => { trusted(event); return runtime.connection(); });
   ipcMain.handle("runtime:retry", (event) => { trusted(event); return runtime.restart(); });
   ipcMain.handle("desktop:recent-projects", (event) => { trusted(event); return store.recentProjects(); });
@@ -61,6 +86,56 @@ function registerIpc(): void {
     await runtime.restart();
     return settings;
   });
+  ipcMain.handle("desktop:themes:list", (event) => {
+    trusted(event);
+    return themes.all().map(({ id, name, readonly, source }) => ({ id, name, readonly, source }));
+  });
+  ipcMain.handle("desktop:themes:get", (event, themeId: string) => {
+    trusted(event);
+    return themes.get(themeId) ?? null;
+  });
+  ipcMain.handle("desktop:themes:save", (event, theme: ThemePack) => {
+    trusted(event);
+    return themes.save(theme);
+  });
+  ipcMain.handle("desktop:themes:remove", (event, themeId: string) => {
+    trusted(event);
+    themes.remove(themeId);
+    const preference = store.appearance();
+    if (preference.themeId === themeId || preference.codeThemeId === themeId) {
+      store.saveAppearance({
+        codeThemeId: preference.codeThemeId === themeId ? undefined : preference.codeThemeId,
+        mode: preference.mode,
+        themeId: preference.themeId === themeId ? DEFAULT_THEME_ID : preference.themeId
+      });
+    }
+    return themes.all().map(({ id, name, readonly, source }) => ({ id, name, readonly, source }));
+  });
+  ipcMain.handle("desktop:themes:import", async (event, input: ThemeImportInput) => {
+    trusted(event);
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      filters: [{ extensions: ["json", "jsonc"], name: "主题文件" }],
+      properties: ["openFile"],
+      title: "导入主题"
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const base = themes.get(input.baseThemeId);
+    if (!base) throw new Error("导入主题所需的基础主题不存在。");
+    return importThemeFile(result.filePaths[0], base, input.target);
+  });
+  ipcMain.handle("desktop:themes:export", async (event, themeId: string) => {
+    trusted(event);
+    const theme = themes.get(themeId);
+    if (!theme) throw new Error("主题不存在。");
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      defaultPath: `${theme.name.replace(/[\\/:*?"<>|]/g, "-")}.deepseeker-theme.json`,
+      filters: [{ extensions: ["json"], name: "DeepSeeker 主题" }],
+      title: "导出主题"
+    });
+    if (result.canceled || !result.filePath) return false;
+    writeFileSync(result.filePath, `${JSON.stringify(theme, null, 2)}\n`, "utf8");
+    return true;
+  });
   ipcMain.handle("desktop:reveal", (event, filePath: string) => {
     trusted(event);
     const resolved = path.resolve(filePath);
@@ -79,18 +154,26 @@ function registerIpc(): void {
 
 function createWindow(): BrowserWindow {
   const bounds = store.windowBounds();
+  const appearance = store.appearance();
+  nativeTheme.themeSource = appearance.mode;
+  const startupTheme = themes.get(appearance.themeId) ?? themes.get(DEFAULT_THEME_ID)!;
+  const startupVariant = startupTheme.variants[nativeTheme.shouldUseDarkColors ? "dark" : "light"];
   const window = new BrowserWindow({
     autoHideMenuBar: true,
-    backgroundColor: "#f2f4f5",
+    backgroundColor: startupVariant.colors.sidebar,
     height: bounds?.height ?? 900,
     minHeight: 620,
-    minWidth: 940,
+    minWidth: 420,
     show: false,
     title: "DeepSeeker",
     ...(process.platform === "darwin"
       ? { titleBarStyle: "hiddenInset" as const }
       : {
-          titleBarOverlay: { color: "#f2f4f5", height: 42, symbolColor: "#5f6a70" },
+          titleBarOverlay: {
+            color: startupVariant.colors.sidebar,
+            height: 42,
+            symbolColor: startupVariant.colors.muted
+          },
           titleBarStyle: "hidden" as const
         }),
     width: bounds?.width ?? 1440,
@@ -103,6 +186,8 @@ function createWindow(): BrowserWindow {
       sandbox: true
     }
   });
+  if (process.platform === "darwin" && startupVariant.translucentSidebar) window.setVibrancy("sidebar");
+  if (process.platform === "win32" && startupVariant.translucentSidebar) window.setBackgroundMaterial("mica");
   if (process.platform !== "darwin") window.removeMenu();
   window.once("ready-to-show", () => window.show());
   window.on("close", () => store.saveWindowBounds(window.getBounds()));
@@ -125,6 +210,7 @@ else {
   app.whenReady().then(async () => {
     console.log("[desktop] app ready");
     store = new DesktopStore();
+    themes = new ThemeStore();
     runtime = new RuntimeHost(store, MAIN_WINDOW_VITE_DEV_SERVER_URL ?? "file://");
     registerIpc();
     mainWindow = createWindow();
