@@ -63,13 +63,16 @@ export type ActivitySlot = {
 
 export type ToolAggregate = {
   aggregateId: string;
+  groupId?: string;
+  statementId?: string;
+  title?: string;
   runId: string;
   memberActivityIds: string[];
   totalCalls: number;
   successCount: number;
   failureCount: number;
   cancelledCount: number;
-  status: Exclude<ActivityStatus, "running">;
+  status: ActivityStatus;
   summaryLabel: string;
 };
 

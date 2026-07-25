@@ -221,7 +221,7 @@ export class RuntimeStore implements EventPort, SessionPort, ContextPort, Eviden
 
   memoryDigest(projectRoot: string, limit = 12): string {
     const facts = this.readMemories(projectRoot).slice(0, Math.min(30, Math.max(1, limit)));
-    if (facts.length === 0) return "No curated memory facts are active.";
+    if (facts.length === 0) return "当前没有生效的结构化记忆事实。";
     return facts.map((fact) => `${fact.memoryId}\t${fact.category}\t${fact.visibility}\t${fact.confidence.toFixed(2)}\t${fact.statement.slice(0, 220)}`).join("\n");
   }
 

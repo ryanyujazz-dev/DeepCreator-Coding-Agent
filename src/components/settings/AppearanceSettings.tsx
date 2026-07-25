@@ -296,7 +296,10 @@ export function AppearanceSettings() {
             <input
               className="theme-name-input"
               maxLength={80}
-              onChange={(event) => mutateDraft((next) => { next.name = event.target.value; })}
+              onChange={(event) => {
+                const name = event.currentTarget.value;
+                mutateDraft((next) => { next.name = name; });
+              }}
               value={draft.name}
             />
           </label>
@@ -304,13 +307,25 @@ export function AppearanceSettings() {
         {primaryColorRows.map((row) => <ColorControl key={row.key} label={row.label} onChange={(value) => setColor(row.key, value)} value={variant.colors[row.key]} />)}
         <label className="theme-field-row">
           <span>UI 字体</span>
-          <select onChange={(event) => mutateDraft((next) => { next.variants[editingScheme].typography.uiFont = event.target.value; })} value={variant.typography.uiFont}>
+          <select
+            onChange={(event) => {
+              const font = event.currentTarget.value;
+              mutateDraft((next) => { next.variants[editingScheme].typography.uiFont = font; });
+            }}
+            value={variant.typography.uiFont}
+          >
             {UI_FONT_STACKS.map((font) => <option key={font.id} value={font.value}>{font.label}</option>)}
           </select>
         </label>
         <label className="theme-field-row">
           <span>代码字体</span>
-          <select onChange={(event) => mutateDraft((next) => { next.variants[editingScheme].typography.codeFont = event.target.value; })} value={variant.typography.codeFont}>
+          <select
+            onChange={(event) => {
+              const font = event.currentTarget.value;
+              mutateDraft((next) => { next.variants[editingScheme].typography.codeFont = font; });
+            }}
+            value={variant.typography.codeFont}
+          >
             {CODE_FONT_STACKS.map((font) => <option key={font.id} value={font.value}>{font.label}</option>)}
           </select>
         </label>
@@ -321,9 +336,12 @@ export function AppearanceSettings() {
               aria-label="界面阴影与层级对比度"
               max={100}
               min={0}
-              onInput={(event) => mutateDraft((next) => {
-                next.variants[editingScheme].contrast = Number(event.currentTarget.value);
-              })}
+              onInput={(event) => {
+                const contrast = Number(event.currentTarget.value);
+                mutateDraft((next) => {
+                  next.variants[editingScheme].contrast = contrast;
+                });
+              }}
               type="range"
               value={variant.contrast}
             />

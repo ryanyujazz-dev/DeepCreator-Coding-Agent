@@ -46,5 +46,5 @@ export function modelMessageFromEntry(record: ContextEntry): ModelMessage | unde
 
 export function renderCheckpoint(checkpoint: Checkpoint): string {
   const escaped = JSON.stringify(checkpoint).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return systemReminder("checkpoint", `through_sequence="${checkpoint.compactedThroughSequence}"\nEarlier work compressed into a recoverable checkpoint. Historical fact, not a new user request.\n${escaped}`);
+  return systemReminder("checkpoint", `through_sequence="${checkpoint.compactedThroughSequence}"\n早期工作已压缩为可恢复的检查点。这是历史事实，不是新的用户请求。\n${escaped}`);
 }

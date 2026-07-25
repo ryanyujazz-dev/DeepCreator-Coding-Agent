@@ -2,6 +2,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
+  LoaderCircle,
   Files,
   FolderSearch,
   ListTree,
@@ -364,6 +365,7 @@ export function ActivityGroupRenderer({
 }
 
 function aggregateIcon(aggregate: ToolAggregate) {
+  if (aggregate.status === "running") return <LoaderCircle className="operation-running-icon" size={13} />;
   return aggregate.status === "failed" ? <CircleAlert size={13} /> : <CheckCircle2 size={13} />;
 }
 
@@ -375,7 +377,13 @@ function AggregateSummary({ aggregate }: { aggregate: ToolAggregate }) {
     .replace(cancelledLabel, "");
   return (
     <>
-      <span>{baseLabel}</span>
+      {aggregate.title && (
+        <span className={`operation-group-title ${aggregate.status === "running" ? "purpose-sweep" : ""}`}>
+          {aggregate.title}
+        </span>
+      )}
+      {aggregate.title && baseLabel && <span className="operation-group-separator">｜</span>}
+      {baseLabel && <span>{baseLabel}</span>}
       {failureLabel && <span className="operation-group-failure">{failureLabel}</span>}
       {cancelledLabel && <span className="operation-group-cancelled">{cancelledLabel}</span>}
     </>
@@ -423,7 +431,7 @@ export function ActivityAggregateRenderer({
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>
         <div>
           {hasOpened && (
-            <div className="operation-group-details" aria-label="已完成的工具调用">
+            <div className="operation-group-details" aria-label="工具调用">
               {members.map((activity) => {
                 const changedFile = activity.tool?.action === "modify"
                   ? (activity.files?.find((file) => file.path.replaceAll("\\", "/") === activity.tool?.normalizedTarget)

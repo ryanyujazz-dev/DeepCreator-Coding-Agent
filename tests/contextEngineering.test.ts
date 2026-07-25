@@ -268,21 +268,42 @@ test("preflights unseen path guidance before the first file mutation", async () 
     store.append({ data: { accessMode: "full_access" }, sessionId: "session_preflight", type: "session.updated" });
     acceptCycle(store, "session_preflight", "run_preflight", "创建 src/new.ts");
     let requestCount = 0;
+    const declaration = (callId: string) => ({
+      argumentsText: '{"mode":"new","title":"创建源文件"}',
+      callId,
+      index: 0,
+      name: "tools_use_statement"
+    });
     const provider: Provider = {
       capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: false, supportsThinking: true, supportsTools: true },
       async stream(request) {
         requestCount += 1;
         if (requestCount === 1) {
           assert.equal(existsSync(path.join(directory, "src", "new.ts")), false);
+          const call = declaration("statement_write_1");
+          return {
+            answer: "", continuationMessage: { role: "assistant", text: null, toolCalls: [call] },
+            finishCause: "tool_calls", thinking: "", toolCalls: [call]
+          };
+        }
+        if (requestCount === 2) {
+          assert.equal(existsSync(path.join(directory, "src", "new.ts")), false);
           return {
             answer: "", continuationMessage: { continuationThinking: "write", role: "assistant", text: null, toolCalls: [{ argumentsText: '{"path":"src/new.ts","content":"export const value = 1;\\n"}', callId: "write_1", index: 0, name: "write_file" }] },
             finishCause: "tool_calls", thinking: "write", toolCalls: [{ argumentsText: '{"path":"src/new.ts","content":"export const value = 1;\\n"}', callId: "write_1", index: 0, name: "write_file" }]
           };
         }
-        if (requestCount === 2) {
+        if (requestCount === 3) {
           assert.equal(existsSync(path.join(directory, "src", "new.ts")), false);
           assert.equal(request.messages.at(-2)?.role, "tool");
           assert.match(request.messages.at(-1)?.text ?? "", /context_update|新增文件必须导出常量/);
+          const call = declaration("statement_write_2");
+          return {
+            answer: "", continuationMessage: { role: "assistant", text: null, toolCalls: [call] },
+            finishCause: "tool_calls", thinking: "", toolCalls: [call]
+          };
+        }
+        if (requestCount === 4) {
           return {
             answer: "", continuationMessage: { continuationThinking: "retry", role: "assistant", text: null, toolCalls: [{ argumentsText: '{"path":"src/new.ts","content":"export const value = 1;\\n"}', callId: "write_2", index: 0, name: "write_file" }] },
             finishCause: "tool_calls", thinking: "retry", toolCalls: [{ argumentsText: '{"path":"src/new.ts","content":"export const value = 1;\\n"}', callId: "write_2", index: 0, name: "write_file" }]
@@ -504,18 +525,36 @@ test("persists DeepSeek tool reasoning across runs but drops ordinary final reas
     createSession(store, directory, "session_context");
     let firstToolRequested = false;
     let sawRetainedToolReasoning = false;
+    let firstRunStep = 0;
     const provider: Provider = {
       capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: false, supportsThinking: true, supportsTools: true },
       async stream(request) {
         const latestUser = [...request.messages].reverse().find((message) => message.role === "user")?.text;
-        if (latestUser === "读取 sample.ts" && !request.messages.some((message) => message.role === "tool")) {
+        if (latestUser === "读取 sample.ts" && firstRunStep === 0) {
+          firstRunStep += 1;
+          const call = {
+            argumentsText: '{"mode":"new","title":"读取示例文件"}',
+            callId: "statement_read",
+            index: 0,
+            name: "tools_use_statement"
+          };
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [call] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [call]
+          };
+        }
+        if (latestUser === "读取 sample.ts" && firstRunStep === 1) {
+          firstRunStep += 1;
           firstToolRequested = true;
           return {
-            answer: "我先读取文件。",
+            answer: "",
             continuationMessage: {
               continuationThinking: "必须随工具轨迹保留",
               role: "assistant",
-              text: "我先读取文件。",
+              text: null,
               toolCalls: [{ argumentsText: "{\"path\":\"sample.ts\"}", callId: "call_read", index: 0, name: "read_file" }]
             },
             finishCause: "tool_calls",
@@ -661,24 +700,31 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   const first = prompts.compileSystem("deepseek-v4-flash");
   const second = prompts.compileSystem("deepseek-v4-flash");
   assert.equal(first.hash, second.hash);
-  // 系统提示词已升级为英文(对标 Codex/Claude Code)。
-  // P0: safety 1.0.0(安全拒绝)、coding_behavior 3.3.0(preamble WHAT+WHY+HOW 三要素)
-  // ADR-007 标签统一: identity 2.2.0、tool_policy 2.3.0、plan_policy 2.2.0(+execution tracking)
-  // 消除重叠: final_response 2.1.0、output_style 1.6.0(abstraction: 不暴露工具名)
-  assert.match(first.version, /safety@1\.0\.0/);
-  assert.match(first.version, /identity@2\.2\.0/);
-  assert.match(first.version, /coding_behavior@3\.3\.0/);
-  assert.match(first.version, /tool_policy@2\.3\.0/);
-  assert.match(first.version, /plan_policy@2\.2\.0/);
-  assert.match(first.version, /final_response@2\.1\.0/);
-  assert.match(first.version, /doing_tasks@1\.1\.0/);
-  assert.match(first.version, /output_style@1\.6\.0/);
-  assert.match(first.text, /structured tool_calls/);
-  assert.match(first.text, /Refuse to write or explain code that appears designed for malicious/);
-  assert.match(first.text, /Match your ambition to the context/);
-  // 英文化后不应再出现中文提示词原文
-  assert.doesNotMatch(first.text, /结构化 tool_calls/);
-  assert.doesNotMatch(first.text, /不得使用 Emoji/);
+  // 模型可见提示词统一使用中文，协议标识符保持稳定。
+  assert.match(first.version, /safety@1\.1\.0/);
+  assert.match(first.version, /identity@2\.4\.0/);
+  assert.match(first.version, /coding_behavior@4\.2\.0/);
+  assert.match(first.version, /content_policy@1\.0\.0/);
+  assert.match(first.version, /tool_policy@4\.4\.0/);
+  assert.match(first.version, /plan_policy@2\.5\.0/);
+  assert.match(first.version, /final_response@2\.2\.0/);
+  assert.match(first.version, /doing_tasks@1\.2\.0/);
+  assert.match(first.version, /output_style@1\.9\.0/);
+  assert.match(first.text, /结构化 tool_calls/);
+  assert.match(first.text, /tools_use_statement/);
+  assert.match(first.text, /所有面向用户的自然语言输出/);
+  assert.match(first.text, /用户系统环境语言/);
+  assert.match(first.text, /如果用户输入语言与系统环境语言不同/);
+  assert.match(first.text, /用户可理解的工作目的/);
+  assert.match(first.text, /不能仅因此新建标题/);
+  assert.match(first.text, /评估项目架构与实现现状/);
+  assert.match(first.text, /content 不是操作日志、行动预告或思考旁白/);
+  assert.match(first.text, /当前标题和工具统计尚未表达这项信息/);
+  assert.match(first.text, /错误：“已经检查了多个文件，目前正在继续分析。”/);
+  assert.doesNotMatch(first.text, /Before making tool calls, send a preamble/);
+  assert.match(first.text, /拒绝编写或讲解看起来用于恶意目的的代码/);
+  assert.match(first.text, /根据上下文控制改动幅度/);
+  assert.doesNotMatch(first.text, /Call a tool only when/);
 });
 
 test("persists the private context ledger independently from public signals", () => {

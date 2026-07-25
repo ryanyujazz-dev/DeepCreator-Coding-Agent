@@ -49,6 +49,8 @@ The boundary rule is:
 - Once a segment is anchored by `content`, the next `content` emission starts a new display segment.
 - When that next `content` arrives, it visually replaces the previous segment's activity slot. Do not keep the held activity label as an extra row above the new content.
 - Tools that happen after that `content` belong to that segment's aggregate header.
+- A valid standalone `tools_use_statement` with `mode="new"` starts a new tool-purpose segment even when no `content` appears between tool batches.
+- A valid `mode="continue"` keeps subsequent tools in the active purpose segment. Runtime, not the renderer, resolves this relationship and persists one shared `groupId`.
 - The next `content` starts the next segment and resets aggregation for subsequent tools.
 
 Do not use `thinking` completion as the segment boundary.
@@ -78,18 +80,37 @@ After that:
 
 ### 3. Aggregate Header
 
-The aggregate header is lazy-created.
+The aggregate header combines an optional model-declared purpose with Runtime-derived facts.
 
 Rules:
 
 - If the aggregate result is empty, there is no aggregate header slot.
-- The header appears only after the first tool `done`.
+- For legacy or undeclared tools, the header appears only after the first tool `done`.
+- For a valid declared group, the purpose title may appear while its first real tool is running. The declaration control call itself is never visible or counted.
 - The header summarizes completed work, for example:
-  - `[Read 1 file]`
-  - `[Read 2 files]`
-  - `[Read 2 files | Edited 1 file]`
+  - `[Inspect project architecture | Read 1 file]`
+  - `[Trace the authentication failure | Searched 2 items · Read 2 files]`
+  - `[Implement session persistence | Edited 1 file]`
 
-The aggregate header must update immediately when a tool finishes.
+The model owns only the purpose title. Runtime owns tool counts, targets, status, and failure facts. The aggregate header must update immediately when a tool finishes.
+
+#### Tool-use statement protocol
+
+`tools_use_statement` is a control-only declaration that occupies its own model turn.
+
+- `new` creates a new purpose group and requires a concise title.
+- `continue` reuses the active group's title and `groupId`.
+- A valid declaration response contains exactly one `tools_use_statement` call and arms a one-use Runtime gate.
+- The immediately following provider response may contain one or more ordinary tools and consumes that gate.
+- Any non-empty model `content` closes the active group; the next declaration must use `new`.
+- Missing, malformed, duplicated, mixed, or stacked declarations reject the affected tool-call turn.
+- Undeclared ordinary tools are rejected before execution and never enter the visible event stream.
+- The declaration receives a normal tool result so provider history remains protocol-complete.
+- Runtime persists one internal `statement` Activity only as a durable stage boundary. The renderer consumes it semantically; it never becomes a control-tool row, count, approval, or workspace fact.
+- The resolved statement metadata is copied onto each permitted ordinary tool's durable `ToolState`, so refresh, SSE replay, and Runtime restart produce the same grouping.
+- A declared stage remains visually active after its tools finish while the model is interpreting their returned facts.
+- `mode="continue"` keeps that stage active. A different `mode="new"`, non-empty model `content`, a waiting state, or a terminal Run state closes it.
+- Only the first `thinking` seed before any visible stage or content is projected. Later reasoning does not create another “正在思考” row; the active statement title carries the ongoing visual state instead.
 
 ### 4. Activity Slots
 
@@ -126,7 +147,7 @@ This is a render-layer hold, not an event-layer mutation.
 
 ### Aggregate Header
 
-If the aggregate header has never been created, do not reserve space for it.
+If an undeclared aggregate header has never been created, do not reserve space for it. A declared purpose title is meaningful content and may occupy the header while tools are running.
 
 This means:
 
@@ -296,10 +317,14 @@ The following invariants must remain true:
 
 1. Never falsify tool `start` or `done`.
 2. Never delay aggregate-header updates past real tool completion.
-3. Never create an empty aggregate-header slot.
+3. Never create an empty aggregate-header slot; a non-empty declared purpose title is not empty.
 4. Never let later `thinking` overwrite a segment's main content slot.
 5. Allow activity-slot logical emptiness, but preserve its previous visual label until the next transient state arrives.
 6. Prefer one tool call per independent object; batch tools need child-level progress semantics.
 7. Give every independently running object its own stable activity slot.
 8. Make command control calls update the original command instead of creating duplicate activities.
 9. Never finish an Agent run while one of its managed commands is running; use `wait_command` or `stop_command` first.
+10. Normalize a repeated `new` declaration with the same title into the active group when no assistant content intervened.
+11. Do not let thinking from the standalone declaration turn split an existing statement group.
+12. Keep a declared stage active while the model digests completed tool facts; tool completion alone is not a stage boundary.
+13. Project only the initial thinking seed, without a leading icon, and use the same active-title animation as statement headers.

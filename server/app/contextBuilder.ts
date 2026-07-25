@@ -285,7 +285,7 @@ function recoveryText(resume: ResumeState): string {
     } : undefined,
     tasks: resume.tasks
   }));
-  return systemReminder("recovery", `Runtime recovered these facts from interrupted or failed work. Not a new user request. Verify workspace before proceeding; do not repeat completed operations.\n${body}`);
+  return systemReminder("recovery", `Runtime 从中断或失败的工作中恢复了以下事实。这不是新的用户请求。继续前请核对工作区，不要重复已经完成的操作。\n${body}`);
 }
 
 function escapeEnvelopeText(value: string): string {
@@ -300,7 +300,7 @@ function modeText(session: Session): string {
     mode,
     plan: plan ? { planId: plan.planId, revision: plan.revision, status: plan.status, title: plan.title } : undefined
   }));
-  return systemReminder("mode", `mode="${mode}" plan_entry="${planEntry}"\nRuntime working mode. Not a user request. Tool execution is ultimately decided by Runtime policy.\n${body}`);
+  return systemReminder("mode", `mode="${mode}" plan_entry="${planEntry}"\n这是 Runtime 工作模式信息，不是用户请求。工具是否执行最终由 Runtime 策略决定。\n${body}`);
 }
 
 function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {
@@ -315,9 +315,9 @@ function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {
     app: "DeepSeeker CodeAgent"
   };
   const guidanceText = (input.rules ?? emptyRuleSource).render(guidance, "stable");
-  const memory = input.memoryIndex?.trim() || "No curated memory facts are active.";
-  const capability = input.capabilityIndex?.trim() || "Long-tail capabilities can be discovered with the stable capability tools.";
-  const skill = input.skillIndex?.trim() || "No project skills are indexed.";
+  const memory = input.memoryIndex?.trim() || "当前没有生效的结构化记忆事实。";
+  const capability = input.capabilityIndex?.trim() || "可以通过稳定能力工具发现长尾能力。";
+  const skill = input.skillIndex?.trim() || "当前没有已建立索引的项目 Skill。";
 
   const body = [
     `<environment>${escapeEnvelopeText(JSON.stringify(env))}</environment>`,
@@ -352,9 +352,9 @@ export function sessionRevisionHash(input: BuildInput, guidance: ResolvedRule[])
     model: input.model,
     app: "DeepSeeker CodeAgent"
   };
-  const memory = input.memoryIndex?.trim() || "No curated memory facts are active.";
-  const capability = input.capabilityIndex?.trim() || "Long-tail capabilities can be discovered with the stable capability tools.";
-  const skill = input.skillIndex?.trim() || "No project skills are indexed.";
+  const memory = input.memoryIndex?.trim() || "当前没有生效的结构化记忆事实。";
+  const capability = input.capabilityIndex?.trim() || "可以通过稳定能力工具发现长尾能力。";
+  const skill = input.skillIndex?.trim() || "当前没有已建立索引的项目 Skill。";
   return createHash("sha256").update([
     guidance.map((activity) => activity.revisionHash).join(":"),
     JSON.stringify(env),
@@ -633,7 +633,7 @@ export function contextUpdateRecord(
     metadata: {
       activationReason: trigger,
       guidanceKeys: instructions.map((activity) => activity.instructionKey),
-      label: instructions.length === 1 ? instructions[0].sourceFile : `${instructions.length} guidance activities`,
+      label: instructions.length === 1 ? instructions[0].sourceFile : `${instructions.length} 项 Guidance`,
       revisionHash: instructions.map((activity) => activity.revisionHash).join(","),
       sourceFile: instructions.map((activity) => activity.sourceFile).join(","),
       trust: instructions.map((activity) => activity.trust).join(","),

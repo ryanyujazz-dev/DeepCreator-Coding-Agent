@@ -22,6 +22,14 @@ function semantic(name: string, args: Record<string, unknown>) {
   });
 }
 
+function modelVisibleDescriptions(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, child]) => [
+    ...(key === "description" && typeof child === "string" ? [child] : []),
+    ...modelVisibleDescriptions(child)
+  ]);
+}
+
 test("classifies registered tools without leaking presentation metadata to the provider", () => {
   assert.ok(toolSpecs.every((definition) => Object.keys(definition).sort().join(",") === "description,inputSchema,name"));
   const read = semantic("read_file", { path: "/tmp/project/src/App.tsx" });
@@ -33,6 +41,12 @@ test("classifies registered tools without leaking presentation metadata to the p
   assert.equal(edit.effect, "workspace_write");
   assert.equal(edit.groupMode, "workspace_delta");
   assert.equal(activityKindForTool(edit), "file_mutation");
+});
+
+test("keeps every model-visible tool description in Chinese", () => {
+  const descriptions = modelVisibleDescriptions(toolSpecs);
+  assert.ok(descriptions.length > toolSpecs.length);
+  assert.ok(descriptions.every((description) => /[\u3400-\u9fff]/.test(description)));
 });
 
 test("classifies command semantics through the tool registration", () => {

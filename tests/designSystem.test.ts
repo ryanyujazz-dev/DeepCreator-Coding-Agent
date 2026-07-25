@@ -148,6 +148,13 @@ test("routes the renderer, code views, and settings workspace through the shared
   assert.match(mermaid, /themeVariables:\s*\{/);
 });
 
+test("captures settings input values before updating the theme draft", () => {
+  const appearance = readFileSync(path.join(root, "src/components/settings/AppearanceSettings.tsx"), "utf8");
+  assert.match(appearance, /const name = event\.currentTarget\.value;[\s\S]*next\.name = name;/);
+  assert.match(appearance, /const contrast = Number\(event\.currentTarget\.value\);[\s\S]*contrast = contrast;/);
+  assert.doesNotMatch(appearance, /mutateDraft\(\(next\) => \{[^}]*event\.(?:currentTarget|target)\.value/s);
+});
+
 test("does not grow the legacy raw-color surface outside the theme catalog", () => {
   const componentFiles = [
     path.join(root, "src/styles.css"),

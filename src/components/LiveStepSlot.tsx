@@ -10,7 +10,6 @@ import {
 import { LiveStep } from "../../shared/projections/types";
 import { useStreamText } from "../stream/useStreamText";
 import { MarkdownContent } from "./MarkdownContent";
-import { ThinkingLoader } from "./ThinkingLoader";
 
 function toolIcon(liveStep: Extract<LiveStep, { mode: "tools" }>) {
   if (liveStep.status === "failed") return <CircleAlert size={13} />;
@@ -54,9 +53,8 @@ export function LiveStepSlot({
   if (liveStep.mode === "thinking") {
     return (
       <article className="work-step tool-step thinking-step is-expanded">
-        <div className="work-dot"><ThinkingLoader size={14} /></div>
         <div className="work-body">
-          <strong className="working-glow">正在思考</strong>
+          <strong className="purpose-sweep">正在思考</strong>
         </div>
       </article>
     );

@@ -1,5 +1,4 @@
 import {
-  CircleDot,
   ChevronDown,
   FolderSearch,
   PencilLine,
@@ -17,10 +16,8 @@ import { runningCommandElapsed } from "../../shared/projections/activityTiming";
 import { useStreamText } from "../stream/useStreamText";
 import { ActivityAggregateRenderer, ModificationFileRow } from "./ActivityGroupRenderer";
 import { MarkdownContent } from "./MarkdownContent";
-import { ThinkingLoader } from "./ThinkingLoader";
 
-function indicatorIcon(indicator: ActivityIndicator) {
-  if (indicator.mode === "thinking") return <CircleDot size={13} />;
+function indicatorIcon(indicator: Extract<ActivityIndicator, { mode: "tool" }>) {
   if (indicator.category === "modify") return <PencilLine size={13} />;
   if (indicator.category === "verify") return <TestTube2 size={13} />;
   if (indicator.category === "execute") return <TerminalSquare size={13} />;
@@ -60,7 +57,7 @@ function ActivitySlotView({
   const isThinking = slot.visual.mode === "thinking";
   return (
     <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${isThinking ? " is-thinking" : ""}`}>
-      <div className="work-dot">{isThinking ? <ThinkingLoader size={14} /> : indicatorIcon(slot.visual)}</div>
+      {slot.visual.mode === "tool" && <div className="work-dot">{indicatorIcon(slot.visual)}</div>}
       <div className="work-body">
         {liveFile
           ? <ModificationFileRow active file={liveFile} onOpenFile={onOpenFile} showIcon={false} />
@@ -92,7 +89,7 @@ function ActivitySlotView({
                 </div>
               )
           : (
-              <strong className={`activity-slot-label ${slot.logicalState === "active" ? "working-glow" : ""}`}>
+              <strong className={`activity-slot-label ${slot.logicalState === "active" ? (isThinking ? "purpose-sweep" : "working-glow") : ""}`}>
                 <span className="activity-slot-label-text">{slot.visual.label}</span>
                 {commandElapsed && <span className="activity-slot-elapsed">{commandElapsed}</span>}
               </strong>

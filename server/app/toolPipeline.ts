@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ContextInput } from "../../shared/contracts/context";
 import { ModelMessage, ToolCall } from "../../shared/contracts/provider";
-import { EventPayloadMap, Plan, Question, QuestionPrompt, Task, ToolState } from "../../shared/contracts/runtime";
+import { EventPayloadMap, Plan, Question, QuestionPrompt, Task, ToolState, ToolUseStatement } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
 import { approvalFor } from "../domain/accessPolicy";
@@ -12,6 +12,7 @@ import { RunRegistry } from "./runRegistry";
 import { ContextPort, EventPort, EvidencePort, MemoryPort, SessionPort } from "./runtimeRepo";
 import { ToolHost } from "./toolHost";
 import { durableToolState } from "./toolFacts";
+import { TOOL_USE_STATEMENT_NAME } from "./toolUseStatement";
 
 export type ToolContext = {
   baseline: Baseline;
@@ -91,7 +92,9 @@ export class ToolPipeline {
   ) {}
 
   stepRejection(calls: ToolCall[], modelStepId: string, projectRoot: string): string | undefined {
-    const tools = calls.flatMap((call): ToolState[] => {
+    const tools = calls
+      .filter((call) => call.name !== TOOL_USE_STATEMENT_NAME)
+      .flatMap((call): ToolState[] => {
       try {
         if (!this.host.has(call.name)) return [];
         const args = parseArgs(call.argumentsText);
@@ -121,10 +124,14 @@ export class ToolPipeline {
     modelStepId: string,
     knownRuleIds: Set<string>,
     existingActivityId?: string,
-    stepRejection?: string
+    stepRejection?: string,
+    statement?: ToolUseStatement
   ): Promise<ToolOutcome> {
     let activityId = existingActivityId;
     let retainedCommandBaseline = false;
+    if (call.name === TOOL_USE_STATEMENT_NAME) {
+      return this.recordToolUseStatement(input, call, modelStepId);
+    }
     try {
       // normalize
       const args = parseArgs(call.argumentsText);
@@ -132,7 +139,7 @@ export class ToolPipeline {
 
       // validate
       if (!this.host.has(call.name)) throw new Error(`未知工具：${call.name}。可用工具：${this.host.names().join(", ")}`);
-      const prepared = this.host.prepare({
+      const preparedBase = this.host.prepare({
         args,
         argumentsPreview: argsSummary,
         callId: call.callId,
@@ -140,6 +147,7 @@ export class ToolPipeline {
         name: call.name,
         projectRoot: input.projectRoot
       });
+      const prepared = statement ? { ...preparedBase, statement } : preparedBase;
       if (call.name === "wait_command" || call.name === "stop_command") {
         return await this.controlManagedCommand(input, call, modelStepId, args, prepared);
       }
@@ -170,7 +178,7 @@ export class ToolPipeline {
       if (call.name === "enter_plan") return this.enterPlan(input, call, modelStepId, activityId, args, prepared);
       if (call.name === "ask_user") return this.askUser(input, call, modelStepId, activityId, args, prepared);
       if (call.name === "submit_plan") return this.submitPlan(input, call, modelStepId, activityId, args, prepared);
-      if (call.name === "update_tasks") return this.updateTasks(input, call, modelStepId, activityId, args, argsSummary);
+      if (call.name === "update_tasks") return this.updateTasks(input, call, modelStepId, activityId, args, prepared);
       if (call.name === "search_memory") return this.searchMemory(input, call, modelStepId, activityId, args, prepared);
       if (call.name === "spawn_agent") return await this.spawnAgentTask(input, call, modelStepId, activityId!, args, prepared);
 
@@ -264,7 +272,7 @@ export class ToolPipeline {
       }
 
       // record
-      const completed = this.host.prepare({
+      const completedBase = this.host.prepare({
         args,
         argumentsPreview: argsSummary,
         callId: call.callId,
@@ -274,6 +282,7 @@ export class ToolPipeline {
         projectRoot: input.projectRoot,
         result
       });
+      const completed = statement ? { ...completedBase, statement } : completedBase;
       const command = result.command ? {
         command: result.command,
         commandId: result.commandId,
@@ -368,6 +377,33 @@ export class ToolPipeline {
         target: call.name
       };
     }
+  }
+
+  private recordToolUseStatement(
+    input: ToolContext,
+    call: ToolCall,
+    modelStepId: string
+  ): ToolOutcome {
+    let args: Record<string, unknown> = {};
+    try {
+      args = parseArgs(call.argumentsText);
+    } catch {
+      // A malformed declaration must not create a visible failure activity or block real tools.
+    }
+    const mode = args.mode === "continue" ? "continue" : "new";
+    const text = JSON.stringify({ accepted: true, mode });
+    this.record(input, call, modelStepId, text, {
+      controlOnly: true,
+      mode,
+      target: "tool use statement"
+    });
+    return {
+      contextRecords: [],
+      message: { role: "tool", text, toolCallKey: call.callId },
+      mutatedWorkspace: false,
+      protocolError: false,
+      target: "tool use statement"
+    };
   }
 
   private async controlManagedCommand(
@@ -654,7 +690,7 @@ export class ToolPipeline {
     modelStepId: string,
     activityId: string,
     args: Record<string, unknown>,
-    argsSummary: string
+    prepared: ToolState
   ): ToolOutcome {
     const tasks = tasksFrom(args.tasks);
     input.store.append({ data: { items: tasks }, runId: input.runId, sessionId: input.sessionId, type: "tasks.changed" });
@@ -662,16 +698,7 @@ export class ToolPipeline {
     finishActivity(input, activityId, {
       body: text,
       status: "completed",
-      tool: this.host.prepare({
-        args,
-        argumentsPreview: argsSummary,
-        callId: call.callId,
-        modelStepId,
-        name: call.name,
-        output: text,
-        projectRoot: input.projectRoot,
-        result: { mutatedWorkspace: false, output: text }
-      })
+      tool: { ...prepared, resultSummary: text }
     });
     this.record(input, call, modelStepId, text, { action: "task", target: "执行任务" });
     return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "执行任务" };

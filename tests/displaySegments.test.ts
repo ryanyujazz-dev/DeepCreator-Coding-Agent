@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { projectDisplayTimeline } from "../shared/projections/displaySegments";
 import { fileDisplayName } from "../shared/projections/activityPresentation";
-import { Activity, Run, ToolState, emptyChanges } from "../shared/contracts/runtime";
+import { Activity, Run, ToolState, ToolUseStatement, emptyChanges } from "../shared/contracts/runtime";
 
 test("uses only the file name for visible file targets", () => {
   assert.equal(fileDisplayName("src/components/App.tsx"), "App.tsx");
@@ -61,7 +61,17 @@ function message(index: number, body: string): Activity {
   return activity(index, { body, kind: "message", status: "running", finishedAt: undefined, tool: undefined });
 }
 
-function run(activities: Activity[]): Run {
+function statement(index: number, value: ToolUseStatement): Activity {
+  return activity(index, {
+    audience: "internal",
+    kind: "statement",
+    modelStepId: `step_${index}`,
+    statement: value,
+    tool: undefined
+  });
+}
+
+function run(activities: Activity[], status: Run["status"] = "running"): Run {
   return {
     activities,
     answer: "",
@@ -74,7 +84,7 @@ function run(activities: Activity[]): Run {
     runId: "run_display",
     sessionId: "session_display",
     startedAt: "2026-07-20T10:00:00.000Z",
-    status: "running",
+    status,
     tasks: []
   };
 }
@@ -97,11 +107,10 @@ test("replaces thinking with content inside the same stable segment", () => {
   assert.deepEqual(after.activitySlots, []);
 });
 
-test("keeps later thinking in the activity slot after content exists", () => {
+test("does not project later thinking after visible progress exists", () => {
   const segment = onlySegment(run([message(1, "我先检查一下配置文件。"), thinking(2)]));
   assert.equal(segment.mainActivity?.activityId, "activity_1");
-  assert.equal(segment.activitySlots[0]?.logicalState, "active");
-  assert.equal(segment.activitySlots[0]?.visual.label, "正在思考");
+  assert.deepEqual(segment.activitySlots, []);
 });
 
 test("holds suspended thinking visually without treating it as terminal", () => {
@@ -125,11 +134,30 @@ test("creates no empty aggregate on tool start and creates it immediately on don
   const completedRead = activity(2);
   const after = onlySegment(run([content, completedRead]));
   assert.equal(after.aggregate?.summaryLabel, "已读取 1 个文件");
-  assert.equal(after.activitySlots[0]?.logicalState, "empty");
-  assert.equal(after.activitySlots[0]?.visual.label, "正在读取 App.tsx");
+  assert.deepEqual(after.activitySlots, []);
 });
 
-test("holds an empty activity slot until the next transient state takes over", () => {
+test("shows a declared aggregate while its tools are running", () => {
+  const runningRead = activity(2, {
+    finishedAt: undefined,
+    status: "running",
+    tool: tool({
+      statement: {
+        groupId: "group_inspect",
+        mode: "new",
+        statementId: "statement_1",
+        title: "获取分析所需项目信息"
+      }
+    })
+  });
+  const segment = onlySegment(run([runningRead]));
+  assert.equal(segment.aggregate?.status, "running");
+  assert.equal(segment.aggregate?.title, "获取分析所需项目信息");
+  assert.equal(segment.aggregate?.summaryLabel, "");
+  assert.deepEqual(segment.aggregate?.memberActivityIds, ["activity_2"]);
+});
+
+test("removes settled activity slots while showing the next active transient", () => {
   const content = message(1, "我先检查一下配置文件。");
   const completedRead = activity(2);
   const held = onlySegment(run([content, completedRead]));
@@ -139,7 +167,7 @@ test("holds an empty activity slot until the next transient state takes over", (
     tool: tool({ callId: "call_3", displayTarget: ".env", normalizedTarget: ".env" })
   });
   const active = onlySegment(run([content, completedRead, nextRead]));
-  assert.equal(held.activitySlots[0]?.logicalState, "empty");
+  assert.deepEqual(held.activitySlots, []);
   assert.equal(active.activitySlots[0]?.logicalState, "active");
   assert.equal(active.activitySlots[0]?.visual.label, "正在读取 .env");
 });
@@ -162,17 +190,17 @@ test("aggregates mixed completed tools under one header in a segment", () => {
     activity(2),
     edit
   ]));
-  assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件 | 已编辑 1 个文件");
+  assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件 · 已编辑 1 个文件");
   assert.deepEqual(segment.aggregate?.memberActivityIds, ["activity_2", "activity_3"]);
 });
 
-test("starts a new segment only when the next content arrives", () => {
+test("does not leave completed thinking behind after a tool segment", () => {
   const firstContent = message(1, "第一段。");
   const firstTool = activity(2);
   const nextThinking = thinking(3, "completed");
   const beforeContent = projectDisplayTimeline(run([firstContent, firstTool, nextThinking]));
   assert.equal(beforeContent.length, 1);
-  assert.equal(beforeContent[0].type === "display_segment" && beforeContent[0].segment.activitySlots[0]?.visual.label, "正在思考");
+  assert.deepEqual(beforeContent[0].type === "display_segment" && beforeContent[0].segment.activitySlots, []);
 
   const entries = projectDisplayTimeline(run([
     firstContent,
@@ -192,18 +220,166 @@ test("starts a new segment only when the next content arrives", () => {
   assert.equal(entries[1].segment.mainActivity?.body, "第二段。");
 });
 
-test("supports a tool-only segment while preserving the held start label", () => {
+test("uses statement groups as boundaries even when no content appears", () => {
+  const firstStatement = {
+    groupId: "group_inspect",
+    mode: "new" as const,
+    statementId: "statement_1",
+    title: "获取分析所需项目信息"
+  };
+  const secondStatement = {
+    groupId: "group_implement",
+    mode: "new" as const,
+    statementId: "statement_2",
+    title: "实现工具分组协议"
+  };
+  const entries = projectDisplayTimeline(run([
+    activity(1, { tool: tool({ statement: firstStatement }) }),
+    activity(2, {
+      tool: tool({
+        callId: "call_2",
+        normalizedTarget: "src/main.tsx",
+        statement: { ...firstStatement, mode: "continue" }
+      })
+    }),
+    activity(3, {
+      kind: "file_mutation",
+      tool: tool({
+        action: "modify",
+        callId: "call_3",
+        effect: "workspace_write",
+        normalizedTarget: "src/App.tsx",
+        statement: secondStatement,
+        toolName: "edit_file"
+      })
+    })
+  ]));
+
+  assert.equal(entries.length, 2);
+  assert.ok(entries.every((entry) => entry.type === "display_segment"));
+  if (entries[0].type !== "display_segment" || entries[1].type !== "display_segment") return;
+  assert.equal(entries[0].segment.aggregate?.title, "获取分析所需项目信息");
+  assert.deepEqual(entries[0].segment.aggregate?.memberActivityIds, ["activity_1", "activity_2"]);
+  assert.equal(entries[1].segment.aggregate?.title, "实现工具分组协议");
+  assert.deepEqual(entries[1].segment.aggregate?.memberActivityIds, ["activity_3"]);
+});
+
+test("does not split a statement group on its standalone declaration thinking", () => {
+  const statement = {
+    groupId: "group_inspect",
+    mode: "new" as const,
+    statementId: "statement_1",
+    title: "审查项目源代码与配置"
+  };
+  const firstTool = activity(1, {
+    modelStepId: "step_tool_1",
+    tool: tool({
+      callId: "call_1",
+      modelStepId: "step_tool_1",
+      statement
+    })
+  });
+  const declarationThinking = thinking(2, "completed");
+  const secondTool = activity(3, {
+    modelStepId: "step_tool_2",
+    tool: tool({
+      callId: "call_2",
+      modelStepId: "step_tool_2",
+      statement: {
+        ...statement,
+        mode: "continue",
+        statementId: "statement_2"
+      }
+    })
+  });
+
+  const entries = projectDisplayTimeline(run([
+    firstTool,
+    declarationThinking,
+    secondTool
+  ]));
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].type, "display_segment");
+  if (entries[0].type !== "display_segment") return;
+  assert.equal(entries[0].segment.aggregate?.title, "审查项目源代码与配置");
+  assert.deepEqual(
+    entries[0].segment.aggregate?.memberActivityIds,
+    ["activity_1", "activity_3"]
+  );
+});
+
+test("keeps a statement active while the model digests completed tool facts", () => {
+  const firstStatement: ToolUseStatement = {
+    groupId: "group_inspect",
+    mode: "new",
+    statementId: "statement_1",
+    title: "审查项目结构与现状"
+  };
+  const secondStatement: ToolUseStatement = {
+    groupId: "group_implement",
+    mode: "new",
+    statementId: "statement_2",
+    title: "实现路由与导航结构"
+  };
+  const completedRead = activity(3, {
+    tool: tool({
+      callId: "call_3",
+      statement: firstStatement
+    })
+  });
+  const digestThinking = thinking(4, "completed");
+
+  const activeEntries = projectDisplayTimeline(run([
+    thinking(1, "suspended"),
+    statement(2, firstStatement),
+    completedRead,
+    digestThinking
+  ]));
+  assert.equal(activeEntries.length, 1);
+  assert.equal(activeEntries[0].type, "display_segment");
+  if (activeEntries[0].type !== "display_segment") return;
+  assert.equal(activeEntries[0].segment.aggregate?.title, "审查项目结构与现状");
+  assert.equal(activeEntries[0].segment.aggregate?.summaryLabel, "已读取 1 个文件");
+  assert.equal(activeEntries[0].segment.aggregate?.status, "running");
+  assert.deepEqual(activeEntries[0].segment.activitySlots, []);
+
+  const switchedEntries = projectDisplayTimeline(run([
+    thinking(1, "suspended"),
+    statement(2, firstStatement),
+    completedRead,
+    digestThinking,
+    statement(5, secondStatement)
+  ]));
+  assert.equal(switchedEntries.length, 2);
+  assert.ok(switchedEntries.every((entry) => entry.type === "display_segment"));
+  if (switchedEntries[0].type !== "display_segment" || switchedEntries[1].type !== "display_segment") return;
+  assert.equal(switchedEntries[0].segment.aggregate?.status, "completed");
+  assert.equal(switchedEntries[1].segment.aggregate?.title, "实现路由与导航结构");
+  assert.equal(switchedEntries[1].segment.aggregate?.status, "running");
+
+  const waitingEntries = projectDisplayTimeline(run([
+    thinking(1, "suspended"),
+    statement(2, firstStatement),
+    completedRead,
+    statement(5, secondStatement)
+  ], "waiting"));
+  assert.ok(waitingEntries.every((entry) =>
+    entry.type !== "display_segment" || entry.segment.aggregate?.status !== "running"
+  ));
+});
+
+test("supports a completed tool-only segment without a stale live label", () => {
   const segment = onlySegment(run([thinking(1, "completed"), activity(2)]));
   assert.equal(segment.mainActivity, undefined);
   assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件");
-  assert.equal(segment.activitySlots[0]?.logicalState, "empty");
-  assert.equal(segment.activitySlots[0]?.visual.label, "正在读取 App.tsx");
+  assert.deepEqual(segment.activitySlots, []);
 });
 
 test("starts content after a tool-only segment without moving its aggregate header", () => {
   const toolOnly = [thinking(1, "completed"), activity(2)];
   const before = projectDisplayTimeline(run(toolOnly));
-  assert.equal(before[0].type === "display_segment" && before[0].segment.activitySlots[0]?.visual.label, "正在读取 App.tsx");
+  assert.deepEqual(before[0].type === "display_segment" && before[0].segment.activitySlots, []);
 
   const after = projectDisplayTimeline(run([...toolOnly, message(3, "检查完成。")]));
   assert.equal(after.length, 2);

@@ -14,7 +14,11 @@ function recoveryFor(input: {
   finishedAt: string;
 }): ResumeState {
   const completedOperations = input.run.activities
-    .filter((activity) => activity.status === "completed" && activity.kind !== "thinking")
+    .filter((activity) =>
+      activity.audience === "user"
+      && activity.status === "completed"
+      && activity.kind !== "thinking"
+    )
     .map((activity) => activity.tool?.resultSummary || activity.body || activityTitle(activity))
     .slice(-24);
   const interruptedOperations = input.run.activities

@@ -87,6 +87,15 @@ function fileChange(value: unknown): boolean {
     && oneOf(value.operation, ["created", "edited", "deleted", "renamed", "unknown"] as const);
 }
 
+function toolUseStatement(value: unknown): boolean {
+  return record(value)
+    && string(value.statementId)
+    && string(value.groupId)
+    && oneOf(value.mode, ["new", "continue"] as const)
+    && string(value.title)
+    && optional(value.normalized, (item) => typeof item === "boolean");
+}
+
 function toolState(value: unknown, partial = false): boolean {
   if (!record(value)) return false;
   const required = (key: string, predicate: (input: unknown) => boolean) => partial
@@ -105,7 +114,8 @@ function toolState(value: unknown, partial = false): boolean {
     && optional(value.displayTarget, string)
     && optional(value.groupMode, (item) => oneOf(item, ["consecutive", "same_model_step", "standalone", "workspace_delta"] as const))
     && optional(value.importance, (item) => oneOf(item, ["routine", "notable", "critical"] as const))
-    && optional(value.detail, record);
+    && optional(value.detail, record)
+    && optional(value.statement, toolUseStatement);
 }
 
 function command(value: unknown, partial = false): boolean {
@@ -189,11 +199,12 @@ const payloadSchemas = {
     && optional(value.inputTokens, number)
     && optional(value.outputTokens, number),
   "activity.started": (value) => record(value)
-    && oneOf(value.kind, ["thinking", "message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const)
+    && oneOf(value.kind, ["thinking", "statement", "message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const)
     && oneOf(value.audience, ["user", "debug", "internal"] as const)
     && optional(value.title, string)
     && string(value.startedAt)
     && optional(value.body, string)
+    && optional(value.statement, toolUseStatement)
     && optional(value.tool, (item) => toolState(item))
     && optional(value.command, (item) => command(item))
     && optional(value.files, (item) => Array.isArray(item) && item.every(fileChange)),
@@ -203,7 +214,7 @@ const payloadSchemas = {
     && optional(value.command, (item) => command(item, true))
     && optional(value.files, (item) => Array.isArray(item) && item.every(fileChange))
     && optional(value.liveFiles, (item) => Array.isArray(item) && item.every(fileChange))
-    && optional(value.kind, (item) => oneOf(item, ["thinking", "message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const))
+    && optional(value.kind, (item) => oneOf(item, ["thinking", "statement", "message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const))
     && optional(value.status, (item) => oneOf(item, ["running", "suspended"] as const))
     && optional(value.title, string)
     && optional(value.tool, (item) => toolState(item, true)),

@@ -32,6 +32,11 @@ import { ToolPipeline } from "./toolPipeline";
 import { PlanArgumentStream } from "./planStream";
 import { MutationArgumentStream } from "./mutationStream";
 import { durableToolState } from "./toolFacts";
+import {
+  resolveToolUseStatement,
+  ToolUseStatementGate,
+  TOOL_USE_STATEMENT_NAME
+} from "./toolUseStatement";
 
 export type RunnerPorts = ContextPort & EventPort & EvidencePort & MemoryPort & MetricPort & SessionPort;
 
@@ -133,13 +138,14 @@ async function streamWithRecovery(
       const message = error instanceof Error ? error.message : String(error);
       const transient = /\b429\b|\b5\d\d\b|fetch failed|network|socket|timeout/i.test(message);
       if (!transient || receivedFragment || attempt === maxAttempts) throw error;
-      const activityId = openActivity(input, {
-        audience: "user",
-        body: `Provider 暂时不可用，正在进行第 ${attempt + 1} 次连接。`,
-        kind: "error",
-        startedAt: new Date().toISOString()
+      input.store.appendContextEntry({
+        kind: "runtime_fact",
+        metadata: { attempt: attempt + 1, transient: true },
+        runId: input.runId,
+        sessionId: input.sessionId,
+        source: "runtime",
+        text: `Provider 连接重试 ${attempt + 1}/${maxAttempts}。`
       });
-      finishActivity(input, activityId, { status: "completed" });
       await waitForRetry(400 * 2 ** (attempt - 1), input.signal);
     }
   }
@@ -157,6 +163,26 @@ function persistAssistantRecord(input: RuntimeInput, message: ModelMessage): Con
     text: message.text ?? undefined,
     toolCalls: message.toolCalls
   });
+}
+
+function persistToolProtocolRejection(
+  input: RuntimeInput,
+  call: ToolCall,
+  modelStepId: string,
+  text: string
+): ModelMessage {
+  input.store.appendContextEntry({
+    isError: true,
+    kind: "tool_result",
+    metadata: { modelStepId, protocolGate: "tools_use_statement" },
+    runId: input.runId,
+    sessionId: input.sessionId,
+    source: "runtime",
+    text,
+    toolCallKey: call.callId,
+    toolName: call.name
+  });
+  return { role: "tool", text, toolCallKey: call.callId };
 }
 
 function persistPreparedContext(input: RuntimeInput, previousTokens: number, prepared: BuiltContext): void {
@@ -288,6 +314,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
   let protocolCorrectionCount = 0;
   let consecutiveToolProtocolErrors = 0;
   let providerRequestCount = 0;
+  let toolUseStatementGate: ToolUseStatementGate = {};
+  let initialThinkingCaptured = input.store.getRun(input.runId)?.activities
+    .some((activity) => activity.kind === "thinking") ?? false;
+  let visibleStageStarted = input.store.getRun(input.runId)?.activities
+    .some((activity) => activity.kind === "statement" || activity.kind === "message" || Boolean(activity.tool)) ?? false;
 
   while (true) {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
@@ -310,6 +341,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     const planArgumentStreams = new Map<string, PlanArgumentStream>();
     const mutationArgumentStreams = new Map<string, MutationArgumentStream>();
     const pendingBuffers = new Map<string, string>();
+    const statementForVisibleBatch = toolUseStatementGate.armed;
 
     const appendBuffered = (activityId: string, text: string) => {
       const next = (pendingBuffers.get(activityId) ?? "") + text;
@@ -322,13 +354,17 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     };
     const onFragment = (fragment: ModelDelta) => {
       if (fragment.kind === "thinking") {
-        thinkingActivity ??= openActivity(input, {
-          audience: "debug",
-          kind: "thinking",
-          modelStepId,
-          startedAt: new Date().toISOString()
-        });
+        if (!initialThinkingCaptured && !visibleStageStarted) {
+          initialThinkingCaptured = true;
+          thinkingActivity ??= openActivity(input, {
+            audience: "debug",
+            kind: "thinking",
+            modelStepId,
+            startedAt: new Date().toISOString()
+          });
+        }
       } else if (fragment.kind === "answer") {
+        visibleStageStarted = true;
         if (!answerActivity) {
           answerActivity = openActivity(input, {
             audience: "user",
@@ -340,11 +376,16 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           appendBuffered(answerActivity, fragment.text);
         }
       } else if (fragment.kind === "tool_call" && fragment.name) {
-        if (fragment.name === "wait_command" || fragment.name === "stop_command") return;
+        if (
+          fragment.name === TOOL_USE_STATEMENT_NAME
+          || fragment.name === "wait_command"
+          || fragment.name === "stop_command"
+        ) return;
+        if (!statementForVisibleBatch || answerActivity) return;
         const argumentsText = (toolArgumentBuffers.get(fragment.callId) ?? "") + (fragment.argumentsText ?? "");
         toolArgumentBuffers.set(fragment.callId, argumentsText);
         const streamedArgs = tryParseArguments(argumentsText);
-        const streamedTool = input.tools.has(fragment.name) ? input.tools.prepare({
+        const streamedToolBase = input.tools.has(fragment.name) ? input.tools.prepare({
             args: streamedArgs ?? {},
             argumentsPreview: streamedArgs ? input.tools.summarizeArgs(fragment.name, streamedArgs) : "",
             callId: fragment.callId,
@@ -352,6 +393,9 @@ async function executeRun(input: RuntimeInput): Promise<void> {
             name: fragment.name,
             projectRoot: input.projectRoot
           }) : undefined;
+        const streamedTool = streamedToolBase
+          ? { ...streamedToolBase, statement: statementForVisibleBatch }
+          : undefined;
         const activityId = toolActivities.get(fragment.callId) ?? openActivity(input, streamedTool ? {
           audience: "user",
           kind: input.tools.kind(streamedTool),
@@ -470,14 +514,30 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       throw new ModelProtocolError(response.protocolIssue.message);
     }
 
+    const runningCommandsAtFinal = response.toolCalls.length === 0
+      ? input.tools.runningCommands(input.runId)
+      : [];
     if (thinkingActivity) {
       if (response.toolCalls.length > 0) suspendActivity(input, thinkingActivity);
       else finishActivity(input, thinkingActivity, { status: "completed" });
     }
-    if (answerActivity) finishActivity(input, answerActivity, { status: "completed" });
+    if (answerActivity) finishActivity(input, answerActivity, {
+      audience: runningCommandsAtFinal.length > 0 ? "internal" : "user",
+      status: "completed"
+    });
     if (response.answer.trim()) answer = response.answer.trim();
     messages.push(response.continuationMessage);
     persistAssistantRecord(input, response.continuationMessage);
+    const statementResolution = resolveToolUseStatement({
+      ...toolUseStatementGate,
+      calls: response.toolCalls,
+      contentBoundary: Boolean(response.answer.trim()),
+      modelStepId
+    });
+    toolUseStatementGate = {
+      active: statementResolution.active,
+      armed: statementResolution.armed
+    };
 
     if (response.finishCause === "length" || response.finishCause === "content_filter" || response.finishCause === "insufficient_system_resource") {
       throw new Error(response.finishCause === "length"
@@ -486,7 +546,26 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           ? "模型输出被内容策略中止。"
           : "DeepSeek 推理资源不足，本轮未完成。");
     }
+    if (statementResolution.kind === "declaration" && statementResolution.armed) {
+      visibleStageStarted = true;
+      const statementActivity = openActivity(input, {
+        audience: "internal",
+        kind: "statement",
+        modelStepId,
+        startedAt: new Date().toISOString(),
+        statement: statementResolution.armed
+      });
+      finishActivity(input, statementActivity, { status: "completed" });
+    }
     if (response.toolCalls.length === 0) {
+      if (runningCommandsAtFinal.length > 0) {
+        answer = "";
+        messages.push({
+          role: "user",
+          text: `当前文本不能作为最终回答，因为仍有 ${runningCommandsAtFinal.length} 个托管命令正在运行。请先通过独占的 tools_use_statement 声明下一步目的，再调用 wait_command 等待，或调用 stop_command 结束命令；所有命令进入终态后才能给出最终回答。`
+        });
+        continue;
+      }
       // ADR-008: 信任模型——不调工具即视为完成。
       // 对标 ZCode/Codex/Claude Code:三家都不在代码层检测"延迟工作"或强制重试。
       // 纪律由提示词层保证(doing_tasks/final_response slot),不由代码层强制。
@@ -507,6 +586,27 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       });
       return;
     }
+    if (statementResolution.kind === "rejected") {
+      const rejection = statementResolution.error ?? "工具协议错误。";
+      for (const activityId of toolActivities.values()) {
+        const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
+        if (activity?.status === "running") {
+          finishActivity(input, activityId, {
+            audience: "internal",
+            error: rejection,
+            status: "cancelled"
+          });
+        }
+      }
+      for (const call of [...response.toolCalls].sort((left, right) => left.index - right.index)) {
+        messages.push(persistToolProtocolRejection(input, call, modelStepId, rejection));
+      }
+      consecutiveToolProtocolErrors += 1;
+      if (consecutiveToolProtocolErrors >= 3) {
+        throw new ModelProtocolError("模型连续三次违反 tools_use_statement 协议。");
+      }
+      continue;
+    }
     let protocolErrors = 0;
     const deferredContextRecords: ContextInput[] = [];
     const deferredEvidenceRecords: ContextInput[] = [];
@@ -520,7 +620,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         sessionId: input.sessionId,
         signal: input.signal,
         store: input.store
-      }, call, modelStepId, knownInstructionKeys, toolActivities.get(call.callId), stepRejection);
+      }, call, modelStepId, knownInstructionKeys, toolActivities.get(call.callId), stepRejection, statementResolution.statementByCallId.get(call.callId));
     const outcomes = new Map<string, Awaited<ReturnType<typeof runToolCall>>>();
     let parallelBatch: ToolCall[] = [];
     const flushParallel = async () => {
@@ -553,7 +653,8 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       messages.push({ role: "user", text: persisted.text ?? "" });
     }
     if (suspended) return;
-    consecutiveToolProtocolErrors = protocolErrors === response.toolCalls.length
+    const realToolCallCount = response.toolCalls.filter((call) => call.name !== TOOL_USE_STATEMENT_NAME).length;
+    consecutiveToolProtocolErrors = realToolCallCount > 0 && protocolErrors === realToolCallCount
       ? consecutiveToolProtocolErrors + 1
       : 0;
     if (consecutiveToolProtocolErrors >= 3) {

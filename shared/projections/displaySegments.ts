@@ -1,7 +1,8 @@
 import {
   ActionKind,
   Activity,
-  Run
+  Run,
+  ToolUseStatement
 } from "../contracts/runtime";
 import {
   ActivityIndicator,
@@ -25,6 +26,9 @@ type SegmentDraft = {
   transientBoundary: number;
   transients: IndexedActivity[];
   tools: Activity[];
+  statement?: ToolUseStatement;
+  statementGroupId?: string;
+  statementOpen: boolean;
 };
 
 type DraftEntry =
@@ -60,6 +64,7 @@ function createDraft(activity: Activity): SegmentDraft {
     contentSeen: false,
     runId: activity.runId,
     segmentId: `display_segment:${activity.runId}:${activity.activityId}`,
+    statementOpen: false,
     transientBoundary: 0,
     transients: [],
     tools: []
@@ -186,9 +191,11 @@ function bucketLabel(bucket: string, activities: Activity[]): string {
   return `已检查 ${count} 项`;
 }
 
-function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
+function projectAggregate(draft: SegmentDraft, runStatus: Run["status"]): ToolAggregate | undefined {
+  const statement = draft.statement
+    ?? draft.tools.find((activity) => activity.tool?.statement)?.tool?.statement;
   const settled = draft.tools.filter((activity) => activity.status !== "running");
-  if (settled.length === 0) return undefined;
+  if (settled.length === 0 && !statement) return undefined;
   const buckets = new Map<string, Activity[]>();
   for (const activity of settled) {
     const bucket = aggregateBucket(activity);
@@ -200,24 +207,36 @@ function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
     failureCount > 0 ? `${failureCount} 项失败` : "",
     cancelledCount > 0 ? `${cancelledCount} 项已取消` : ""
   ].filter(Boolean).join(" · ");
-  const status = failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
-  const summary = [...buckets].map(([bucket, activities]) => bucketLabel(bucket, activities)).join(" | ");
+  const status = (statement && draft.statementOpen && runStatus === "running")
+    || draft.tools.some((activity) => activity.status === "running")
+    ? "running"
+    : failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
+  const summary = [...buckets].map(([bucket, activities]) => bucketLabel(bucket, activities)).join(" · ");
   return {
-    aggregateId: `tool_aggregate:${draft.segmentId}`,
+    aggregateId: statement ? `tool_aggregate:${statement.groupId}` : `tool_aggregate:${draft.segmentId}`,
     cancelledCount,
     failureCount,
-    memberActivityIds: settled.map((activity) => activity.activityId),
+    groupId: statement?.groupId,
+    memberActivityIds: (statement ? draft.tools : settled).map((activity) => activity.activityId),
     runId: draft.runId,
+    statementId: statement?.statementId,
     status,
     successCount: settled.filter((activity) => activity.status === "completed").length,
     summaryLabel: suffix ? `${summary} · ${suffix}` : summary,
-    totalCalls: settled.length
+    title: statement?.title,
+    totalCalls: statement ? draft.tools.length : settled.length
   };
 }
 
-function finishSegment(draft: SegmentDraft): DisplaySegment | undefined {
-  const activitySlots = projectActivitySlots(draft.transients.slice(draft.transientBoundary));
-  const aggregate = projectAggregate(draft);
+function finishSegment(draft: SegmentDraft, runStatus: Run["status"]): DisplaySegment | undefined {
+  const aggregate = projectAggregate(draft, runStatus);
+  const activityById = new Map(draft.transients.map(({ activity }) => [activity.activityId, activity]));
+  const activitySlots = projectActivitySlots(draft.transients.slice(draft.transientBoundary))
+    .filter((slot) => {
+      if (slot.logicalState !== "empty") return true;
+      if (aggregate) return false;
+      return activityById.get(slot.visual.sourceActivityId)?.status === "suspended";
+    });
   if (!draft.mainActivity && !aggregate && activitySlots.length === 0) return undefined;
   return {
     activitySlots,
@@ -229,12 +248,21 @@ function finishSegment(draft: SegmentDraft): DisplaySegment | undefined {
 }
 
 export function projectDisplayTimeline(
-  run: Pick<Run, "runId" | "activities">,
+  run: Pick<Run, "runId" | "activities" | "status">,
   activities = run.activities,
   options: DisplayProjectionOptions = {}
 ): DisplayTimelineEntry[] {
   const entries: DraftEntry[] = [];
   let current: SegmentDraft | undefined;
+  let initialThinkingSeen = false;
+  let semanticProgressSeen = false;
+  const statementGroupByModelStepId = new Map(
+    activities.flatMap((activity) => {
+      const modelStepId = activity.modelStepId ?? activity.tool?.modelStepId;
+      const groupId = activity.tool?.statement?.groupId;
+      return modelStepId && groupId ? [[modelStepId, groupId] as const] : [];
+    })
+  );
 
   const ensureSegment = (activity: Activity) => {
     if (current) return current;
@@ -244,9 +272,32 @@ export function projectDisplayTimeline(
   };
 
   for (const [index, activity] of activities.entries()) {
+    if (activity.kind === "statement" && activity.statement) {
+      semanticProgressSeen = true;
+      const statement = activity.statement;
+      if (
+        current
+        && (
+          current.contentSeen
+          || (current.statementGroupId && current.statementGroupId !== statement.groupId)
+          || (current.tools.length > 0 && !current.statementGroupId)
+        )
+      ) {
+        current.statementOpen = false;
+        current = createDraft(activity);
+        entries.push({ draft: current, type: "display_segment" });
+      }
+      const segment = ensureSegment(activity);
+      segment.statement = statement;
+      segment.statementGroupId = statement.groupId;
+      segment.statementOpen = true;
+      continue;
+    }
     if (isInternal(activity)) continue;
     if (activity.kind === "message") {
-      if (current && (current.contentSeen || current.tools.length > 0)) {
+      semanticProgressSeen = true;
+      if (current?.statementOpen) current.statementOpen = false;
+      if (current && (current.contentSeen || current.tools.length > 0 || Boolean(current.statement))) {
         // The next content visually replaces the old activity slot while anchoring a new segment.
         current.transientBoundary = current.transients.length;
         current = createDraft(activity);
@@ -261,11 +312,48 @@ export function projectDisplayTimeline(
       continue;
     }
     if (activity.kind === "thinking") {
-      ensureSegment(activity).transients.push({ activity, index });
+      if (semanticProgressSeen || initialThinkingSeen) continue;
+      initialThinkingSeen = true;
+      const modelStepId = activity.modelStepId;
+      const statementGroupId = modelStepId ? statementGroupByModelStepId.get(modelStepId) : undefined;
+      const previousToolStepId = current?.tools.at(-1)?.tool?.modelStepId;
+      if (
+        current
+        && current.tools.length > 0
+        && (
+          (statementGroupId && current.statementGroupId !== statementGroupId)
+          || (
+            !current.statementGroupId
+            && !statementGroupId
+            && previousToolStepId !== modelStepId
+          )
+        )
+      ) {
+        current = createDraft(activity);
+        entries.push({ draft: current, type: "display_segment" });
+      }
+      const segment = ensureSegment(activity);
+      segment.statementGroupId ??= statementGroupId;
+      segment.transients.push({ activity, index });
       continue;
     }
     if (toolCategory(activity)) {
+      semanticProgressSeen = true;
+      const statementGroupId = activity.tool?.statement?.groupId;
+      if (
+        current
+        && current.tools.length > 0
+        && (current.statementGroupId || statementGroupId)
+        && current.statementGroupId !== statementGroupId
+      ) {
+        current.statementOpen = false;
+        current = createDraft(activity);
+        entries.push({ draft: current, type: "display_segment" });
+      }
       const segment = ensureSegment(activity);
+      segment.statement ??= activity.tool?.statement;
+      segment.statementGroupId ??= statementGroupId;
+      if (segment.statement) segment.statementOpen = true;
       segment.tools.push(activity);
       segment.transients.push({ activity, index });
       continue;
@@ -273,11 +361,17 @@ export function projectDisplayTimeline(
     entries.push({ activity, type: "activity" });
   }
 
+  if (run.status !== "running") {
+    for (const entry of entries) {
+      if (entry.type === "display_segment") entry.draft.statementOpen = false;
+    }
+  }
+
   return entries.flatMap<DisplayTimelineEntry>((entry) => {
     if (entry.type === "activity") {
       return [{ activity: entry.activity, entryId: entry.activity.activityId, type: "activity" }];
     }
-    const segment = finishSegment(entry.draft);
+    const segment = finishSegment(entry.draft, run.status);
     return segment ? [{ entryId: segment.segmentId, segment, type: "display_segment" }] : [];
   });
 }

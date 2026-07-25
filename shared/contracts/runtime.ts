@@ -8,6 +8,7 @@ export type PlanEntry = "manual" | "suggest" | "auto";
 
 export type ActivityKind =
   | "thinking"
+  | "statement"
   | "message"
   | "plan"
   | "tool"
@@ -28,6 +29,14 @@ export type ToolMetrics = {
   truncated?: boolean;
 };
 
+export type ToolUseStatement = {
+  statementId: string;
+  groupId: string;
+  mode: "new" | "continue";
+  title: string;
+  normalized?: boolean;
+};
+
 export type ToolState = {
   callId: string;
   modelStepId: string;
@@ -45,6 +54,7 @@ export type ToolState = {
   argumentsPreview: string;
   /** @deprecated Legacy expansion policy. New Events derive detail policy in the UI. */
   detail?: { defaultCollapsed: boolean; pathStyle: "workspace_relative" | "raw"; previewLimit: number };
+  statement?: ToolUseStatement;
   resultSummary?: string;
   resultMetrics?: ToolMetrics;
 };
@@ -174,6 +184,7 @@ export type Activity = {
   body: string;
   startedAt: string;
   finishedAt?: string;
+  statement?: ToolUseStatement;
   tool?: ToolState;
   command?: {
     command: string;

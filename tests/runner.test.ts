@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { activityTitle } from "../shared/projections/activityPresentation";
 import { runAgent } from "../server/app/runner";
 import { RunRegistry } from "../server/app/runRegistry";
 import { Provider } from "../shared/contracts/provider";
@@ -45,7 +44,10 @@ test("recovers a transient provider failure before any stream fragment", async (
     assert.equal(attempts, 2);
     assert.equal(run.status, "completed");
     assert.equal(run.answer, "恢复成功");
-    assert.ok(run.activities.some((activity) => activity.kind === "error" && activityTitle(activity) === "运行错误"));
+    assert.equal(run.activities.some((activity) => activity.kind === "error"), false);
+    assert.ok(store.readContextEntries("session_retry").some((record) =>
+      record.kind === "runtime_fact" && record.metadata?.transient === true
+    ));
     const answerStart = store.readEvents("session_retry").find((event) =>
       event.type === "activity.started" && (event.data as { kind?: string }).kind === "message"
     );
@@ -73,6 +75,21 @@ test("persists semantic tool facts while provider schemas stay presentation-free
         turn += 1;
         assert.ok(request.tools.every((tool) => !("presentation" in tool)));
         if (turn === 1) {
+          const declaration = {
+            argumentsText: JSON.stringify({ mode: "new", title: "读取代码文件" }),
+            callId: "call_read_statement",
+            index: 0,
+            name: "tools_use_statement"
+          };
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [declaration] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [declaration]
+          };
+        }
+        if (turn === 2) {
           request.onFragment?.({
             argumentsText: "{\"path\":\"sample.ts\"}",
             callId: "call_read",
@@ -137,6 +154,252 @@ test("persists semantic tool facts while provider schemas stay presentation-free
   }
 });
 
+test("records tool-use statements without creating a visible control activity", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-tool-statement-"));
+  try {
+    writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
+    let turn = 0;
+    let sawStatementResult = false;
+    const statementCall = {
+      argumentsText: JSON.stringify({ mode: "new", title: "Inspect project architecture" }),
+      callId: "call_statement",
+      index: 0,
+      name: "tools_use_statement"
+    };
+    const readCall = {
+      argumentsText: JSON.stringify({ path: "sample.ts" }),
+      callId: "call_read",
+      index: 0,
+      name: "read_file"
+    };
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          request.onFragment?.({ kind: "thinking", text: "initial reasoning" });
+          return {
+            answer: "",
+            continuationMessage: {
+              role: "assistant",
+              text: null,
+              toolCalls: [statementCall]
+            },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [statementCall]
+          };
+        }
+        if (turn === 2) {
+          sawStatementResult = request.messages.some((message) =>
+            message.role === "tool" && message.toolCallKey === statementCall.callId
+          );
+          request.onFragment?.({ kind: "thinking", text: "digesting declaration" });
+          request.onFragment?.({
+            argumentsText: readCall.argumentsText,
+            callId: readCall.callId,
+            index: readCall.index,
+            kind: "tool_call",
+            name: readCall.name
+          });
+          return {
+            answer: "",
+            continuationMessage: {
+              role: "assistant",
+              text: null,
+              toolCalls: [readCall]
+            },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [readCall]
+          };
+        }
+        request.onFragment?.({ kind: "thinking", text: "digesting tool facts" });
+        request.onFragment?.({ kind: "answer", text: "检查完成" });
+        return {
+          answer: "检查完成",
+          continuationMessage: { role: "assistant", text: "检查完成" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_statement",
+      title: "工具声明"
+    });
+    store.append({
+      data: { model: "test", prompt: "读取代码文件", startedAt: new Date().toISOString() },
+      runId: "run_statement",
+      sessionId: "session_statement",
+      type: "run.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_statement");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "读取代码文件",
+      provider,
+      registry,
+      runId: "run_statement",
+      sessionId: "session_statement",
+      signal: controller.signal,
+      store,
+      tools: toolHost
+    });
+
+    const run = store.getRun("run_statement")!;
+    const readActivity = run.activities.find((activity) => activity.tool?.callId === readCall.callId);
+    const statementActivity = run.activities.find((activity) => activity.kind === "statement");
+    assert.equal(sawStatementResult, true);
+    assert.equal(run.activities.some((activity) => activity.tool?.toolName === "tools_use_statement"), false);
+    assert.equal(run.activities.filter((activity) => activity.kind === "thinking").length, 1);
+    assert.equal(statementActivity?.audience, "internal");
+    assert.equal(statementActivity?.statement?.title, "Inspect project architecture");
+    assert.equal(readActivity?.tool?.statement?.title, "Inspect project architecture");
+    assert.equal(readActivity?.tool?.statement?.mode, "new");
+    assert.ok(store.readContextEntries("session_statement").some((record) =>
+      record.kind === "tool_result" && record.toolCallKey === statementCall.callId
+    ));
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("rejects undeclared tools without executing or projecting them", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-tool-statement-gate-"));
+  try {
+    writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
+    let turn = 0;
+    const invalidRead = {
+      argumentsText: JSON.stringify({ path: "missing.ts" }),
+      callId: "call_invalid_read",
+      index: 0,
+      name: "read_file"
+    };
+    const statement = {
+      argumentsText: JSON.stringify({ mode: "new", title: "读取项目文件" }),
+      callId: "call_statement_gate",
+      index: 0,
+      name: "tools_use_statement"
+    };
+    const validRead = {
+      argumentsText: JSON.stringify({ path: "sample.ts" }),
+      callId: "call_valid_read",
+      index: 0,
+      name: "read_file"
+    };
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          request.onFragment?.({ ...invalidRead, kind: "tool_call" });
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [invalidRead] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [invalidRead]
+          };
+        }
+        if (turn === 2) {
+          assert.ok(request.messages.some((message) =>
+            message.role === "tool"
+            && message.toolCallKey === invalidRead.callId
+            && message.text?.includes("缺少有效且独立的 tools_use_statement")
+          ));
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [statement] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [statement]
+          };
+        }
+        if (turn === 3) {
+          request.onFragment?.({ ...validRead, kind: "tool_call" });
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [validRead] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [validRead]
+          };
+        }
+        return {
+          answer: "读取完成",
+          continuationMessage: { role: "assistant", text: "读取完成" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_statement_gate",
+      title: "声明门禁"
+    });
+    store.append({
+      data: { model: "test", prompt: "读取代码文件", startedAt: new Date().toISOString() },
+      runId: "run_statement_gate",
+      sessionId: "session_statement_gate",
+      type: "run.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_statement_gate");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "读取代码文件",
+      provider,
+      registry,
+      runId: "run_statement_gate",
+      sessionId: "session_statement_gate",
+      signal: controller.signal,
+      store,
+      tools: toolHost
+    });
+
+    const run = store.getRun("run_statement_gate")!;
+    assert.equal(run.status, "completed");
+    assert.equal(run.activities.some((activity) => activity.tool?.callId === invalidRead.callId), false);
+    assert.equal(run.activities.some((activity) => activity.tool?.callId === statement.callId), false);
+    assert.equal(run.activities.find((activity) => activity.tool?.callId === validRead.callId)?.tool?.statement?.title, "读取项目文件");
+    assert.ok(store.readContextEntries("session_statement_gate").some((record) =>
+      record.kind === "tool_result" && record.toolCallKey === invalidRead.callId && record.isError
+    ));
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
 test("publishes streamed and authoritative file diffs before mutation settlement", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-mutation-"));
   try {
@@ -172,6 +435,21 @@ test("publishes streamed and authoritative file diffs before mutation settlement
       async stream(request) {
         turn += 1;
         if (turn === 1) {
+          const declaration = {
+            argumentsText: JSON.stringify({ mode: "new", title: "创建代码文件" }),
+            callId: "call_write_statement",
+            index: 0,
+            name: "tools_use_statement"
+          };
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [declaration] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [declaration]
+          };
+        }
+        if (turn === 2) {
           for (let index = 0; index < argumentsText.length; index += 11) {
             request.onFragment?.({
               argumentsText: argumentsText.slice(index, index + 11),
@@ -239,9 +517,12 @@ test("does not accept final content while a managed command is running", async (
   let turns = 0;
   const guardedToolHost = {
     ...toolHost,
-    runningCommands: () => commandChecks++ === 0
+    runningCommands: () => {
+      commandChecks += 1;
+      return turns === 1
       ? [{ commandId: "command_live", elapsedMs: 60_000 }]
-      : [],
+      : [];
+    },
     stopCommands: async () => { stopCalls += 1; }
   };
   const provider: Provider = {
@@ -455,7 +736,8 @@ test("an interrupted tool-call step is closed before the next conversation", asy
     const firstController = firstRegistry.startRun("run_interrupted_step");
     const interruptedTools = {
       ...toolHost,
-      parallel: () => {
+      parallel: (name: string) => {
+        if (name === "tools_use_statement") return false;
         firstController.abort();
         throw new Error("scheduler interrupted");
       }
@@ -469,6 +751,23 @@ test("an interrupted tool-call step is closed before the next conversation", asy
         supportsTools: true
       },
       async stream() {
+        if (!store.readContextEntries("session_interrupted_step").some((entry) =>
+          entry.kind === "tool_result" && entry.toolName === "tools_use_statement"
+        )) {
+          const declaration = {
+            argumentsText: JSON.stringify({ mode: "new", title: "检查项目状态" }),
+            callId: "call_interrupted_statement",
+            index: 0,
+            name: "tools_use_statement"
+          };
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [declaration] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [declaration]
+          };
+        }
         return {
           answer: "",
           continuationMessage: { role: "assistant", text: null, toolCalls: calls },
@@ -494,7 +793,7 @@ test("an interrupted tool-call step is closed before the next conversation", asy
     assert.equal(store.getRun("run_interrupted_step")?.status, "cancelled");
     assert.deepEqual(store.readContextEntries("session_interrupted_step")
       .filter((entry) => entry.kind === "tool_result")
-      .map((entry) => entry.toolCallKey), ["call_interrupted_a", "call_interrupted_b"]);
+      .map((entry) => entry.toolCallKey), ["call_interrupted_statement", "call_interrupted_a", "call_interrupted_b"]);
 
     store.append({
       data: { model: "test", prompt: "继续", startedAt: new Date().toISOString() },

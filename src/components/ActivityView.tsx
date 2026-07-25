@@ -10,7 +10,6 @@ import {
 import { useStreamText } from "../stream/useStreamText";
 import { MarkdownContent } from "./MarkdownContent";
 import { InlinePlanCard } from "./InlinePlanCard";
-import { ThinkingLoader } from "./ThinkingLoader";
 
 function iconFor(activity: Activity) {
   if (activity.kind === "command") return <TerminalSquare size={13} />;
@@ -92,9 +91,8 @@ export function ActivityView({
     if (!runActive || (activity.status !== "running" && activity.status !== "suspended")) return null;
     return (
       <article className="work-step tool-step thinking-step is-expanded">
-        <div className="work-dot"><ThinkingLoader size={14} /></div>
         <div className="work-body">
-          <strong className="working-glow">
+          <strong className="purpose-sweep">
             正在思考
           </strong>
         </div>
