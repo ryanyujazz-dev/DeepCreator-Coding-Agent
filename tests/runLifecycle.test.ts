@@ -6,6 +6,7 @@ import test from "node:test";
 import { finishActivity } from "../server/app/activityLifecycle";
 import { finishRun } from "../server/app/runLifecycle";
 import { RuntimeStore } from "../server/infra/runtimeStore";
+import { testSystem } from "./support/system";
 
 test("does not leave a managed command activity running after agent completion", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-background-run-"));
@@ -46,7 +47,8 @@ test("does not leave a managed command activity running after agent completion",
       runId: "run_background",
       sessionId: "session_background",
       status: "completed",
-      store
+      store,
+      system: testSystem
     });
 
     const run = store.getRun("run_background")!;
@@ -107,7 +109,8 @@ test("finishes a suspended thinking activity exactly once", () => {
       runId: "run_suspended_thinking",
       sessionId: "session_suspended_thinking",
       status: "completed",
-      store
+      store,
+      system: testSystem
     });
 
     const finishedEvents = store.readEvents("session_suspended_thinking")
@@ -155,7 +158,8 @@ test("cancelling an activity and then cancelling its run writes one terminal eve
       activityId: "activity_double_cancel",
       runId: "run_double_cancel",
       sessionId: "session_double_cancel",
-      store
+      store,
+      system: testSystem
     }, {
       command: { command: "npm test", commandId: "command_double_cancel", state: "cancelled" },
       status: "cancelled"
@@ -169,7 +173,8 @@ test("cancelling an activity and then cancelling its run writes one terminal eve
       runId: "run_double_cancel",
       sessionId: "session_double_cancel",
       status: "cancelled",
-      store
+      store,
+      system: testSystem
     });
 
     const finishes = store.readEvents("session_double_cancel").filter((event) =>
@@ -229,7 +234,8 @@ test("persists one interrupted result for every unfinished tool call", () => {
       runId: "run_interrupted_tools",
       sessionId: "session_interrupted_tools",
       status: "cancelled",
-      store
+      store,
+      system: testSystem
     });
     finish();
     finish();

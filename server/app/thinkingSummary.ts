@@ -1,5 +1,6 @@
 import { ModelMessage, Provider } from "../../shared/contracts/provider";
 import { prompts } from "./prompts";
+import { SystemPort } from "./systemPort";
 
 export const THINKING_SUMMARY_LIMITS = {
   firstHardChars: 700,
@@ -17,6 +18,7 @@ type ThinkingSummaryLoopInput = {
   onTitle: (title: string) => void;
   provider: Provider;
   signal?: AbortSignal;
+  system: SystemPort;
 };
 
 type SummaryJob = {
@@ -108,7 +110,7 @@ export class ThinkingSummaryLoop {
   append(text: string): void {
     if (!this.accepting || !text) return;
     if (!this.stepBuffer && !this.firstThinkingStepDone && this.firstThinkingStartedAt === undefined) {
-      this.firstThinkingStartedAt = Date.now();
+      this.firstThinkingStartedAt = this.input.system.nowMs();
       this.firstTimer = setTimeout(() => this.maybeStartFirstSummary(), THINKING_SUMMARY_LIMITS.firstMaxWaitMs);
     }
     this.stepBuffer = `${this.stepBuffer}${text}`.slice(-THINKING_SUMMARY_LIMITS.maxStepChars);
@@ -173,7 +175,8 @@ export class ThinkingSummaryLoop {
 
   private maybeStartFirstSummary(): void {
     if (this.firstThinkingStepDone || this.firstEarlyStatus !== "not_started" || !this.stepBuffer) return;
-    const elapsedMs = Date.now() - (this.firstThinkingStartedAt ?? Date.now());
+    const now = this.input.system.nowMs();
+    const elapsedMs = now - (this.firstThinkingStartedAt ?? now);
     if (!shouldStartFirstSummary(this.stepBuffer, elapsedMs)) return;
     this.firstEarlyStatus = "in_flight";
     this.clearFirstTimer();

@@ -23,7 +23,7 @@ import {
   TerminalSquare,
   Wrench
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import {
   Activity,
   AggregateHeadlineKind,
@@ -37,9 +37,10 @@ import {
   toolDisplayTarget,
   toolTarget
 } from "../../shared/projections/activityPresentation";
-import { CodeDiffViewer } from "./CodeEditorSurface";
 import { DetailPanel } from "./DetailPanel";
 import { DisclosureRow } from "../shared-ui/ControlPrimitives";
+
+const CodeDiffViewer = lazy(() => import("./CodeEditorSurface").then((module) => ({ default: module.CodeDiffViewer })));
 
 function groupIcon(group: ActivityGroup) {
   if (group.status === "failed") return <CircleAlert size={13} />;
@@ -279,7 +280,7 @@ export function ModificationFileRow({
         <div>{expanded && (
           <DetailPanel copyValue={file.patch ?? ""} title={fileDisplayName(file.path)}>
             {hasPatch
-              ? <CodeDiffViewer compact patch={file.patch!} path={file.path} />
+              ? <Suspense fallback={<div className="operation-detail-empty">正在加载差异视图...</div>}><CodeDiffViewer compact patch={file.patch!} path={file.path} /></Suspense>
               : <div className="operation-detail-empty">暂无可展示的变更内容。</div>}
           </DetailPanel>
         )}</div>

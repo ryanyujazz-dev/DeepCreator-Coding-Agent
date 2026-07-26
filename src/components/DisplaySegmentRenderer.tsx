@@ -105,13 +105,11 @@ function ActivitySlotView({
 function MainContentSlot({
   activity,
   onTextFrame,
-  runActive,
-  continuationActive = false
+  runActive
 }: {
   activity: NonNullable<DisplaySegment["mainActivity"]>;
   onTextFrame?: () => void;
   runActive: boolean;
-  continuationActive?: boolean;
 }) {
   const streaming = runActive && activity.status === "running";
   const text = useStreamText(activity.body, streaming, onTextFrame);

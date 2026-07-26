@@ -7,6 +7,7 @@ import {
   parseThinkingTitle,
   shouldStartFirstSummary
 } from "../server/app/thinkingSummary";
+import { testSystem } from "./support/system";
 
 const capabilities = {
   contextWindowTokens: 128_000,
@@ -67,7 +68,7 @@ test("parses one strict progressive title and rejects invalid or completed title
 test("emits the first title early and does not summarize that step again when it seals", async () => {
   const provider = new ControlledProvider();
   const titles: string[] = [];
-  const loop = new ThinkingSummaryLoop({ model: "deepseek-v4-flash", onTitle: (title) => titles.push(title), provider });
+  const loop = new ThinkingSummaryLoop({ model: "deepseek-v4-flash", onTitle: (title) => titles.push(title), provider, system: testSystem });
 
   loop.append("思".repeat(THINKING_SUMMARY_LIMITS.firstHardChars));
   assert.equal(provider.requests.length, 1);
@@ -86,7 +87,7 @@ test("emits the first title early and does not summarize that step again when it
 test("summarizes every later thinking step exactly once at its sealed boundary", async () => {
   const provider = new ControlledProvider();
   const titles: string[] = [];
-  const loop = new ThinkingSummaryLoop({ model: "glm-5-turbo", onTitle: (title) => titles.push(title), provider });
+  const loop = new ThinkingSummaryLoop({ model: "glm-5-turbo", onTitle: (title) => titles.push(title), provider, system: testSystem });
 
   loop.append("先检查首个页面的路由参数。");
   loop.endModelStep();
@@ -107,7 +108,7 @@ test("summarizes every later thinking step exactly once at its sealed boundary",
 test("retries the first early summary once at step end when its output is invalid", async () => {
   const provider = new ControlledProvider();
   const titles: string[] = [];
-  const loop = new ThinkingSummaryLoop({ model: "deepseek-v4-flash", onTitle: (title) => titles.push(title), provider });
+  const loop = new ThinkingSummaryLoop({ model: "deepseek-v4-flash", onTitle: (title) => titles.push(title), provider, system: testSystem });
 
   loop.append("思".repeat(THINKING_SUMMARY_LIMITS.firstHardChars));
   loop.append("保留 step 后半段思考。");
@@ -126,7 +127,7 @@ test("retries the first early summary once at step end when its output is invali
 test("keeps only the latest sealed step while one summary request is still running", async () => {
   const provider = new ControlledProvider();
   const titles: string[] = [];
-  const loop = new ThinkingSummaryLoop({ model: "deepseek-v4-flash", onTitle: (title) => titles.push(title), provider });
+  const loop = new ThinkingSummaryLoop({ model: "deepseek-v4-flash", onTitle: (title) => titles.push(title), provider, system: testSystem });
 
   loop.append("第一步短思考。");
   loop.endModelStep();
@@ -153,7 +154,8 @@ test("seeds a resumed Run with the previous thinking-title exchange", async () =
     initialTitle: "核对页面跳转参数",
     model: "glm-5-turbo",
     onTitle: () => undefined,
-    provider
+    provider,
+    system: testSystem
   });
   loop.append("继续确认 query 与目标页面字段一致。");
   loop.endModelStep();
@@ -166,7 +168,7 @@ test("seeds a resumed Run with the previous thinking-title exchange", async () =
 test("bounds final draining and ignores a summary that returns after cancellation", async () => {
   const provider = new ControlledProvider();
   const titles: string[] = [];
-  const loop = new ThinkingSummaryLoop({ model: "deepseek-v4-flash", onTitle: (title) => titles.push(title), provider });
+  const loop = new ThinkingSummaryLoop({ model: "deepseek-v4-flash", onTitle: (title) => titles.push(title), provider, system: testSystem });
   loop.append("正在分析路由参数如何传递到目标页面。");
   loop.endModelStep();
 

@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { ApprovalChoice, AccessScope, AccessRisk } from "../../shared/contracts/runtime";
 import { EventPort, SessionPort } from "./runtimeRepo";
+import { SystemPort } from "./systemPort";
 
 type RunRegistryPorts = EventPort & SessionPort;
 
@@ -19,6 +19,8 @@ export class RunRegistry {
   private readonly runs = new Map<string, AbortController>();
   private readonly approvals = new Map<string, PendingApproval>();
   private readonly finishListeners = new Map<string, Set<() => void>>();
+
+  constructor(readonly system: SystemPort) {}
 
   startRun(runId: string): AbortController {
     const controller = new AbortController();
@@ -62,17 +64,17 @@ export class RunRegistry {
     if (!this.runs.has(runId)) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
       let settled = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      const state: { timer?: ReturnType<typeof setTimeout> } = {};
       let unsubscribe: () => void = () => undefined;
       const finish = (completed: boolean) => {
         if (settled) return;
         settled = true;
-        if (timer) clearTimeout(timer);
+        if (state.timer) clearTimeout(state.timer);
         unsubscribe();
         resolve(completed);
       };
       unsubscribe = this.afterRun(runId, () => finish(true));
-      timer = setTimeout(() => finish(false), Math.max(1, timeoutMs));
+      state.timer = setTimeout(() => finish(false), Math.max(1, timeoutMs));
     });
   }
 
@@ -102,7 +104,7 @@ export class RunRegistry {
     toolName: string;
     signal?: AbortSignal;
   }): Promise<ApprovalChoice> {
-    const approvalId = `approval_${randomUUID()}`;
+    const approvalId = this.system.createId("approval");
     input.store.append({
       runId: input.runId,
       data: {
@@ -167,9 +169,9 @@ export class RunRegistry {
               ...session.grants,
               {
                 capability: pending.capability,
-                createdAt: new Date().toISOString(),
+                createdAt: this.system.now(),
                 runId: input.decision === "allow_run" ? pending.runId : undefined,
-                grantId: `grant_${randomUUID()}`,
+                grantId: this.system.createId("grant"),
                 scope: input.decision === "allow_run" ? "run" as const : "session" as const,
                 targetPattern: pending.target,
                 toolName: pending.toolName

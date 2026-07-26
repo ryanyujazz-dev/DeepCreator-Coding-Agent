@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { RunRegistry } from "../server/app/runRegistry";
+import { testSystem, TestRunRegistry as RunRegistry } from "./support/system";
 import { RunLauncher } from "../server/app/runLauncher";
 import { CancelRun } from "../server/app/cancelRun";
 import { ContextQueries } from "../server/app/contextQueries";
@@ -26,7 +26,7 @@ import { SUMMARY_MODEL_BY_PROVIDER } from "../server/bootstrap/runtime";
 import { emptyCapabilitySource } from "../shared/contracts/capability";
 import { emptyRuleSource } from "../shared/contracts/rules";
 import { Provider } from "../shared/contracts/provider";
-import { EVENT_VERSION, Event, SessionInput } from "../shared/contracts/runtime";
+import { EVENT_VERSION, Event, EventPayloadMap, EventType, SessionInput } from "../shared/contracts/runtime";
 import { createSession, reduceEvent } from "../shared/domain/reducer";
 import { decodeLegacyEvent } from "../shared/legacy/decoder";
 import { decodeLegacyContextEntry } from "../shared/legacy/context";
@@ -51,7 +51,7 @@ test("maps each provider family to its fixed reasoning summary model", () => {
   });
 });
 
-function event(offset: number, type: Event["type"], data: unknown, runId?: string): Event {
+function event<K extends EventType>(offset: number, type: K, data: EventPayloadMap[K], runId?: string): Event<K> {
   return {
     at: `2026-07-18T00:00:0${offset}.000Z`,
     data,
@@ -60,7 +60,7 @@ function event(offset: number, type: Event["type"], data: unknown, runId?: strin
     scope: { runId, sessionId: registration.sessionId },
     type,
     version: EVENT_VERSION
-  };
+  } as Event<K>;
 }
 
 test("decodes a real V1 session into the V2 contract", () => {
@@ -136,6 +136,8 @@ test("loads V1 JSONL and deterministically settles an interrupted run", () => {
     ];
     writeFileSync(path.join(signals, `${sessionId}.jsonl`), `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
     const store = new RuntimeStore(directory);
+    assert.equal(store.startupReport.importedLegacySessions, 1);
+    assert.equal(store.startupReport.interruptedRuns, 1);
     const session = store.getSession(sessionId)!;
     assert.equal(session.title, "历史会话");
     assert.equal(session.runs[0].status, "failed");
@@ -157,7 +159,8 @@ test("commits an Event and its projection atomically", () => {
     database.raw.exec("CREATE TRIGGER reject_session BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'projection failed'); END;");
     assert.throws(() => events.append(created, createSession(registration, 1)), /projection failed/);
     assert.equal(events.count(registration.sessionId), 0);
-    assert.equal(database.raw.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 0);
+    const row = database.raw.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count: number };
+    assert.equal(row.count, 0);
   } finally {
     database.close();
     rmSync(directory, { force: true, recursive: true });
@@ -190,9 +193,11 @@ test("runs ordered migrations idempotently", () => {
   const file = path.join(directory, "runtime.sqlite");
   try {
     const first = new Database(file);
+    assert.equal(first.migrationReport.applied.length, 4);
     const count = Number((first.raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count);
     first.close();
     const second = new Database(file);
+    assert.equal(second.migrationReport.applied.length, 0);
     const repeated = Number((second.raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count);
     second.close();
     assert.equal(count, 4);
@@ -281,11 +286,11 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     defaultModel: "mock-agent",
     launcher,
     store,
-    system: { createId: (prefix) => `${prefix}_http`, now: () => createdAt },
+    system: { ...testSystem, createId: (prefix) => `${prefix}_http`, now: () => createdAt },
     workspace: { canonicalize: path.resolve, ensureScratch: (sessionId) => ensureScratchWorkspace(directory, sessionId), resolveProjectRoot: async () => directory },
     workspaceRoot: directory
   });
-  const contextQueries = new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory });
+  const contextQueries = new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { ...testSystem, createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory });
   const app = createHttp({
     cancelRun: new CancelRun(registry, commandManager),
     config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, models: [], workspaceRoot: directory },
@@ -365,6 +370,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
       url: "/api/sessions/session_illegal_scratch/runs"
     });
     assert.equal(illegalScratchRoot.statusCode, 400);
+    assert.equal(illegalScratchRoot.json().code, "invalid_input");
     const conflictingKind = await app.inject({
       headers: { authorization: "Bearer runtime-test-token" },
       method: "POST",
@@ -372,6 +378,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
       url: "/api/sessions/session_scratch/runs"
     });
     assert.equal(conflictingKind.statusCode, 409);
+    assert.equal(conflictingKind.json().code, "conflict");
     const conflictingRoot = await app.inject({
       headers: { authorization: "Bearer runtime-test-token" },
       method: "POST",
@@ -409,7 +416,8 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
           runId: input.runId,
           sessionId: input.sessionId,
           status: "cancelled",
-          store
+          store,
+          system: testSystem
         });
         cleanupFinished = true;
         resolve();
@@ -422,11 +430,11 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
     defaultModel: "mock-agent",
     launcher,
     store,
-    system: { createId: (prefix) => `${prefix}_cancel`, now: () => createdAt },
+    system: { ...testSystem, createId: (prefix) => `${prefix}_cancel`, now: () => createdAt },
     workspace: { canonicalize: path.resolve, ensureScratch: (sessionId) => ensureScratchWorkspace(directory, sessionId), resolveProjectRoot: async () => directory },
     workspaceRoot: directory
   });
-  const contextQueries = new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory });
+  const contextQueries = new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { ...testSystem, createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory });
   const app = createHttp({
     cancelRun: new CancelRun(registry, commandManager),
     config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, models: [], workspaceRoot: directory },

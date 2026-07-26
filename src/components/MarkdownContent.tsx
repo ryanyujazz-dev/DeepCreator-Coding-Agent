@@ -1,10 +1,9 @@
 import { Check, Code2, Copy } from "lucide-react";
 import { Highlight, themes } from "prism-react-renderer";
-import { ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, ReactNode, Suspense, isValidElement, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { StreamFragment } from "../stream/textFlow";
-import { MermaidBlock } from "./MermaidBlock";
 import { useOptionalTheme } from "../theme/ThemeProvider";
 
 type FadeRange = {
@@ -21,6 +20,8 @@ type HastNode = {
   type: string;
   value?: string;
 };
+
+const MermaidBlock = lazy(() => import("./MermaidBlock").then((module) => ({ default: module.MermaidBlock })));
 
 function fadePlugin(ranges: FadeRange[]) {
   return () => (tree: HastNode) => {
@@ -80,7 +81,11 @@ function CodeBlock({ children, followOutput }: { children: ReactNode; followOutp
   const code = textFromNode(properties.children).replace(/\n$/, "");
   const language = properties.className?.match(/language-([^\s]+)/)?.[1] ?? "text";
   if (language === "mermaid") {
-    return <MermaidBlock code={code} followOutput={followOutput} />;
+    return (
+      <Suspense fallback={<pre className="markdown-code-block"><code>{code}</code></pre>}>
+        <MermaidBlock code={code} followOutput={followOutput} />
+      </Suspense>
+    );
   }
   return <PlainCodeBlock code={code} followOutput={followOutput} language={language} />;
 }

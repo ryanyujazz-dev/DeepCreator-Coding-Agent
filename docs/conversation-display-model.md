@@ -156,7 +156,7 @@ Only the initial reasoning seed may display `Thinking`. After a tool has occupie
 - `wait_command(commandId)` waits for another checkpoint and updates the original command.
 - `stop_command(commandId)` terminates the original process tree and settles the original activity.
 - Neither control tool creates a new visible activity slot or aggregate member.
-- Normal Agent completion may leave managed commands alive; cancelling the run stops every command owned by that run.
+- An Agent Run must not finish while a managed command remains alive. A candidate final response is rejected until the model waits for the command or stops it; cancellation and failure still stop every command owned by the Run as cleanup.
 - Command completion, cancellation, and process errors must converge on one authoritative `done` event.
 
 ## Empty-Slot Rules

@@ -89,6 +89,7 @@ export class RuntimeHost {
       env: {
         ...process.env,
         DEEPSEEK_API_KEY: this.store.apiKey(),
+        ZHIPU_API_KEY: this.store.zhipuApiKey(),
         DEEPSEEK_MODEL: this.store.settings().defaultModel,
         RUNTIME_AUTH_TOKEN: token,
         RUNTIME_DATA_DIR: this.prepareDataDirectory(),

@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ReasoningStep, Run, isRunDone } from "../../shared/contracts/runtime";
 import {
   SCROLL_FOLLOW_EDGE_THRESHOLD,
@@ -66,7 +66,7 @@ export function ReasoningTrace({ run }: { run?: Run }) {
   }, []);
 
   useEffect(() => {
-    setExpanded(Boolean(run && !done));
+    setExpanded(Boolean(run?.runId && !done));
   }, [done, run?.runId]);
 
   useEffect(() => {

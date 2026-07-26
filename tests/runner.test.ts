@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runAgent } from "../server/app/runner";
-import { RunRegistry } from "../server/app/runRegistry";
+import { TestRunRegistry as RunRegistry } from "./support/system";
 import { Provider } from "../shared/contracts/provider";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 import { toolHost } from "../server/infra/tools";
@@ -430,7 +430,13 @@ test("buffers mutation arguments and publishes only authoritative file diffs bef
   try {
     const eventToolHost = {
       ...toolHost,
-      capture: async () => ({ available: true, files: new Map(), snapshotDirectory: path.join(directory, "unused-baseline") }),
+      capture: async () => ({
+        available: true,
+        files: new Map(),
+        leases: 1,
+        released: false,
+        snapshotDirectory: path.join(directory, "unused-baseline")
+      }),
       changes: async () => existsSync(path.join(directory, "created.ts")) ? {
         additions: 2,
         comparisonBase: "run_start" as const,

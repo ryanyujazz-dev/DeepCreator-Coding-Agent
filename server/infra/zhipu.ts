@@ -4,13 +4,11 @@ import {
   Summary,
   SummaryRequest,
   FinishCause,
-  ModelMessage,
-  ModelIssue,
   ModelRequest,
   ModelResponse,
-  ToolCall,
   Usage
 } from "../../shared/contracts/provider";
+import { decodeCompatibleStream, toCompatibleMessage, toCompatibleTools } from "./openAiCompatibleStream";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 智谱 GLM Provider
@@ -31,35 +29,6 @@ import {
 
 const DEFAULT_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 
-type ZhipuToolCall = {
-  id: string;
-  index?: number;
-  type: "function";
-  function: { name: string; arguments: string };
-};
-
-type ZhipuMessage = {
-  role: ModelMessage["role"];
-  content?: string | null;
-  tool_call_id?: string;
-  tool_calls?: ZhipuToolCall[];
-  reasoning_content?: string;
-};
-
-function toZhipuMessage(message: ModelMessage): ZhipuMessage {
-  return {
-    content: message.text,
-    reasoning_content: message.continuationThinking,
-    role: message.role,
-    tool_call_id: message.toolCallKey,
-    tool_calls: message.toolCalls?.map((call) => ({
-      function: { arguments: call.argumentsText, name: call.name },
-      id: call.callId,
-      type: "function"
-    }))
-  };
-}
-
 function mapFinishCause(value?: string | null): FinishCause {
   if (value === "stop") return "complete";
   if (value === "tool_calls") return "tool_calls";
@@ -69,38 +38,7 @@ function mapFinishCause(value?: string | null): FinishCause {
   return "unknown";
 }
 
-function protocolIssueFor(input: {
-  answer: string;
-  finishCause: FinishCause;
-  sawDone: boolean;
-  toolCalls: ToolCall[];
-}): ModelIssue | undefined {
-  if (!input.sawDone) {
-    return { code: "incomplete_stream", message: "智谱 SSE 流未收到 [DONE] 结束标记。", retryable: true };
-  }
-  if (/<[｜|]{0,2}tool_calls\b/i.test(input.answer)) {
-    return { code: "text_tool_protocol", message: "模型把工具调用作为文本标记输出，而不是结构化 tool_calls。", retryable: true };
-  }
-  if (input.finishCause === "unknown") {
-    return { code: "unknown_finish", message: "智谱返回了未知或缺失的 finish_reason。", retryable: true };
-  }
-  if (
-    (input.finishCause === "tool_calls" && input.toolCalls.length === 0) ||
-    (input.finishCause === "complete" && input.toolCalls.length > 0)
-  ) {
-    return { code: "finish_mismatch", message: "智谱的 finish_reason 与结构化工具调用不一致。", retryable: true };
-  }
-  if (input.finishCause === "complete" && !input.answer.trim()) {
-    return { code: "empty_response", message: "智谱在未调用工具时返回了空回答。", retryable: true };
-  }
-  return undefined;
-}
-
-function mapUsage(raw?: {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-}): Usage | undefined {
+function mapUsage(raw?: Record<string, number | undefined>): Usage | undefined {
   if (!raw) return undefined;
   return {
     inputTokens: raw.prompt_tokens,
@@ -155,20 +93,13 @@ export class ZhipuProvider implements Provider {
   async stream(request: ModelRequest): Promise<ModelResponse> {
     if (!this.apiKey) throw new Error("缺少智谱 API Key。请在配置中设置后重启 Runtime。");
     const body: Record<string, unknown> = {
-      messages: request.messages.map(toZhipuMessage),
+      messages: request.messages.map(toCompatibleMessage),
       model: request.model,
       stream: true,
       ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {})
     };
     if (request.tools.length > 0) {
-      body.tools = request.tools.map((tool) => ({
-        function: {
-          description: tool.description,
-          name: tool.name,
-          parameters: tool.inputSchema
-        },
-        type: "function"
-      }));
+      body.tools = toCompatibleTools(request.tools);
     }
     // GLM 普通请求保持显式启用；轻量摘要请求可单独关闭思考。
     body.thinking = { type: request.thinkingMode ?? "enabled" };
@@ -187,101 +118,16 @@ export class ZhipuProvider implements Provider {
     }
     if (!response.body) throw new Error("智谱响应没有可读取的流。");
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    const calls: ToolCall[] = [];
-    let buffer = "";
-    let answer = "";
-    let thinking = "";
-    let finishCause: FinishCause = "unknown";
-    let usage: Usage | undefined;
-    let sawDone = false;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        const data = line.trim().replace(/^data:\s*/, "");
-        if (!data || line.trim() === data) continue;
-        if (data === "[DONE]") {
-          sawDone = true;
-          continue;
-        }
-        const chunk = JSON.parse(data) as {
-          choices?: Array<{
-            delta?: {
-              content?: string;
-              reasoning_content?: string;
-              tool_calls?: Array<{
-                id?: string;
-                index?: number;
-                function?: { name?: string; arguments?: string };
-              }>;
-            };
-            finish_reason?: string | null;
-          }>;
-          usage?: {
-            prompt_tokens?: number;
-            completion_tokens?: number;
-            total_tokens?: number;
-          };
-        };
-        const choice = chunk.choices?.[0];
-        const delta = choice?.delta;
-        if (delta?.reasoning_content) {
-          thinking += delta.reasoning_content;
-          request.onFragment?.({ kind: "thinking", text: delta.reasoning_content });
-        }
-        if (delta?.content) {
-          answer += delta.content;
-          request.onFragment?.({ kind: "answer", text: delta.content });
-        }
-        for (const rawCall of delta?.tool_calls ?? []) {
-          const index = rawCall.index ?? calls.length;
-          const call =
-            calls[index] ??
-            ({ argumentsText: "", callId: rawCall.id ?? `pending_${index}`, index, name: "" } satisfies ToolCall);
-          if (rawCall.id) call.callId = rawCall.id;
-          if (rawCall.function?.name) call.name = rawCall.function.name;
-          if (rawCall.function?.arguments) call.argumentsText += rawCall.function.arguments;
-          calls[index] = call;
-          request.onFragment?.({
-            argumentsText: rawCall.function?.arguments,
-            callId: call.callId,
-            index,
-            kind: "tool_call",
-            name: call.name || undefined
-          });
-        }
-        if (choice?.finish_reason) finishCause = mapFinishCause(choice.finish_reason);
-        const nextUsage = mapUsage(chunk.usage);
-        if (nextUsage) {
-          usage = nextUsage;
-          request.onFragment?.({ kind: "usage", usage });
-        }
-      }
-    }
-
-    const toolCalls = calls.filter((call) => call.callId && call.name);
-    const protocolIssue = protocolIssueFor({ answer, finishCause, sawDone, toolCalls });
-    return {
-      answer,
-      continuationMessage: {
-        continuationThinking: toolCalls.length > 0 ? thinking : undefined,
-        role: "assistant",
-        text: answer || null,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+    return decodeCompatibleStream({
+      body: response.body,
+      dialect: {
+        finishCause: mapFinishCause,
+        providerLabel: "智谱",
+        textToolPattern: /<[｜|]{0,2}tool_calls\b/i,
+        usage: mapUsage
       },
-      finishCause,
-      protocolIssue,
-      thinking,
-      toolCalls,
-      usage
-    };
+      onFragment: request.onFragment
+    });
   }
 
   // 智谱余额查询:GET /paas/v4/billing

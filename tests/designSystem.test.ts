@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const styles = readFileSync(path.join(root, "src/styles.css"), "utf8");
+const applicationSurfaces = readFileSync(path.join(root, "src/styles/features/application-surfaces.css"), "utf8");
 
 test("keeps one semantic token source and the licensed HarmonyOS font", () => {
   assert.equal(styles.match(/^:root\s*\{/gm)?.length, 1);
@@ -279,7 +280,7 @@ test("does not expand the quarantined legacy light-color baseline", () => {
 
 test("keeps dark hover, focus, selected, and context-meter states semantic", () => {
   const marker = "/* Audited dark interaction states.";
-  const interactionStates = styles.slice(styles.indexOf(marker));
+  const interactionStates = applicationSurfaces.slice(applicationSurfaces.indexOf(marker));
   assert.ok(interactionStates.startsWith(marker));
   assert.doesNotMatch(
     interactionStates,

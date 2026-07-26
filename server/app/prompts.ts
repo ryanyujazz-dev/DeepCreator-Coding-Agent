@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { stableDigest } from "../../shared/domain/digest";
 
 export type PromptBlueprintSlot =
   | "safety"
@@ -271,7 +271,7 @@ assistant: {"title":"检查接口异常处理"}`,
 ];
 
 function hash(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
+  return stableDigest(text);
 }
 
 export class Prompts {

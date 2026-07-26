@@ -57,7 +57,8 @@ export class RunLauncher implements RunLaunchPort {
         runId: input.runId,
         sessionId: input.sessionId,
         status: cancelled ? "cancelled" : "failed",
-        store: this.store
+        store: this.store,
+        system: this.registry.system
       });
     }).finally(() => this.registry.finishRun(input.runId));
   }

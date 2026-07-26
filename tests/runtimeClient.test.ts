@@ -1,12 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RuntimeClient, SSEDecoder } from "../src/runtimeApi";
+import { RuntimeClient, SSEDecoder, parseEventMessage } from "../src/runtimeApi";
+import { ContractViolationError } from "../shared/schemas/api";
 
 test("decodes fragmented SSE data without depending on chunk boundaries", () => {
   const decoder = new SSEDecoder();
   assert.deepEqual(decoder.push("data: {\"kind\":\"heart"), []);
   assert.deepEqual(decoder.push("beat\",\"offset\":2}\n\n"), ['{"kind":"heartbeat","offset":2}']);
   assert.deepEqual(decoder.push("data: first\r\ndata: second\r\n\r\n"), ["first\nsecond"]);
+});
+
+test("validates SSE envelopes and every transported Event", () => {
+  assert.deepEqual(parseEventMessage(JSON.stringify({
+    kind: "heartbeat",
+    offset: 4,
+    sessionId: "session_contract"
+  })), []);
+  assert.throws(
+    () => parseEventMessage(JSON.stringify({
+      events: [{ type: "run.finished" }],
+      kind: "events",
+      sessionId: "session_contract"
+    })),
+    /Invalid Event/
+  );
+  assert.throws(
+    () => parseEventMessage(JSON.stringify({ kind: "unknown", sessionId: "session_contract" })),
+    ContractViolationError
+  );
+});
+
+test("rejects a successful HTTP response that violates its declared contract", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ ok: "yes" }), {
+    headers: { "Content-Type": "application/json" },
+    status: 200
+  })) as typeof fetch;
+  try {
+    await assert.rejects(new RuntimeClient().cancelRun("run_invalid"), ContractViolationError);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("sends a bodyless cancellation request without declaring JSON content", async () => {

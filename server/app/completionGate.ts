@@ -1,0 +1,41 @@
+import { Run } from "../../shared/contracts/runtime";
+
+const TASK_MAINTENANCE_NEUTRAL_TOOLS = new Set(["ask_user", "enter_plan", "submit_plan", "update_tasks"]);
+
+export type CompletionBlock =
+  | { kind: "running_commands"; retryMessage: string }
+  | { issue: string; kind: "task_maintenance"; retryMessage: string };
+
+export function finalTaskMaintenanceIssue(run: Run): string | undefined {
+  if (run.tasks.length === 0) return undefined;
+  const unfinished = run.tasks.filter((task) => task.status === "pending" || task.status === "running");
+  if (unfinished.length > 0) return `仍有 ${unfinished.length} 个任务处于 pending 或 running 状态`;
+
+  let lastTaskUpdate = -1;
+  let lastWorkTool = -1;
+  run.activities.forEach((activity, index) => {
+    const toolName = activity.tool?.toolName;
+    if (!toolName) return;
+    if (toolName === "update_tasks" && activity.status === "completed") lastTaskUpdate = index;
+    else if (!TASK_MAINTENANCE_NEUTRAL_TOOLS.has(toolName)) lastWorkTool = index;
+  });
+  if (lastTaskUpdate < lastWorkTool) return "最后一次 update_tasks 早于最后一次工作工具调用";
+  if (lastTaskUpdate < 0) return "任务清单尚未通过 update_tasks 完成最终维护";
+  return undefined;
+}
+
+export function evaluateCompletion(input: { run?: Run; runningCommandCount: number }): CompletionBlock | undefined {
+  if (input.runningCommandCount > 0) {
+    return {
+      kind: "running_commands",
+      retryMessage: `当前文本不能作为最终回答，因为仍有 ${input.runningCommandCount} 个托管命令正在运行。请调用 wait_command 等待，或调用 stop_command 结束命令；所有命令进入终态后才能给出最终回答。`
+    };
+  }
+  const issue = input.run ? finalTaskMaintenanceIssue(input.run) : undefined;
+  if (!issue) return undefined;
+  return {
+    issue,
+    kind: "task_maintenance",
+    retryMessage: `当前文本不能作为最终回答，因为任务计划尚未完成收尾：${issue}。不要继续输出最终回答；请先在一个独立步骤中调用 update_tasks，提交完整且真实的任务列表，将已完成事项标记为 completed、受阻事项标记为 blocked，并确保没有 pending 或 running。收到工具结果后的下一轮再生成最终回答。`
+  };
+}

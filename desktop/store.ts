@@ -43,6 +43,10 @@ export class DesktopStore {
     return "";
   }
 
+  zhipuApiKey(): string {
+    return loadUserConfig().zhipuApiKey;
+  }
+
   addProject(projectPath: string): ProjectRef {
     const resolved = path.resolve(projectPath);
     const existing = this.state.recentProjects.find((item) => item.path === resolved);
@@ -86,7 +90,12 @@ export class DesktopStore {
   }
 
   settings(): DesktopSettings {
-    return { defaultModel: this.state.defaultModel, hasApiKey: Boolean(this.apiKey()), hasZhipuApiKey: Boolean(loadUserConfig().zhipuApiKey) };
+    const config = loadUserConfig();
+    return {
+      defaultModel: config.model || this.state.defaultModel,
+      hasApiKey: Boolean(this.apiKey()),
+      hasZhipuApiKey: Boolean(config.zhipuApiKey)
+    };
   }
 
   appearance(): ThemePreference {
@@ -104,18 +113,18 @@ export class DesktopStore {
   }
 
   saveSettings(input: DesktopSettingsInput): DesktopSettings {
-    this.state.defaultModel = input.defaultModel.trim() || defaults.defaultModel;
+    const defaultModel = input.defaultModel.trim() || defaults.defaultModel;
+    this.state.defaultModel = defaultModel;
     if (input.apiKey !== undefined) {
       if (!input.apiKey.trim()) delete this.state.apiKey;
       else if (!safeStorage.isEncryptionAvailable()) throw new Error("系统加密存储当前不可用，API Key 未保存。");
       else this.state.apiKey = safeStorage.encryptString(input.apiKey.trim()).toString("base64");
     }
-    // 智谱 key 直接写入 ~/.deepseeker/config.json(与 ADR-009 一致,config.json 是唯一配置来源)。
-    if (input.zhipuApiKey !== undefined) {
-      const config = loadUserConfig();
-      config.zhipuApiKey = input.zhipuApiKey.trim();
-      saveUserConfig(config);
-    }
+    // 普通设置统一写入 ~/.deepseeker/config.json；desktop.json 仅保留旧版本兼容字段。
+    const config = loadUserConfig();
+    config.model = defaultModel;
+    if (input.zhipuApiKey !== undefined) config.zhipuApiKey = input.zhipuApiKey.trim();
+    saveUserConfig(config);
     this.write();
     return this.settings();
   }

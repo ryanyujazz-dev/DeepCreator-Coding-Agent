@@ -12,9 +12,7 @@ import {
 import { createSession, rebuildSession, reduceEvent } from "../../shared/domain/reducer";
 import { assertEventTransition } from "../../shared/domain/state";
 import { decodeEvent } from "../../shared/legacy/decoder";
-import { appendInterruptedToolResults, finishRun } from "../app/runLifecycle";
 import { ContextEntry, ContextStats, MemoryFact, ContextInput } from "../../shared/contracts/context";
-import { missingToolResults } from "../../shared/domain/toolProtocol";
 import { ContextStore } from "./contextStore";
 import { Database } from "./database";
 import { EventStore } from "./eventStore";
@@ -34,12 +32,22 @@ import {
   SessionPort,
   StoreLifecyclePort
 } from "../app/runtimeRepo";
+import { recoverRuntimeState, RuntimeRecoveryReport } from "../app/runtimeRecovery";
+import { MigrationReport } from "./database";
+import { SystemPort } from "../app/systemPort";
+import { nodeSystem } from "./system";
+
+export type RuntimeStoreStartupReport = RuntimeRecoveryReport & {
+  importedLegacySessions: number;
+  migrations: MigrationReport;
+};
 
 function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
 export class RuntimeStore implements EventPort, SessionPort, ContextPort, EvidencePort, MemoryPort, MetricPort, StoreLifecyclePort {
+  readonly startupReport: RuntimeStoreStartupReport;
   private readonly contexts: ContextStore;
   private readonly database: Database;
   private readonly events: EventStore;
@@ -50,7 +58,7 @@ export class RuntimeStore implements EventPort, SessionPort, ContextPort, Eviden
   private readonly sessionStore: SessionStore;
   private readonly subscribers = new Map<string, Set<EventSubscriber>>();
 
-  constructor(private readonly dataDirectory: string, migrationDirectory?: string) {
+  constructor(private readonly dataDirectory: string, migrationDirectory?: string, system: SystemPort = nodeSystem) {
     mkdirSync(dataDirectory, { recursive: true });
     this.database = new Database(path.join(dataDirectory, "runtime.sqlite"), migrationDirectory);
     this.sessionStore = new SessionStore(this.database);
@@ -60,9 +68,13 @@ export class RuntimeStore implements EventPort, SessionPort, ContextPort, Eviden
     this.metrics = new MetricStore(this.database);
     this.evidence = new EvidenceStore(this.database, dataDirectory);
     for (const session of this.sessionStore.all()) this.sessions.set(session.sessionId, session);
-    this.importLegacyLogs();
-    this.finishInterruptedRuns();
-    this.repairTerminalToolProtocols();
+    const importedLegacySessions = this.importLegacyLogs();
+    const recovery = recoverRuntimeState(this, [...this.sessions.values()].map(clone), system);
+    this.startupReport = {
+      importedLegacySessions,
+      migrations: this.database.migrationReport,
+      ...recovery
+    };
   }
 
   createSession(input: Omit<SessionInput, "createdAt">): Session {
@@ -233,9 +245,10 @@ export class RuntimeStore implements EventPort, SessionPort, ContextPort, Eviden
     this.database.close();
   }
 
-  private importLegacyLogs(): void {
+  private importLegacyLogs(): number {
     const directory = path.join(this.dataDirectory, "signals");
-    if (!existsSync(directory)) return;
+    if (!existsSync(directory)) return 0;
+    let imported = 0;
     for (const name of readdirSync(directory)) {
       if (!name.endsWith(".jsonl")) continue;
       const sessionId = name.slice(0, -".jsonl".length);
@@ -249,7 +262,9 @@ export class RuntimeStore implements EventPort, SessionPort, ContextPort, Eviden
       if (!session) continue;
       this.events.import(events, session);
       this.sessions.set(sessionId, session);
+      imported += 1;
     }
+    return imported;
   }
 
   private ensureLegacyContext(sessionId: string): void {
@@ -284,45 +299,6 @@ export class RuntimeStore implements EventPort, SessionPort, ContextPort, Eviden
           (record_id, session_id, run_id, sequence, created_at, entry_json)
           VALUES (?, ?, ?, ?, ?, ?)`)
           .run(entry.recordId, sessionId, entry.runId ?? null, entry.sequence, entry.createdAt, JSON.stringify(entry));
-      }
-    }
-  }
-
-  private finishInterruptedRuns(): void {
-    for (const session of [...this.sessions.values()]) {
-      for (const run of session.runs) {
-        if (run.status !== "running" && run.status !== "waiting" && run.status !== "queued") continue;
-        const hasDurablePlanWait = run.status === "waiting" && session.plans.some((plan) => plan.runId === run.runId && plan.status === "proposed");
-        const hasDurableQuestionWait = run.status === "waiting" && session.questions.some((question) => question.runId === run.runId && question.status === "pending");
-        if (hasDurablePlanWait || hasDurableQuestionWait) continue;
-        finishRun({
-          answer: "上一次运行因 Runtime 重启而中断。",
-          error: "Runtime restarted before this Run reached a terminal state.",
-          failureType: "interrupted",
-          projectRoot: session.projectRoot,
-          runId: run.runId,
-          sessionId: session.sessionId,
-          status: "failed",
-          store: this
-        });
-      }
-    }
-  }
-
-  private repairTerminalToolProtocols(): void {
-    for (const session of [...this.sessions.values()]) {
-      const records = this.readContextEntries(session.sessionId);
-      for (const run of session.runs.filter((item) => ["completed", "failed", "cancelled"].includes(item.status))) {
-        const missingResults = missingToolResults(records.filter((record) => record.runId === run.runId));
-        if (missingResults.length === 0) continue;
-        appendInterruptedToolResults({
-          interruptionReason: `历史运行已处于 ${run.status} 状态，但没有留下完整工具结果`,
-          missingResults,
-          runId: run.runId,
-          sessionId: session.sessionId,
-          store: this,
-          terminalPhase: run.status as "completed" | "failed" | "cancelled"
-        });
       }
     }
   }

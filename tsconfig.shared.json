@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["DOM", "ES2022"],
+    "outDir": ".cache/types/shared",
+    "types": []
+  },
+  "include": ["shared/**/*.ts"]
+}

@@ -1,13 +1,12 @@
 import {
   EVENT_VERSION,
   Event,
-  EventPayloadMap,
   EventScope,
   EventType
 } from "../contracts/runtime";
 
 type RecordValue = Record<string, unknown>;
-type PayloadValidator<K extends EventType> = (value: unknown) => boolean;
+type PayloadValidator = (value: unknown) => boolean;
 
 export type EventSchemaIssue = {
   path: string;
@@ -255,7 +254,7 @@ const payloadSchemas = {
     && oneOf(value.status, ["completed", "failed", "cancelled"] as const)
     && optional(value.answer, string)
     && optional(value.error, string)
-} satisfies { [K in EventType]: PayloadValidator<K> };
+} satisfies { [K in EventType]: PayloadValidator };
 
 const eventTypes = new Set<EventType>(Object.keys(payloadSchemas) as EventType[]);
 

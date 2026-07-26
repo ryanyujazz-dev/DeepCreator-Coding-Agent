@@ -4,11 +4,13 @@ import { App } from "./app/index";
 import { runtimeApi } from "./runtimeApi";
 import { ThemeProvider } from "./theme/ThemeProvider";
 import { installWorkingGlowMotion } from "./workingGlowMotion";
-import "./styles.css";
+import "./styles/index.css";
+import { desktopBridge } from "./platform/desktop";
 
 async function bootstrap(): Promise<void> {
-  if (window.deepseeker) {
-    const connection = await window.deepseeker.runtime.connection();
+  const desktop = desktopBridge();
+  if (desktop) {
+    const connection = await desktop.runtime.connection();
     runtimeApi.configure(connection);
   }
   const rootElement = document.getElementById("root")!;

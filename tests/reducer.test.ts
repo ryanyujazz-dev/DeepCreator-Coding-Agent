@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { projectGroups } from "../shared/projections/groups";
 import { createSession, rebuildSession, reduceEvent, reduceEvents } from "../shared/domain/reducer";
-import { Event, EVENT_VERSION } from "../shared/contracts/runtime";
+import { Event, EventPayloadMap, EventType, EVENT_VERSION } from "../shared/contracts/runtime";
 
 const registration = {
   compactThresholdTokens: 850_000,
@@ -14,7 +14,7 @@ const registration = {
   title: "测试会话"
 };
 
-function event(offset: number, type: Event["type"], data: unknown, activityId?: string): Event {
+function event<K extends EventType>(offset: number, type: K, data: EventPayloadMap[K], activityId?: string): Event<K> {
   return {
     version: EVENT_VERSION,
     at: `2026-07-17T10:00:0${offset}.000Z`,
@@ -23,7 +23,7 @@ function event(offset: number, type: Event["type"], data: unknown, activityId?: 
     scope: { runId: "run_test", sessionId: registration.sessionId, activityId },
     eventId: `session_test:${offset}`,
     type
-  };
+  } as Event<K>;
 }
 
 test("reduces lifecycle signals and treats settlement as authoritative", () => {

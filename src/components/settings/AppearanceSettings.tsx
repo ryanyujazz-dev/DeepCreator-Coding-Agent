@@ -20,6 +20,7 @@ import {
   validateThemePack
 } from "../../../shared/themeCatalog";
 import { createThemeCopy, shadowCssVariables, useTheme } from "../../theme/ThemeProvider";
+import { desktopBridge } from "../../platform/desktop";
 
 const primaryColorRows: Array<{ key: keyof ThemeColors; label: string }> = [
   { key: "accent", label: "强调色" },
@@ -277,7 +278,7 @@ export function AppearanceSettings() {
         <header className="theme-editor-header">
           <strong>{editingScheme === "light" ? "浅色主题" : "深色主题"}</strong>
           <div className="theme-editor-actions">
-            <button disabled={busy} onClick={() => window.deepseeker ? void startImport() : browserImportRef.current?.click()} type="button"><FileUp size={14} />导入</button>
+            <button disabled={busy} onClick={() => desktopBridge() ? void startImport() : browserImportRef.current?.click()} type="button"><FileUp size={14} />导入</button>
             <button onClick={() => setDraft(createThemeCopy(draft))} type="button"><Copy size={14} />复制主题</button>
             <select aria-label="选择主题" onChange={(event) => void chooseTheme(event.target.value)} value={draft.readonly ? draft.id : themes.some((theme) => theme.id === draft.id) ? draft.id : ""}>
               {!themes.some((theme) => theme.id === draft.id) && <option value="">{draft.name}</option>}

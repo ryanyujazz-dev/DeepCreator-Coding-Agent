@@ -22,6 +22,7 @@ import { OverflowFadeText } from "./OverflowFadeText";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { SidebarConfirmationDialog } from "./SidebarConfirmationDialog";
 import { FloatingSurface, IconButton, RowAction } from "../shared-ui/ControlPrimitives";
+import { browserPlatform } from "../platform/browser";
 
 type AnchorRect = { bottom: number; left: number; right: number; top: number; width: number };
 type ProjectOverlay = { project: ProjectRef; rect: AnchorRect };
@@ -56,7 +57,7 @@ function ageLabel(timestamp: string): string {
 
 function storedCollapsedProjects(): Set<string> {
   try {
-    const value = JSON.parse(window.localStorage.getItem("deepseeker.collapsedProjects") ?? "[]");
+    const value = JSON.parse(browserPlatform.storage.get("deepseeker.collapsedProjects") ?? "[]");
     return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
   } catch {
     return new Set();
@@ -145,7 +146,7 @@ export function SessionSidebar({
   );
 
   useEffect(() => {
-    window.localStorage.setItem("deepseeker.collapsedProjects", JSON.stringify([...collapsedProjects]));
+    browserPlatform.storage.set("deepseeker.collapsedProjects", JSON.stringify([...collapsedProjects]));
   }, [collapsedProjects]);
 
   useEffect(() => {

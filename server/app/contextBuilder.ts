@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from "node:crypto";
 import { Run, ResumeState, Session } from "../../shared/contracts/runtime";
 import {
   Checkpoint,
@@ -14,6 +13,8 @@ import { emptyRuleSource, ResolvedRule, RuleSource } from "../../shared/contract
 import { protocolSafeModelMessages } from "../../shared/domain/toolProtocol";
 import { prompts } from "./prompts";
 import { ModelMessage, ToolSpec } from "../../shared/contracts/provider";
+import { stableDigest } from "../../shared/domain/digest";
+import { SystemPort } from "./systemPort";
 
 const DEFAULT_WINDOW = 1_000_000;
 const DEFAULT_RATIO = 0.85;
@@ -83,6 +84,7 @@ export type BuildInput = {
   tokenCalibrationFactor?: number;
   latestUserInRecords?: boolean;
   semanticSummary?: ContextSummary;
+  system: SystemPort;
 };
 
 export function getContextWindowTokens(config: ContextConfig = defaultContextConfig): number {
@@ -114,7 +116,10 @@ export function getCompactThresholdTokens(
 export function estimateTokens(text: string): number {
   let ascii = 0;
   let nonAscii = 0;
-  for (const character of text) character.charCodeAt(0) <= 0x7f ? (ascii += 1) : (nonAscii += 1);
+  for (const character of text) {
+    if (character.charCodeAt(0) <= 0x7f) ascii += 1;
+    else nonAscii += 1;
+  }
   return Math.ceil(ascii / 4 + nonAscii * 0.8);
 }
 
@@ -310,7 +315,7 @@ function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {
     platform: context.platform,
     shellFamily: context.shellFamily,
     locale: context.locale,
-    date: new Date().toISOString().slice(0, 10),
+    date: input.system.now().slice(0, 10),
     model: input.model,
     app: "DeepSeeker CodeAgent"
   };
@@ -328,11 +333,11 @@ function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {
   ].filter(Boolean).join("\n");
 
   // ADR-007: revision hash 完整化 — 纳入 guidance + environment + indexes 全部可变内容
-  const revision = createHash("sha256").update([
+  const revision = stableDigest([
     guidance.map((activity) => activity.revisionHash).join(":"),
     JSON.stringify(env),
     memory, capability, skill
-  ].join("\n")).digest("hex");
+  ].join("\n"));
 
   return systemReminderWithRevision("context", revision, body);
 }
@@ -348,26 +353,18 @@ export function sessionRevisionHash(input: BuildInput, guidance: ResolvedRule[])
     platform: context.platform,
     shellFamily: context.shellFamily,
     locale: context.locale,
-    date: new Date().toISOString().slice(0, 10),
+    date: input.system.now().slice(0, 10),
     model: input.model,
     app: "DeepSeeker CodeAgent"
   };
   const memory = input.memoryIndex?.trim() || "当前没有生效的结构化记忆事实。";
   const capability = input.capabilityIndex?.trim() || "可以通过稳定能力工具发现长尾能力。";
   const skill = input.skillIndex?.trim() || "当前没有已建立索引的项目 Skill。";
-  return createHash("sha256").update([
+  return stableDigest([
     guidance.map((activity) => activity.revisionHash).join(":"),
     JSON.stringify(env),
     memory, capability, skill
-  ].join("\n")).digest("hex");
-}
-
-/**
- * 从已存的 session_context 记录文本中提取 revision 属性。
- * 兼容新旧两种标签格式(system-reminder 和 stable_session_context)。
- */
-function extractRevision(envelopeText: string): string | undefined {
-  return envelopeText.match(/revision="([a-f0-9]+)"/)?.[1];
+  ].join("\n"));
 }
 
 // ADR-007: 兼容新旧标签格式(连字符 memory-index 和下划线 memory_index)
@@ -497,7 +494,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
   ];
   const rawEstimatedInputTokens = estimateProviderRequestTokens(messages, input.tools);
   const estimatedInputTokens = Math.ceil(rawEstimatedInputTokens * calibrationFactor);
-  const prefixHash = createHash("sha256").update([toolText, blueprint.hash, sessionEnvelopeText, checkpointMessage ?? ""].join("\n")).digest("hex");
+  const prefixHash = stableDigest([toolText, blueprint.hash, sessionEnvelopeText, checkpointMessage ?? ""].join("\n"));
   const telemetry: ContextStats = {
     blueprintHash: blueprint.hash,
     blueprintVersion: blueprint.version,
@@ -506,7 +503,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
     compactAfterTokens: dropped.length > 0 ? estimatedInputTokens : undefined,
     compactBeforeTokens: dropped.length > 0 ? initialEstimate : undefined,
     compactThresholdTokens: thresholdTokens,
-    createdAt: new Date().toISOString(),
+    createdAt: input.system.now(),
     runId: input.runId,
     droppedRecordCount: dropped.length,
     droppedRecords: dropped.map((record) => ({ recordId: record.recordId, reason: "superseded_by_checkpoint" })),
@@ -524,7 +521,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
     safetyMarginTokens: context.safetyMarginTokens,
     sections,
     sessionId: input.session.sessionId,
-    metricId: `context_telemetry_${randomUUID()}`,
+    metricId: input.system.createId("context_telemetry"),
     tokenCalibrationFactor: calibrationFactor,
     truncationEvents: input.records.filter((record) => record.wasTruncated).slice(-100).map((record) => ({
       artifactRef: record.artifactRef,
@@ -547,7 +544,7 @@ export function prepareSessionContext(input: BuildInput): BuiltContext {
       source: String(record.metadata?.sourceFile ?? "")
     })),
     ...telemetry.truncationEvents.map((event) => ({
-      createdAt: new Date().toISOString(),
+      createdAt: input.system.now(),
       kind: "evidence_truncated" as const,
       label: event.toolName ?? event.recordId,
       recordId: event.recordId,

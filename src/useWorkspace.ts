@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ApprovalChoice, isRunDone, AccessMode, Mode, Plan, PlanDecision, PlanEntry, SessionSummary, Session } from "../shared/contracts/runtime";
+import { ApprovalChoice, isRunDone, AccessMode, Mode, Plan, PlanDecision, PlanEntry, SessionSummary } from "../shared/contracts/runtime";
 import { ConnectionPhase } from "./components/ConnectionStatus";
-import { runtimeApi, RuntimeBalance, RuntimeConfig, RuntimeContextObserver, RuntimeRequestError, RuntimeWorkspace } from "./runtimeApi";
+import { runtimeApi, RuntimeConfig, RuntimeRequestError } from "./runtimeApi";
 import { DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
 import { SessionEventStore, SessionUpdater } from "./features/runtime/sessionEventStore";
+import { browserPlatform } from "./platform/browser";
+import { desktopBridge } from "./platform/desktop";
+import { useRuntimeObservers } from "./features/runtime/useRuntimeObservers";
 
 export function useWorkspace() {
+  const desktop = desktopBridge();
   const [sessionStore] = useState(() => new SessionEventStore());
   const session = useSyncExternalStore(
     sessionStore.subscribe,
@@ -20,11 +24,8 @@ export function useWorkspace() {
   const [draftAccessMode, setDraftAccessMode] = useState<AccessMode>("request_approval");
   const [draftMode, setDraftMode] = useState<Mode>("work");
   const [draftPlanEntry, setDraftPlanEntry] = useState<PlanEntry>("suggest");
-  const [contextObserver, setContextObserver] = useState<RuntimeContextObserver | null>(null);
   const [draftWorkspace, setDraftWorkspace] = useState<DraftWorkspace | null>(null);
   const [draftRevision, setDraftRevision] = useState(0);
-  const [workspace, setWorkspace] = useState<RuntimeWorkspace | null>(null);
-  const [balance, setBalance] = useState<RuntimeBalance | null>(null);
 
   const refreshSessions = useCallback(async (query = "") => {
     const result = await runtimeApi.listSessions(query);
@@ -48,18 +49,23 @@ export function useWorkspace() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, []);
+  }, [setSession]);
 
   const activeRun = useMemo(
     () => [...(session?.runs ?? [])].reverse().find((run) => !isRunDone(run.status)),
     [session]
   );
+  const { balance, contextObserver, refreshBalance, setWorkspace, workspace } = useRuntimeObservers({
+    activeRun,
+    config,
+    session
+  });
 
   useEffect(() => {
     void Promise.all([runtimeApi.config(), refreshSessions()])
       .then(([runtimeConfig, availableSessions]) => {
         setConfig(runtimeConfig);
-        if (!window.deepseeker) setDraftWorkspace(projectDraftWorkspace(runtimeConfig.workspaceRoot));
+        if (!desktop) setDraftWorkspace(projectDraftWorkspace(runtimeConfig.workspaceRoot));
         setConnection("connected");
         if (availableSessions[0]) void selectSession(availableSessions[0].sessionId);
       })
@@ -67,15 +73,15 @@ export function useWorkspace() {
         setConnection("offline");
         setError(nextError instanceof Error ? nextError.message : String(nextError));
       });
-  }, [refreshSessions, selectSession]);
+  }, [desktop, refreshSessions, selectSession]);
 
   useEffect(() => {
     if (!session?.sessionId) return;
     const sessionId = session.sessionId;
     let disposed = false;
     const close = runtimeApi.subscribe({
-      afterOffset: session.lastOffset,
-      onError: () => setConnection(navigator.onLine ? "reconnecting" : "offline"),
+      afterOffset: sessionStore.getSnapshot()?.lastOffset ?? 0,
+      onError: () => setConnection(browserPlatform.isOnline() ? "reconnecting" : "offline"),
       onEvents: (events) => {
         sessionStore.applyEvents(sessionId, events);
         if (events.some((item) => item.type === "run.finished")) void refreshSessions();
@@ -92,7 +98,7 @@ export function useWorkspace() {
             const latestRun = snapshot.runs.at(-1);
             if (latestRun && isRunDone(latestRun.status)) void refreshSessions();
           })
-          .catch(() => { if (!disposed) setConnection(navigator.onLine ? "reconnecting" : "offline"); });
+          .catch(() => { if (!disposed) setConnection(browserPlatform.isOnline() ? "reconnecting" : "offline"); });
       },
       sessionId
     });
@@ -103,30 +109,13 @@ export function useWorkspace() {
   }, [refreshSessions, session?.sessionId, sessionStore]);
 
   useEffect(() => {
-    if (!session?.sessionId) {
-      setWorkspace(null);
-      return;
-    }
+    if (!desktop) return;
     let disposed = false;
-    const refresh = () => void runtimeApi.getWorkspace(session.sessionId)
-      .then(({ workspace: next }) => { if (!disposed) setWorkspace(next); })
-      .catch(() => { if (!disposed) setWorkspace(null); });
-    refresh();
-    const timer = activeRun ? window.setInterval(refresh, 3_000) : undefined;
-    return () => {
-      disposed = true;
-      if (timer) window.clearInterval(timer);
-    };
-  }, [activeRun, session?.sessionId, session?.updatedAt]);
-
-  useEffect(() => {
-    if (!window.deepseeker) return;
-    let disposed = false;
-    const unsubscribe = window.deepseeker.runtime.onState((state) => {
+    const unsubscribe = desktop.runtime.onState((state) => {
       if (state.phase === "ready") {
         setConnection("connecting");
         void (async () => {
-          const nextConnection = state.connection ?? await window.deepseeker!.runtime.connection();
+          const nextConnection = state.connection ?? await desktop.runtime.connection();
           runtimeApi.configure(nextConnection);
           const [nextConfig] = await Promise.all([runtimeApi.config(), refreshSessions()]);
           if (disposed) return;
@@ -148,50 +137,15 @@ export function useWorkspace() {
       disposed = true;
       unsubscribe();
     };
-  }, [refreshSessions]);
+  }, [desktop, refreshSessions]);
 
+  const sessionMode = session?.mode;
+  const sessionPlanEntry = session?.planEntry;
   useEffect(() => {
-    const sessionId = session?.sessionId;
-    if (!sessionId) {
-      setContextObserver(null);
-      return;
-    }
-    let disposed = false;
-    const refresh = () => void runtimeApi.getContextObserver(sessionId)
-      .then(({ observer }) => { if (!disposed) setContextObserver(observer); })
-      .catch(() => undefined);
-    refresh();
-    const timer = activeRun ? window.setInterval(refresh, 2_000) : undefined;
-    return () => {
-      disposed = true;
-      if (timer) window.clearInterval(timer);
-    };
-  }, [activeRun, session?.sessionId, session?.updatedAt]);
-
-  // 余额轮询:账户级数据,与 activeRun 解耦。60s 一次,仅在配置了 API key 时启动。
-  // 余额查询:账户级数据,与 activeRun 解耦。
-  // 不再定时轮询——改为在用户鼠标悬浮上下文图标时按需刷新(refreshBalance)。
-  // 首次配置 API key 时自动获取一次,后续由 UI 悬浮事件触发。
-  // 失败静默,余额是辅助信息,查询失败不打扰用户。
-  const refreshBalance = useCallback(() => {
-    if (!config?.hasApiKey) {
-      setBalance(null);
-      return;
-    }
-    void runtimeApi.getBalance()
-      .then((result) => setBalance(result))
-      .catch(() => undefined);
-  }, [config?.hasApiKey]);
-
-  useEffect(() => {
-    refreshBalance();
-  }, [refreshBalance]);
-
-  useEffect(() => {
-    if (!session) return;
-    setDraftMode(session.mode);
-    setDraftPlanEntry(session.planEntry);
-  }, [session?.mode, session?.planEntry]);
+    if (!sessionMode || !sessionPlanEntry) return;
+    setDraftMode(sessionMode);
+    setDraftPlanEntry(sessionPlanEntry);
+  }, [sessionMode, sessionPlanEntry]);
 
   const pendingApproval = activeRun?.approvals.find((approval) => approval.state === "pending");
   const [selectedModel, setSelectedModel] = useState<string>("");
@@ -227,7 +181,7 @@ export function useWorkspace() {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       return false;
     }
-  }, [draftAccessMode, draftMode, draftPlanEntry, draftWorkspace, model, refreshSessions, session]);
+  }, [draftAccessMode, draftMode, draftPlanEntry, draftWorkspace, model, refreshSessions, session, setSession]);
 
   const newSession = useCallback((nextWorkspace: DraftWorkspace) => {
     setSession(null);
@@ -238,13 +192,13 @@ export function useWorkspace() {
     setDraftAccessMode("request_approval");
     setDraftMode("work");
     setDraftPlanEntry(config?.planEntry ?? "suggest");
-  }, [config?.planEntry]);
+  }, [config?.planEntry, setSession, setWorkspace]);
 
   const retryRuntime = useCallback(async () => {
-    if (!window.deepseeker) return;
+    if (!desktop) return;
     setConnection("connecting");
     try {
-      const connection = await window.deepseeker.runtime.retry();
+      const connection = await desktop.runtime.retry();
       runtimeApi.configure(connection);
       const nextConfig = await runtimeApi.config();
       setConfig(nextConfig);
@@ -254,7 +208,7 @@ export function useWorkspace() {
       setConnection("offline");
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, [refreshSessions]);
+  }, [desktop, refreshSessions]);
 
   const cancelRun = useCallback(async () => {
     if (!activeRun) return;
@@ -296,7 +250,7 @@ export function useWorkspace() {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       throw nextError;
     }
-  }, [refreshSessions, session?.sessionId]);
+  }, [refreshSessions, session, setSession, setWorkspace]);
 
   const archiveProjectSessions = useCallback(async (root: string) => {
     try {
@@ -312,7 +266,7 @@ export function useWorkspace() {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       throw nextError;
     }
-  }, [refreshSessions, session?.projectRoot]);
+  }, [refreshSessions, session?.projectRoot, setSession, setWorkspace]);
 
   const resolveApproval = useCallback(async (decision: ApprovalChoice) => {
     if (!pendingApproval) return;
@@ -336,7 +290,7 @@ export function useWorkspace() {
       }
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, [session]);
+  }, [session, setSession]);
 
   const setMode = useCallback(async (mode: Mode) => {
     setDraftMode(mode);
@@ -347,7 +301,7 @@ export function useWorkspace() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, [session]);
+  }, [session, setSession]);
 
   const resolvePlan = useCallback(async (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => {
     if (!session) return;
@@ -360,7 +314,7 @@ export function useWorkspace() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, [session]);
+  }, [session, setSession]);
 
   const revisePlan = useCallback(async (plan: Plan, title: string, markdown: string) => {
     if (!session) return;
@@ -371,7 +325,7 @@ export function useWorkspace() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, [session]);
+  }, [session, setSession]);
 
   const answerQuestion = useCallback(async (interactionId: string, answers: Record<string, string>) => {
     if (!session) return;
@@ -382,7 +336,7 @@ export function useWorkspace() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  }, [session]);
+  }, [session, setSession]);
 
   return {
     activeRun,

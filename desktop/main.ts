@@ -8,11 +8,10 @@ import { RuntimeHost } from "./runtime-host";
 import { DesktopStore } from "./store";
 import { importThemeFile } from "./themeImport";
 import { ThemeStore } from "./themeStore";
-import { ensureUserConfig, loadUserConfig } from "../server/infra/userConfig";
+import { ensureUserConfig } from "../server/infra/userConfig";
 
-// ADR-009: 配置统一从 ~/.deepseeker/config.json 读取(不再使用 dotenv/.env.local)
+// ADR-009: 普通配置统一从 ~/.deepseeker/config.json 读取；密钥由宿主边界解析。
 ensureUserConfig();
-const userConfig = loadUserConfig();
 console.log("[desktop] main started");
 
 let mainWindow: BrowserWindow | null = null;

@@ -49,6 +49,7 @@ function run(activities: Activity[], status: Run["status"] = "completed"): Run {
     answer: "",
     lastOffset: activities.length,
     model: "test",
+    mode: "work",
     status,
     tasks: [],
     prompt: "test",

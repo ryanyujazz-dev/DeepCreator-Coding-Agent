@@ -3,12 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runAgent } from "../server/app/runner";
 import { spawnSubAgent } from "../server/app/subAgent";
-import { RunRegistry } from "../server/app/runRegistry";
+import { TestRunRegistry as RunRegistry } from "./support/system";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 import { toolHost } from "../server/infra/tools";
-import { Provider } from "../../shared/contracts/provider";
+import { Provider } from "../shared/contracts/provider";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // spawn_agent 子 Agent 测试。

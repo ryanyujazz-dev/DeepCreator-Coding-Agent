@@ -1,5 +1,6 @@
 import { EventPayloadMap } from "../../shared/contracts/runtime";
 import { EventPort, SessionPort } from "./runtimeRepo";
+import { SystemPort } from "./systemPort";
 
 type ActivityLifecycleInput = {
   activityId: string;
@@ -13,7 +14,7 @@ function isActive(status: string): boolean {
 }
 
 export function finishActivity(
-  input: ActivityLifecycleInput,
+  input: ActivityLifecycleInput & { system: SystemPort },
   data: Omit<EventPayloadMap["activity.finished"], "finishedAt">
 ): boolean {
   const activity = input.store.getRun(input.runId)?.activities
@@ -23,7 +24,7 @@ export function finishActivity(
 
   input.store.append({
     activityId: input.activityId,
-    data: { liveFiles: [], ...data, finishedAt: new Date().toISOString() },
+    data: { liveFiles: [], ...data, finishedAt: input.system.now() },
     runId: input.runId,
     sessionId: input.sessionId,
     type: "activity.finished"

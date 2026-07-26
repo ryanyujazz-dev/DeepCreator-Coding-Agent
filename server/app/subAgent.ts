@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { runAgent, RunInput } from "./runner";
 import { ToolHost } from "./toolHost";
 import { RunRegistry } from "./runRegistry";
@@ -106,8 +105,8 @@ export async function spawnSubAgent(input: SpawnAgentInput): Promise<string> {
 
   // 继承父 Session 的上下文窗口配置
   const parentSession = input.store.getSession(input.parentSessionId);
-  const childSessionId = `session_sub_${randomUUID()}`;
-  const childRunId = `run_sub_${randomUUID()}`;
+  const childSessionId = input.registry.system.createId("session_sub");
+  const childRunId = input.registry.system.createId("run_sub");
   input.store.createSession({
     accessMode: "request_approval",
     compactThresholdTokens: parentSession?.compactThresholdTokens ?? 850_000,

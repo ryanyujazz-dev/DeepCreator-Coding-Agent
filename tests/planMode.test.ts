@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Event } from "../shared/contracts/runtime";
 import { answerQuestion, resolvePlan } from "../server/app/planReview";
-import { RunRegistry } from "../server/app/runRegistry";
+import { testSystem, TestRunRegistry as RunRegistry } from "./support/system";
 import { runAgent } from "../server/app/runner";
 import { analyzeCommand } from "../server/domain/accessPolicy";
 import { hasConflictingControlStep, planPolicy } from "../server/domain/planPolicy";
@@ -115,12 +116,12 @@ test("RunRegistry defers an early review continuation until the suspended stack 
   const calls: string[] = [];
   registry.startRun("run_race");
   registry.afterRun("run_race", () => calls.push("resume"));
-  assert.deepEqual(calls, []);
+  assert.deepEqual([...calls], []);
   registry.finishRun("run_race");
-  assert.deepEqual(calls, ["resume"]);
+  assert.deepEqual([...calls], ["resume"]);
 
   registry.afterRun("run_settled", () => calls.push("immediate"));
-  assert.deepEqual(calls, ["resume", "immediate"]);
+  assert.deepEqual([...calls], ["resume", "immediate"]);
 });
 
 test("RunRegistry aborts and drains active runs during Runtime shutdown", async () => {
@@ -207,7 +208,8 @@ test("submit_plan suspends durably and approval resumes the same Run with a pair
       planId: session.plans[0].planId,
       revision: session.plans[0].revision,
       sessionId: session.sessionId,
-      store: restored
+      store: restored,
+      system: testSystem
     });
     assert.equal(review.resume?.runId, "run_plan");
     assert.equal(review.session.mode, "work");
@@ -299,7 +301,9 @@ test("fragmented submit_plan stays buffered until the complete tool step is avai
     assert.equal(session.plans[0].markdown, markdown);
     assert.equal(session.runs[0].status, "waiting");
 
-    const updates = store.readEvents(session.sessionId).filter((event) => event.type === "activity.updated" && event.scope.activityId === activity.activityId);
+    const updates = store.readEvents(session.sessionId).filter(
+      (event): event is Event<"activity.updated"> => event.type === "activity.updated" && event.scope.activityId === activity.activityId
+    );
     assert.equal(updates.filter((event) => typeof event.data.bodyDelta === "string").length, 0);
     const serializedUpdates = JSON.stringify(updates);
     assert.equal(serializedUpdates.includes('"markdown"'), false);
@@ -331,7 +335,7 @@ test("suggested entry waits for user confirmation before changing mode", async (
     assert.equal(session.mode, "work");
     assert.equal(session.runs[0].status, "waiting");
     assert.equal(session.questions[0].purpose, "plan_entry");
-    const result = answerQuestion({ answers: { plan_entry: "进入计划模式" }, interactionId: session.questions[0].interactionId, sessionId: session.sessionId, store });
+    const result = answerQuestion({ answers: { plan_entry: "进入计划模式" }, interactionId: session.questions[0].interactionId, sessionId: session.sessionId, store, system: testSystem });
     session = result.session;
     assert.equal(session.mode, "plan");
     assert.equal(session.runs[0].status, "running");
@@ -356,11 +360,11 @@ test("plan review decisions are idempotent and reject stale contradictory decisi
       sessionId: "session_review",
       type: "plan.proposed"
     });
-    const first = resolvePlan({ decision: "start_work", planId: "plan_review", revision: 1, sessionId: "session_review", store });
-    const repeated = resolvePlan({ decision: "start_work", planId: "plan_review", revision: 1, sessionId: "session_review", store });
+    const first = resolvePlan({ decision: "start_work", planId: "plan_review", revision: 1, sessionId: "session_review", store, system: testSystem });
+    const repeated = resolvePlan({ decision: "start_work", planId: "plan_review", revision: 1, sessionId: "session_review", store, system: testSystem });
     assert.equal(first.idempotent, false);
     assert.equal(repeated.idempotent, true);
-    assert.throws(() => resolvePlan({ decision: "continue_planning", planId: "plan_review", revision: 1, sessionId: "session_review", store }), /stale/);
+    assert.throws(() => resolvePlan({ decision: "continue_planning", planId: "plan_review", revision: 1, sessionId: "session_review", store, system: testSystem }), /stale/);
     store.close();
   } finally {
     rmSync(directory, { force: true, recursive: true });
