@@ -83,8 +83,8 @@ function registerIpc(): void {
   ipcMain.handle("desktop:settings:save", async (event, input: DesktopSettingsInput) => {
     trusted(event);
     const settings = store.saveSettings(input);
-    await runtime.restart();
-    return settings;
+    const connection = await runtime.restart();
+    return { connection, settings };
   });
   ipcMain.handle("desktop:themes:list", (event) => {
     trusted(event);

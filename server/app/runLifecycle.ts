@@ -2,6 +2,7 @@ import { Run, ResumeState } from "../../shared/contracts/runtime";
 import { MissingToolResult, missingToolResults } from "../../shared/domain/toolProtocol";
 import { activityTitle, toolTarget } from "../../shared/projections/activityPresentation";
 import type { ContextPort, EventPort, SessionPort } from "./runtimeRepo";
+import { finishActivity } from "./activityLifecycle";
 
 type RunLifecyclePorts = ContextPort & EventPort & SessionPort;
 
@@ -113,17 +114,15 @@ export function finishRun(input: {
   });
 
   for (const activity of run.activities.filter((item) => item.status === "running" || item.status === "suspended")) {
-    input.store.append({
+    finishActivity({
+      activityId: activity.activityId,
       runId: input.runId,
-      data: {
+      sessionId: input.sessionId,
+      store: input.store
+    }, {
         body: error || activity.body,
         error,
-        status: status === "cancelled" ? "cancelled" as const : status === "failed" ? "failed" as const : "completed" as const,
-        finishedAt: finishedAt
-      },
-      sessionId: input.sessionId,
-      type: "activity.finished",
-      activityId: activity.activityId
+        status: status === "cancelled" ? "cancelled" : status === "failed" ? "failed" : "completed"
     });
   }
 

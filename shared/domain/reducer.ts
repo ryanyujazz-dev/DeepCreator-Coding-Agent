@@ -91,6 +91,29 @@ export function reduceEvent(current: Session, event: Event): Session {
   run.lastOffset = event.offset;
 
   switch (event.type) {
+    case "reasoning.updated": {
+      if (!event.data.modelStepId) {
+        run.reasoning = (run.reasoning ?? "") + event.data.textDelta;
+        break;
+      }
+      const modelStepId = event.data.modelStepId;
+      run.reasoningSteps ??= [];
+      const existing = run.reasoningSteps.find((step) => step.modelStepId === modelStepId);
+      if (existing) {
+        existing.text += event.data.textDelta;
+        run.reasoning = (run.reasoning ?? "") + event.data.textDelta;
+      } else {
+        const separator = run.reasoning
+          ? run.reasoning.endsWith("\n") ? "\n" : "\n\n"
+          : "";
+        run.reasoningSteps.push({ modelStepId, text: event.data.textDelta });
+        run.reasoning = (run.reasoning ?? "") + separator + event.data.textDelta;
+      }
+      break;
+    }
+    case "reasoning.title.updated":
+      run.reasoningTitle = event.data.title;
+      break;
     case "tasks.changed":
       run.tasks = clone(event.data.items);
       break;

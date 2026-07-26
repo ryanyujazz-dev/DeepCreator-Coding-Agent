@@ -62,6 +62,7 @@ export type ModelRequest = {
   messages: ModelMessage[];
   tools: ToolSpec[];
   maxOutputTokens?: number;
+  thinkingMode?: "enabled" | "disabled";
   signal?: AbortSignal;
   onFragment?: (fragment: ModelDelta) => void;
 };

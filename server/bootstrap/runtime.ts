@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { RunRegistry } from "../app/runRegistry";
 import { RunLauncher } from "../app/runLauncher";
 import { Runner } from "../app/runner";
+import { finishActivity } from "../app/activityLifecycle";
 import { CancelRun } from "../app/cancelRun";
 import { ContextQueries } from "../app/contextQueries";
 import { SessionService } from "../app/sessionService";
@@ -83,6 +84,12 @@ export const MODEL_REGISTRY: ModelOption[] = [
   }
 ];
 
+export const SUMMARY_MODEL_BY_PROVIDER: Record<ProviderFamily, string> = {
+  deepseek: "deepseek-v4-flash",
+  mock: "mock-agent",
+  zhipu: "glm-5-turbo"
+};
+
 function familyOf(modelId: string): ProviderFamily {
   const entry = MODEL_REGISTRY.find((item) => item.id === modelId);
   if (entry) return entry.provider;
@@ -102,18 +109,16 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     const session = store.getSession(summary.sessionId);
     for (const run of session?.runs ?? []) {
       for (const activity of run.activities.filter((item) => item.status === "running" && item.command?.commandId)) {
-        store.append({
+        finishActivity({
           activityId: activity.activityId,
-          data: {
+          runId: run.runId,
+          sessionId: session!.sessionId,
+          store
+        }, {
             body: activity.body || "Runtime 已重启，无法恢复此前托管的命令。",
             command: { command: activity.command?.command ?? "", ...activity.command, state: "cancelled" as const },
             error: "Runtime 已重启，命令状态不可恢复。",
-            finishedAt: new Date().toISOString(),
             status: "cancelled" as const
-          },
-          runId: run.runId,
-          sessionId: session!.sessionId,
-          type: "activity.finished"
         });
       }
     }
@@ -132,16 +137,16 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   const providerFor = (model: string) => {
     const family = familyOf(model);
     const isMock = family === "mock" || options.runtimeMode === "mock" || (!apiKey && !zhipuApiKey);
-    if (isMock) return { model: "mock-agent", provider: mockProvider };
+    if (isMock) return { model: "mock-agent", provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
     if (family === "zhipu") {
       if (!zhipuApiKey) throw new Error(`模型 ${model} 需要智谱 API Key，但未配置。请在 ~/.deepseeker/config.json 设置 zhipuApiKey。`);
-      return { model, provider: zhipuProvider };
+      return { model, provider: zhipuProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.zhipu };
     }
     if (family === "deepseek") {
       if (!apiKey) throw new Error(`模型 ${model} 需要 DeepSeek API Key，但未配置。`);
-      return { model, provider: deepseekProvider };
+      return { model, provider: deepseekProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.deepseek };
     }
-    return { model: "mock-agent", provider: mockProvider };
+    return { model: "mock-agent", provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
   };
   const launcher = new RunLauncher(providerFor, registry, (input) => runner.run(input), store);
   const system = {

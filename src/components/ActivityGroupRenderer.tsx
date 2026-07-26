@@ -2,7 +2,6 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
-  LoaderCircle,
   Files,
   FolderSearch,
   ListTree,
@@ -365,25 +364,22 @@ export function ActivityGroupRenderer({
 }
 
 function aggregateIcon(aggregate: ToolAggregate) {
-  if (aggregate.status === "running") return <LoaderCircle className="operation-running-icon" size={13} />;
   return aggregate.status === "failed" ? <CircleAlert size={13} /> : <CheckCircle2 size={13} />;
 }
 
 function AggregateSummary({ aggregate }: { aggregate: ToolAggregate }) {
-  const failureLabel = aggregate.failureCount > 0 ? ` · ${aggregate.failureCount} 项失败` : "";
-  const cancelledLabel = aggregate.cancelledCount > 0 ? ` · ${aggregate.cancelledCount} 项已取消` : "";
+  const failureText = aggregate.failureCount > 0 ? `${aggregate.failureCount} 项失败` : "";
+  const cancelledText = aggregate.cancelledCount > 0 ? `${aggregate.cancelledCount} 项已取消` : "";
+  const failureLabel = failureText ? ` · ${failureText}` : "";
+  const cancelledLabel = cancelledText ? ` · ${cancelledText}` : "";
   const baseLabel = aggregate.summaryLabel
-    .replace(failureLabel, "")
-    .replace(cancelledLabel, "");
+    .split(" · ")
+    .filter((part) => part !== failureText && part !== cancelledText)
+    .join(" · ");
   return (
     <>
-      {aggregate.title && (
-        <span className={`operation-group-title ${aggregate.status === "running" ? "purpose-sweep" : ""}`}>
-          {aggregate.title}
-        </span>
-      )}
-      {aggregate.title && baseLabel && <span className="operation-group-separator">｜</span>}
-      {baseLabel && <span>{baseLabel}</span>}
+      <span className="activity-aggregate-headline">{aggregate.headlineLabel}</span>
+      {baseLabel && <><span className="activity-aggregate-divider"> | </span><span>{baseLabel}</span></>}
       {failureLabel && <span className="operation-group-failure">{failureLabel}</span>}
       {cancelledLabel && <span className="operation-group-cancelled">{cancelledLabel}</span>}
     </>
@@ -431,7 +427,7 @@ export function ActivityAggregateRenderer({
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>
         <div>
           {hasOpened && (
-            <div className="operation-group-details" aria-label="工具调用">
+            <div className="operation-group-details" aria-label="已完成的工具调用">
               {members.map((activity) => {
                 const changedFile = activity.tool?.action === "modify"
                   ? (activity.files?.find((file) => file.path.replaceAll("\\", "/") === activity.tool?.normalizedTarget)

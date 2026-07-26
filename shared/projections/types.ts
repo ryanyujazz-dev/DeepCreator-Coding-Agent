@@ -1,4 +1,4 @@
-import { ActionKind, Activity, ActivityStatus, Changes, Run } from "../contracts/runtime";
+import { ActionKind, Activity, ActivityStatus, AggregateHeadlineKind, Changes, Run } from "../contracts/runtime";
 
 export type GroupMode = "consecutive" | "same_model_step" | "standalone" | "workspace_delta";
 export type ToolImportance = "routine" | "notable" | "critical";
@@ -63,16 +63,15 @@ export type ActivitySlot = {
 
 export type ToolAggregate = {
   aggregateId: string;
-  groupId?: string;
-  statementId?: string;
-  title?: string;
+  headlineKind: AggregateHeadlineKind;
+  headlineLabel: string;
   runId: string;
   memberActivityIds: string[];
   totalCalls: number;
   successCount: number;
   failureCount: number;
   cancelledCount: number;
-  status: ActivityStatus;
+  status: Exclude<ActivityStatus, "running">;
   summaryLabel: string;
 };
 

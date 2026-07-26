@@ -24,15 +24,6 @@ function tool(name: string, args: Record<string, unknown>, index = 0): ToolState
   });
 }
 
-function statementCall(title: string, mode: "new" | "continue" = "new"): ToolCall {
-  return {
-    argumentsText: JSON.stringify(mode === "new" ? { mode, title } : { mode }),
-    callId: `call_statement_${title}`,
-    index: 0,
-    name: "tools_use_statement"
-  };
-}
-
 function providerFor(responses: Array<{ answer?: string; call?: ToolCall }>): Provider {
   let cursor = 0;
   return {
@@ -75,7 +66,6 @@ function providerFor(responses: Array<{ answer?: string; call?: ToolCall }>): Pr
 }
 
 function fragmentedPlanProvider(call: ToolCall, fragmentSize = 7): Provider {
-  let declared = false;
   return {
     capabilities: {
       contextWindowTokens: 1_000_000,
@@ -85,24 +75,6 @@ function fragmentedPlanProvider(call: ToolCall, fragmentSize = 7): Provider {
       supportsTools: true
     },
     async stream(request) {
-      if (!declared) {
-        declared = true;
-        const declaration = statementCall("编写实施计划");
-        request.onFragment?.({
-          argumentsText: declaration.argumentsText,
-          callId: declaration.callId,
-          index: declaration.index,
-          kind: "tool_call",
-          name: declaration.name
-        });
-        return {
-          answer: "",
-          continuationMessage: { role: "assistant", text: null, toolCalls: [declaration] },
-          finishCause: "tool_calls" as const,
-          thinking: "",
-          toolCalls: [declaration]
-        };
-      }
       for (let offset = 0; offset < call.argumentsText.length; offset += fragmentSize) {
         request.onFragment?.({
           argumentsText: call.argumentsText.slice(offset, offset + fragmentSize),
@@ -207,10 +179,7 @@ test("submit_plan suspends durably and approval resumes the same Run with a pair
       model: "test",
       projectRoot: directory,
       prompt: "先制定方案",
-      provider: providerFor([
-        { call: statementCall("提交实施计划") },
-        { call: submitCall }
-      ]),
+      provider: providerFor([{ call: submitCall }]),
       registry,
       runId: "run_plan",
       sessionId: "session_plan",
@@ -278,7 +247,7 @@ test("submit_plan suspends durably and approval resumes the same Run with a pair
   }
 });
 
-test("fragmented submit_plan emits semantic Plan activity updates without exposing raw arguments", async () => {
+test("fragmented submit_plan stays buffered until the complete tool step is available", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-plan-stream-"));
   try {
     const store = new RuntimeStore(directory);
@@ -331,10 +300,10 @@ test("fragmented submit_plan emits semantic Plan activity updates without exposi
     assert.equal(session.runs[0].status, "waiting");
 
     const updates = store.readEvents(session.sessionId).filter((event) => event.type === "activity.updated" && event.scope.activityId === activity.activityId);
-    assert.ok(updates.filter((event) => typeof event.data.bodyDelta === "string").length >= 2);
+    assert.equal(updates.filter((event) => typeof event.data.bodyDelta === "string").length, 0);
     const serializedUpdates = JSON.stringify(updates);
     assert.equal(serializedUpdates.includes('"markdown"'), false);
-    assert.equal(serializedUpdates.includes("流式实现计划"), false, "the raw Plan title stays out of Activity Events");
+    assert.equal(serializedUpdates.includes('"title"'), false, "rendered titles stay out of Activity Events");
     assert.equal(session.plans[0].title, "流式实现计划", "the semantic Plan title remains durable on plan.proposed");
     store.close();
   } finally {
@@ -355,21 +324,7 @@ test("suggested entry waits for user confirmation before changing mode", async (
     const enterCall: ToolCall = { argumentsText: JSON.stringify({ reason: "涉及多个模块，需要先确认边界。" }), callId: "call_enter", index: 0, name: "enter_plan" };
     const registry = new RunRegistry();
     const controller = registry.startRun("run_entry");
-    await runAgent({
-      model: "test",
-      projectRoot: directory,
-      prompt: "优化架构",
-      provider: providerFor([
-        { call: statementCall("确认规划方式") },
-        { call: enterCall }
-      ]),
-      registry,
-      runId: "run_entry",
-      sessionId: "session_entry",
-      signal: controller.signal,
-      store,
-      tools: toolHost
-    });
+    await runAgent({ model: "test", projectRoot: directory, prompt: "优化架构", provider: providerFor([{ call: enterCall }]), registry, runId: "run_entry", sessionId: "session_entry", signal: controller.signal, store, tools: toolHost });
     registry.finishRun("run_entry");
 
     let session = store.getSession("session_entry")!;

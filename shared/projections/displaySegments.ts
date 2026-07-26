@@ -1,8 +1,7 @@
 import {
   ActionKind,
   Activity,
-  Run,
-  ToolUseStatement
+  Run
 } from "../contracts/runtime";
 import {
   ActivityIndicator,
@@ -12,6 +11,12 @@ import {
   ToolAggregate
 } from "./types";
 import { activityTitle, toolDisplayTarget, toolTarget } from "./activityPresentation";
+import {
+  dominantHeadlineKind,
+  headlineKindForTool,
+  headlineLabel,
+  headlinePriority
+} from "../domain/toolActivitySemantics";
 
 type IndexedActivity = {
   activity: Activity;
@@ -26,9 +31,6 @@ type SegmentDraft = {
   transientBoundary: number;
   transients: IndexedActivity[];
   tools: Activity[];
-  statement?: ToolUseStatement;
-  statementGroupId?: string;
-  statementOpen: boolean;
 };
 
 type DraftEntry =
@@ -64,7 +66,6 @@ function createDraft(activity: Activity): SegmentDraft {
     contentSeen: false,
     runId: activity.runId,
     segmentId: `display_segment:${activity.runId}:${activity.activityId}`,
-    statementOpen: false,
     transientBoundary: 0,
     transients: [],
     tools: []
@@ -111,17 +112,8 @@ function compareTransitions(left: Transition, right: Transition): number {
 
 function projectActivitySlots(transients: IndexedActivity[]): ActivitySlot[] {
   if (transients.length === 0) return [];
-  // 规则:只要有任何工具正在调用(status === "running"),正在思考就让位给工具;
-  // 工具结束后,思考可以重新回到活动槽位。
-  const hasRunningTool = transients.some(
-    (entry) => entry.activity.kind !== "thinking" && entry.activity.status === "running"
-  );
-  const filteredTransients = hasRunningTool
-    ? transients.filter((entry) => entry.activity.kind !== "thinking")
-    : transients;
-  if (filteredTransients.length === 0) return [];
   const transitions: Transition[] = [];
-  for (const transient of filteredTransients) {
+  for (const transient of transients) {
     transitions.push({ activity: transient.activity, at: transient.activity.startedAt, index: transient.index, type: "start" });
     if (transient.activity.status !== "running") {
       transitions.push({
@@ -133,41 +125,70 @@ function projectActivitySlots(transients: IndexedActivity[]): ActivitySlot[] {
     }
   }
   transitions.sort(compareTransitions);
+  const activeTools = new Map<string, IndexedActivity>();
+  let visual: ActivityIndicator | undefined;
+  let logicalState: ActivitySlot["logicalState"] = "empty";
+  let toolVisualSeen = false;
 
-  const slots: ActivitySlot[] = [];
-  const activitySlots = new Map<string, string>();
+  const selectLastRunningTool = () => {
+    const representative = [...activeTools.values()].sort((left, right) => {
+      const callOrder = (left.activity.tool?.callIndex ?? left.index) - (right.activity.tool?.callIndex ?? right.index);
+      return callOrder || left.index - right.index;
+    }).at(-1);
+    if (!representative) return false;
+    visual = indicatorFor(representative.activity);
+    logicalState = "active";
+    toolVisualSeen = true;
+    return true;
+  };
+
   for (const transition of transitions) {
     if (transition.type === "start") {
-      const reusable = slots.find((slot) => slot.logicalState === "empty");
-      const slot = reusable ?? {
-        logicalState: "active" as const,
-        slotId: `activity_slot:${transition.activity.activityId}`,
-        visual: indicatorFor(transition.activity)
-      };
-      slot.logicalState = "active";
-      slot.visual = indicatorFor(transition.activity);
-      if (!reusable) slots.push(slot);
-      activitySlots.set(transition.activity.activityId, slot.slotId);
+      if (transition.activity.kind === "thinking") {
+        if (!toolVisualSeen && activeTools.size === 0) {
+          visual = indicatorFor(transition.activity);
+          logicalState = "active";
+        }
+        continue;
+      }
+      activeTools.set(transition.activity.activityId, { activity: transition.activity, index: transition.index });
+      selectLastRunningTool();
       continue;
     }
-    const slotId = activitySlots.get(transition.activity.activityId);
-    activitySlots.delete(transition.activity.activityId);
-    const slotIndex = slots.findIndex((slot) => slot.slotId === slotId);
-    if (slotIndex < 0) continue;
-    const otherActive = slots.some((slot, index) => index !== slotIndex && slot.logicalState === "active");
-    if (otherActive) slots.splice(slotIndex, 1);
-    else slots[slotIndex].logicalState = "empty";
+    if (transition.activity.kind === "thinking") {
+      if (!toolVisualSeen && visual?.sourceActivityId === transition.activity.activityId) logicalState = "empty";
+      continue;
+    }
+    activeTools.delete(transition.activity.activityId);
+    if (!selectLastRunningTool()) {
+      visual = indicatorFor(transition.activity);
+      logicalState = "empty";
+      toolVisualSeen = true;
+    }
   }
-  const active = slots.filter((slot) => slot.logicalState === "active");
-  if (active.length > 0) return active;
-  return slots.slice(-1);
+  if (!visual) return [];
+  return [{
+    logicalState,
+    slotId: `activity_slot:${transients[0].activity.activityId}`,
+    visual
+  }];
 }
 
 function aggregateBucket(activity: Activity): string {
+  if (activity.tool?.toolName === "glob") return "match";
+  if (activity.tool?.toolName === "grep") return "search_files";
   if (activity.tool?.toolName === "read_file") return "read";
-  if (activity.tool?.toolName === "list_files") return "list";
+  if (activity.tool?.toolName === "list_files") return "browse";
+  if (activity.tool?.toolName === "web_search") return "external_search";
+  if (activity.tool?.toolName === "fetch_url") return "external_read";
+  if (activity.tool?.toolName === "git_status") return "review";
+  if (activity.tool?.action === "modify") {
+    const operations = new Set(activity.files?.map((file) => file.operation));
+    if (operations.size === 1 && operations.has("created")) return "create";
+    if (operations.size === 1 && operations.has("deleted")) return "delete";
+    return "edit";
+  }
   if (activity.tool?.action === "search") return "search";
-  if (activity.tool?.action === "modify") return "modify";
   if (activity.tool?.action === "verify") return "verify";
   if (activity.tool?.toolName === "run_command" || activity.tool?.action === "execute") return "execute";
   if (activity.tool?.action === "external") return "external";
@@ -175,29 +196,38 @@ function aggregateBucket(activity: Activity): string {
 }
 
 function uniqueObjectCount(activities: Activity[]): number {
+  const measured = activities.reduce((count, activity) => count + (activity.tool?.resultMetrics?.itemCount ?? 0), 0);
+  if (measured > 0) return measured;
   const targets = new Set(activities.map((activity) => activity.tool?.normalizedTarget).filter(Boolean));
   return targets.size || activities.length;
 }
 
-function bucketLabel(bucket: string, activities: Activity[]): string {
+function bucketLabel(bucket: string, activities: Activity[], hasFailures: boolean): string {
   const count = uniqueObjectCount(activities);
+  if (bucket === "browse") return `已浏览 ${count} 个目录`;
+  if (bucket === "match") return `已匹配 ${count} 个文件`;
+  if (bucket === "create") return `已创建 ${count} 个文件`;
+  if (bucket === "edit") return `已编辑 ${count} 个文件`;
+  if (bucket === "delete") return `已删除 ${count} 个文件`;
   if (bucket === "read") return `已读取 ${count} 个文件`;
-  if (bucket === "list") return `已列出 ${count} 个目录`;
-  if (bucket === "search") return `已搜索 ${count} 项`;
-  if (bucket === "modify") return `已编辑 ${count} 个文件`;
+  if (bucket === "search_files") return `已搜索 ${count} 个文件`;
+  if (bucket === "search") return `已搜索 ${count} 项内容`;
+  if (bucket === "external_search") return `已检索 ${count} 项外部结果`;
+  if (bucket === "external_read") return `已查阅 ${count} 个页面`;
+  if (bucket === "review") return `已检查 ${count} 次工作区改动`;
   if (bucket === "verify") return `已完成 ${count} 项验证`;
-  if (bucket === "execute") return `已运行 ${activities.length} 条命令`;
+  if (bucket === "execute") return hasFailures
+    ? `成功运行 ${activities.length} 条命令`
+    : `已运行 ${activities.length} 条命令`;
   if (bucket === "external") return `已完成 ${activities.length} 项外部调用`;
   return `已检查 ${count} 项`;
 }
 
-function projectAggregate(draft: SegmentDraft, runStatus: Run["status"]): ToolAggregate | undefined {
-  const statement = draft.statement
-    ?? draft.tools.find((activity) => activity.tool?.statement)?.tool?.statement;
+function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
   const settled = draft.tools.filter((activity) => activity.status !== "running");
-  if (settled.length === 0 && !statement) return undefined;
+  if (settled.length === 0) return undefined;
   const buckets = new Map<string, Activity[]>();
-  for (const activity of settled) {
+  for (const activity of settled.filter((item) => item.status === "completed")) {
     const bucket = aggregateBucket(activity);
     buckets.set(bucket, [...(buckets.get(bucket) ?? []), activity]);
   }
@@ -207,36 +237,33 @@ function projectAggregate(draft: SegmentDraft, runStatus: Run["status"]): ToolAg
     failureCount > 0 ? `${failureCount} 项失败` : "",
     cancelledCount > 0 ? `${cancelledCount} 项已取消` : ""
   ].filter(Boolean).join(" · ");
-  const status = (statement && draft.statementOpen && runStatus === "running")
-    || draft.tools.some((activity) => activity.status === "running")
-    ? "running"
-    : failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
-  const summary = [...buckets].map(([bucket, activities]) => bucketLabel(bucket, activities)).join(" · ");
+  const status = failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
+  const summary = [...buckets].map(([bucket, activities]) => bucketLabel(bucket, activities, failureCount > 0)).join(" · ");
+  const headlineKind = draft.tools.reduce<ReturnType<typeof headlineKindForTool> | undefined>((dominant, activity) => {
+    const candidate = activity.tool?.stepHeadline ?? headlineKindForTool(activity.tool!);
+    if (!candidate) return dominant;
+    if (!dominant || headlinePriority(candidate) > headlinePriority(dominant)) return candidate;
+    return dominant;
+  }, dominantHeadlineKind(draft.tools.flatMap((activity) => activity.tool ? [activity.tool] : [])));
+  const resolvedHeadline = headlineKind ?? (draft.tools.some((activity) => activity.tool?.toolName === "run_command") ? "execute" : "read");
   return {
-    aggregateId: statement ? `tool_aggregate:${statement.groupId}` : `tool_aggregate:${draft.segmentId}`,
+    aggregateId: `tool_aggregate:${draft.segmentId}`,
     cancelledCount,
     failureCount,
-    groupId: statement?.groupId,
-    memberActivityIds: (statement ? draft.tools : settled).map((activity) => activity.activityId),
+    headlineKind: resolvedHeadline,
+    headlineLabel: headlineLabel(resolvedHeadline),
+    memberActivityIds: settled.map((activity) => activity.activityId),
     runId: draft.runId,
-    statementId: statement?.statementId,
     status,
     successCount: settled.filter((activity) => activity.status === "completed").length,
-    summaryLabel: suffix ? `${summary} · ${suffix}` : summary,
-    title: statement?.title,
-    totalCalls: statement ? draft.tools.length : settled.length
+    summaryLabel: [summary, suffix].filter(Boolean).join(" · "),
+    totalCalls: settled.length
   };
 }
 
-function finishSegment(draft: SegmentDraft, runStatus: Run["status"]): DisplaySegment | undefined {
-  const aggregate = projectAggregate(draft, runStatus);
-  const activityById = new Map(draft.transients.map(({ activity }) => [activity.activityId, activity]));
-  const activitySlots = projectActivitySlots(draft.transients.slice(draft.transientBoundary))
-    .filter((slot) => {
-      if (slot.logicalState !== "empty") return true;
-      if (aggregate) return false;
-      return activityById.get(slot.visual.sourceActivityId)?.status === "suspended";
-    });
+function finishSegment(draft: SegmentDraft): DisplaySegment | undefined {
+  const activitySlots = projectActivitySlots(draft.transients.slice(draft.transientBoundary));
+  const aggregate = projectAggregate(draft);
   if (!draft.mainActivity && !aggregate && activitySlots.length === 0) return undefined;
   return {
     activitySlots,
@@ -248,21 +275,12 @@ function finishSegment(draft: SegmentDraft, runStatus: Run["status"]): DisplaySe
 }
 
 export function projectDisplayTimeline(
-  run: Pick<Run, "runId" | "activities" | "status">,
+  run: Pick<Run, "runId" | "activities">,
   activities = run.activities,
   options: DisplayProjectionOptions = {}
 ): DisplayTimelineEntry[] {
   const entries: DraftEntry[] = [];
   let current: SegmentDraft | undefined;
-  let initialThinkingSeen = false;
-  let semanticProgressSeen = false;
-  const statementGroupByModelStepId = new Map(
-    activities.flatMap((activity) => {
-      const modelStepId = activity.modelStepId ?? activity.tool?.modelStepId;
-      const groupId = activity.tool?.statement?.groupId;
-      return modelStepId && groupId ? [[modelStepId, groupId] as const] : [];
-    })
-  );
 
   const ensureSegment = (activity: Activity) => {
     if (current) return current;
@@ -272,32 +290,9 @@ export function projectDisplayTimeline(
   };
 
   for (const [index, activity] of activities.entries()) {
-    if (activity.kind === "statement" && activity.statement) {
-      semanticProgressSeen = true;
-      const statement = activity.statement;
-      if (
-        current
-        && (
-          current.contentSeen
-          || (current.statementGroupId && current.statementGroupId !== statement.groupId)
-          || (current.tools.length > 0 && !current.statementGroupId)
-        )
-      ) {
-        current.statementOpen = false;
-        current = createDraft(activity);
-        entries.push({ draft: current, type: "display_segment" });
-      }
-      const segment = ensureSegment(activity);
-      segment.statement = statement;
-      segment.statementGroupId = statement.groupId;
-      segment.statementOpen = true;
-      continue;
-    }
     if (isInternal(activity)) continue;
     if (activity.kind === "message") {
-      semanticProgressSeen = true;
-      if (current?.statementOpen) current.statementOpen = false;
-      if (current && (current.contentSeen || current.tools.length > 0 || Boolean(current.statement))) {
+      if (current && (current.contentSeen || current.tools.length > 0)) {
         // The next content visually replaces the old activity slot while anchoring a new segment.
         current.transientBoundary = current.transients.length;
         current = createDraft(activity);
@@ -312,48 +307,11 @@ export function projectDisplayTimeline(
       continue;
     }
     if (activity.kind === "thinking") {
-      if (semanticProgressSeen || initialThinkingSeen) continue;
-      initialThinkingSeen = true;
-      const modelStepId = activity.modelStepId;
-      const statementGroupId = modelStepId ? statementGroupByModelStepId.get(modelStepId) : undefined;
-      const previousToolStepId = current?.tools.at(-1)?.tool?.modelStepId;
-      if (
-        current
-        && current.tools.length > 0
-        && (
-          (statementGroupId && current.statementGroupId !== statementGroupId)
-          || (
-            !current.statementGroupId
-            && !statementGroupId
-            && previousToolStepId !== modelStepId
-          )
-        )
-      ) {
-        current = createDraft(activity);
-        entries.push({ draft: current, type: "display_segment" });
-      }
-      const segment = ensureSegment(activity);
-      segment.statementGroupId ??= statementGroupId;
-      segment.transients.push({ activity, index });
+      ensureSegment(activity).transients.push({ activity, index });
       continue;
     }
     if (toolCategory(activity)) {
-      semanticProgressSeen = true;
-      const statementGroupId = activity.tool?.statement?.groupId;
-      if (
-        current
-        && current.tools.length > 0
-        && (current.statementGroupId || statementGroupId)
-        && current.statementGroupId !== statementGroupId
-      ) {
-        current.statementOpen = false;
-        current = createDraft(activity);
-        entries.push({ draft: current, type: "display_segment" });
-      }
       const segment = ensureSegment(activity);
-      segment.statement ??= activity.tool?.statement;
-      segment.statementGroupId ??= statementGroupId;
-      if (segment.statement) segment.statementOpen = true;
       segment.tools.push(activity);
       segment.transients.push({ activity, index });
       continue;
@@ -361,17 +319,11 @@ export function projectDisplayTimeline(
     entries.push({ activity, type: "activity" });
   }
 
-  if (run.status !== "running") {
-    for (const entry of entries) {
-      if (entry.type === "display_segment") entry.draft.statementOpen = false;
-    }
-  }
-
   return entries.flatMap<DisplayTimelineEntry>((entry) => {
     if (entry.type === "activity") {
       return [{ activity: entry.activity, entryId: entry.activity.activityId, type: "activity" }];
     }
-    const segment = finishSegment(entry.draft, run.status);
+    const segment = finishSegment(entry.draft);
     return segment ? [{ entryId: segment.segmentId, segment, type: "display_segment" }] : [];
   });
 }

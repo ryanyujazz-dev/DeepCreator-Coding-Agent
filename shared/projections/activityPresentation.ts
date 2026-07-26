@@ -53,7 +53,6 @@ export function activityTitle(activity: Pick<Activity, "kind" | "title" | "tool"
     file_mutation: "修改文件",
     message: "回复",
     plan: "正在编写计划",
-    statement: "工作阶段",
     thinking: "正在思考",
     tool: "使用工具"
   } satisfies Record<Activity["kind"], string>)[activity.kind];

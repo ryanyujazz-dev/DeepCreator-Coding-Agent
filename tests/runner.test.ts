@@ -9,6 +9,75 @@ import { Provider } from "../shared/contracts/provider";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 import { toolHost } from "../server/infra/tools";
 
+test("persists a non-thinking reasoning summary before the Run finishes", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-reasoning-summary-"));
+  try {
+    let summaryRequests = 0;
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        if (request.thinkingMode === "disabled") {
+          summaryRequests += 1;
+          assert.equal(request.model, "deepseek-v4-flash");
+          assert.deepEqual(request.tools, []);
+          const answer = '{"title":"核对页面跳转参数"}';
+          return {
+            answer,
+            continuationMessage: { role: "assistant", text: answer },
+            finishCause: "complete",
+            thinking: "",
+            toolCalls: []
+          };
+        }
+        request.onFragment?.({ kind: "thinking", text: "先检查路由定义和页面接收参数。" });
+        request.onFragment?.({ kind: "answer", text: "检查完成" });
+        assert.equal(summaryRequests, 1, "the summary starts when thinking gives way to answer content");
+        return {
+          answer: "检查完成",
+          continuationMessage: { role: "assistant", text: "检查完成" },
+          finishCause: "complete",
+          thinking: "先检查路由定义和页面接收参数。",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_summary", title: "思维摘要" });
+    store.append({ runId: "run_summary", data: { model: "test", prompt: "检查页面", startedAt: new Date().toISOString() }, sessionId: "session_summary", type: "run.started" });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_summary");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "检查页面",
+      provider,
+      registry,
+      runId: "run_summary",
+      sessionId: "session_summary",
+      signal: controller.signal,
+      store,
+      summaryModel: "deepseek-v4-flash",
+      tools: toolHost
+    });
+
+    assert.equal(summaryRequests, 1);
+    assert.equal(store.getRun("run_summary")?.reasoningTitle, "核对页面跳转参数");
+    const events = store.readEvents("session_summary");
+    const titleOffset = events.find((event) => event.type === "reasoning.title.updated")?.offset;
+    const finishOffset = events.find((event) => event.type === "run.finished")?.offset;
+    assert.ok(titleOffset && finishOffset && titleOffset < finishOffset);
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
+  }
+});
+
 test("recovers a transient provider failure before any stream fragment", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-"));
   try {
@@ -58,6 +127,164 @@ test("recovers a transient provider failure before any stream fragment", async (
   }
 });
 
+test("flushes short content before a following tool call finishes streaming", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-content-boundary-"));
+  try {
+    writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
+    let turn = 0;
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          request.onFragment?.({ kind: "answer", text: "先读取" });
+          request.onFragment?.({ kind: "answer", text: "配置文件。" });
+          request.onFragment?.({
+            argumentsText: "{\"path\":",
+            callId: "call_content_boundary",
+            index: 0,
+            kind: "tool_call",
+            name: "read_file"
+          });
+          const message = store.getRun("run_content_boundary")?.activities
+            .find((activity) => activity.kind === "message");
+          assert.equal(message?.body, "先读取配置文件。");
+          request.onFragment?.({
+            argumentsText: "\"sample.ts\"}",
+            callId: "call_content_boundary",
+            index: 0,
+            kind: "tool_call",
+            name: "read_file"
+          });
+          const toolCall = {
+            argumentsText: "{\"path\":\"sample.ts\"}",
+            callId: "call_content_boundary",
+            index: 0,
+            name: "read_file"
+          };
+          return {
+            answer: "先读取配置文件。",
+            continuationMessage: { role: "assistant", text: "先读取配置文件。", toolCalls: [toolCall] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [toolCall]
+          };
+        }
+        request.onFragment?.({ kind: "answer", text: "完成。" });
+        return {
+          answer: "完成。",
+          continuationMessage: { role: "assistant", text: "完成。" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_content_boundary",
+      title: "内容边界"
+    });
+    store.append({
+      data: { model: "test", prompt: "读取配置", startedAt: new Date().toISOString() },
+      runId: "run_content_boundary",
+      sessionId: "session_content_boundary",
+      type: "run.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_content_boundary");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "读取配置",
+      provider,
+      registry,
+      runId: "run_content_boundary",
+      sessionId: "session_content_boundary",
+      signal: controller.signal,
+      store,
+      tools: toolHost
+    });
+    assert.equal(store.getRun("run_content_boundary")?.status, "completed");
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("flushes short content after a bounded delay while the provider remains open", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-content-latency-"));
+  try {
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        request.onFragment?.({ kind: "answer", text: "短" });
+        request.onFragment?.({ kind: "answer", text: "内容" });
+        await new Promise((resolve) => setTimeout(resolve, 70));
+        const message = store.getRun("run_content_latency")?.activities
+          .find((activity) => activity.kind === "message");
+        assert.equal(message?.body, "短内容");
+        return {
+          answer: "短内容",
+          continuationMessage: { role: "assistant", text: "短内容" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_content_latency",
+      title: "内容延迟"
+    });
+    store.append({
+      data: { model: "test", prompt: "输出短内容", startedAt: new Date().toISOString() },
+      runId: "run_content_latency",
+      sessionId: "session_content_latency",
+      type: "run.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_content_latency");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "输出短内容",
+      provider,
+      registry,
+      runId: "run_content_latency",
+      sessionId: "session_content_latency",
+      signal: controller.signal,
+      store,
+      tools: toolHost
+    });
+    assert.equal(store.getRun("run_content_latency")?.status, "completed");
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
 test("persists semantic tool facts while provider schemas stay presentation-free", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-tool-"));
   try {
@@ -75,21 +302,6 @@ test("persists semantic tool facts while provider schemas stay presentation-free
         turn += 1;
         assert.ok(request.tools.every((tool) => !("presentation" in tool)));
         if (turn === 1) {
-          const declaration = {
-            argumentsText: JSON.stringify({ mode: "new", title: "读取代码文件" }),
-            callId: "call_read_statement",
-            index: 0,
-            name: "tools_use_statement"
-          };
-          return {
-            answer: "",
-            continuationMessage: { role: "assistant", text: null, toolCalls: [declaration] },
-            finishCause: "tool_calls",
-            thinking: "",
-            toolCalls: [declaration]
-          };
-        }
-        if (turn === 2) {
           request.onFragment?.({
             argumentsText: "{\"path\":\"sample.ts\"}",
             callId: "call_read",
@@ -97,6 +309,7 @@ test("persists semantic tool facts while provider schemas stay presentation-free
             kind: "tool_call",
             name: "read_file"
           });
+          assert.equal(store.getRun("run_tool")?.activities.some((activity) => activity.tool?.callId === "call_read"), false);
           return {
             answer: "",
             continuationMessage: {
@@ -131,9 +344,11 @@ test("persists semantic tool facts while provider schemas stay presentation-free
     assert.equal(readUnit?.tool?.action, "inspect");
     assert.equal(readUnit?.tool?.normalizedTarget, "sample.ts");
     assert.equal(readUnit?.tool?.resultMetrics?.itemCount, 1);
+    assert.equal(readUnit?.tool?.callIndex, 0);
+    assert.equal(readUnit?.tool?.stepHeadline, "read");
     assert.ok(readUnit?.tool?.modelStepId.startsWith("model_step_"));
     const events = store.readEvents("session_tool");
-    assert.ok(events.some((event) => event.type === "activity.updated"));
+    assert.equal(events.some((event) => event.type === "activity.updated"), false);
     for (const event of events) {
       if (event.type !== "activity.started" && event.type !== "activity.updated" && event.type !== "activity.finished") continue;
       assert.equal("title" in event.data, false, "new Activity Events persist facts, not rendered labels");
@@ -154,253 +369,7 @@ test("persists semantic tool facts while provider schemas stay presentation-free
   }
 });
 
-test("records tool-use statements without creating a visible control activity", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-tool-statement-"));
-  try {
-    writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
-    let turn = 0;
-    let sawStatementResult = false;
-    const statementCall = {
-      argumentsText: JSON.stringify({ mode: "new", title: "Inspect project architecture" }),
-      callId: "call_statement",
-      index: 0,
-      name: "tools_use_statement"
-    };
-    const readCall = {
-      argumentsText: JSON.stringify({ path: "sample.ts" }),
-      callId: "call_read",
-      index: 0,
-      name: "read_file"
-    };
-    const provider: Provider = {
-      capabilities: {
-        contextWindowTokens: 1_000_000,
-        supportsParallelToolCalls: true,
-        supportsStrictTools: false,
-        supportsThinking: true,
-        supportsTools: true
-      },
-      async stream(request) {
-        turn += 1;
-        if (turn === 1) {
-          request.onFragment?.({ kind: "thinking", text: "initial reasoning" });
-          return {
-            answer: "",
-            continuationMessage: {
-              role: "assistant",
-              text: null,
-              toolCalls: [statementCall]
-            },
-            finishCause: "tool_calls",
-            thinking: "",
-            toolCalls: [statementCall]
-          };
-        }
-        if (turn === 2) {
-          sawStatementResult = request.messages.some((message) =>
-            message.role === "tool" && message.toolCallKey === statementCall.callId
-          );
-          request.onFragment?.({ kind: "thinking", text: "digesting declaration" });
-          request.onFragment?.({
-            argumentsText: readCall.argumentsText,
-            callId: readCall.callId,
-            index: readCall.index,
-            kind: "tool_call",
-            name: readCall.name
-          });
-          return {
-            answer: "",
-            continuationMessage: {
-              role: "assistant",
-              text: null,
-              toolCalls: [readCall]
-            },
-            finishCause: "tool_calls",
-            thinking: "",
-            toolCalls: [readCall]
-          };
-        }
-        request.onFragment?.({ kind: "thinking", text: "digesting tool facts" });
-        request.onFragment?.({ kind: "answer", text: "检查完成" });
-        return {
-          answer: "检查完成",
-          continuationMessage: { role: "assistant", text: "检查完成" },
-          finishCause: "complete",
-          thinking: "",
-          toolCalls: []
-        };
-      }
-    };
-    const store = new RuntimeStore(directory);
-    store.createSession({
-      compactThresholdTokens: 850_000,
-      contextWindowTokens: 1_000_000,
-      model: "test",
-      projectRoot: directory,
-      sessionId: "session_statement",
-      title: "工具声明"
-    });
-    store.append({
-      data: { model: "test", prompt: "读取代码文件", startedAt: new Date().toISOString() },
-      runId: "run_statement",
-      sessionId: "session_statement",
-      type: "run.started"
-    });
-    const registry = new RunRegistry();
-    const controller = registry.startRun("run_statement");
-    await runAgent({
-      model: "test",
-      projectRoot: directory,
-      prompt: "读取代码文件",
-      provider,
-      registry,
-      runId: "run_statement",
-      sessionId: "session_statement",
-      signal: controller.signal,
-      store,
-      tools: toolHost
-    });
-
-    const run = store.getRun("run_statement")!;
-    const readActivity = run.activities.find((activity) => activity.tool?.callId === readCall.callId);
-    const statementActivity = run.activities.find((activity) => activity.kind === "statement");
-    assert.equal(sawStatementResult, true);
-    assert.equal(run.activities.some((activity) => activity.tool?.toolName === "tools_use_statement"), false);
-    assert.equal(run.activities.filter((activity) => activity.kind === "thinking").length, 1);
-    assert.equal(statementActivity?.audience, "internal");
-    assert.equal(statementActivity?.statement?.title, "Inspect project architecture");
-    assert.equal(readActivity?.tool?.statement?.title, "Inspect project architecture");
-    assert.equal(readActivity?.tool?.statement?.mode, "new");
-    assert.ok(store.readContextEntries("session_statement").some((record) =>
-      record.kind === "tool_result" && record.toolCallKey === statementCall.callId
-    ));
-    store.close();
-  } finally {
-    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
-  }
-});
-
-test("rejects undeclared tools without executing or projecting them", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-tool-statement-gate-"));
-  try {
-    writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
-    let turn = 0;
-    const invalidRead = {
-      argumentsText: JSON.stringify({ path: "missing.ts" }),
-      callId: "call_invalid_read",
-      index: 0,
-      name: "read_file"
-    };
-    const statement = {
-      argumentsText: JSON.stringify({ mode: "new", title: "读取项目文件" }),
-      callId: "call_statement_gate",
-      index: 0,
-      name: "tools_use_statement"
-    };
-    const validRead = {
-      argumentsText: JSON.stringify({ path: "sample.ts" }),
-      callId: "call_valid_read",
-      index: 0,
-      name: "read_file"
-    };
-    const provider: Provider = {
-      capabilities: {
-        contextWindowTokens: 1_000_000,
-        supportsParallelToolCalls: true,
-        supportsStrictTools: false,
-        supportsThinking: true,
-        supportsTools: true
-      },
-      async stream(request) {
-        turn += 1;
-        if (turn === 1) {
-          request.onFragment?.({ ...invalidRead, kind: "tool_call" });
-          return {
-            answer: "",
-            continuationMessage: { role: "assistant", text: null, toolCalls: [invalidRead] },
-            finishCause: "tool_calls",
-            thinking: "",
-            toolCalls: [invalidRead]
-          };
-        }
-        if (turn === 2) {
-          assert.ok(request.messages.some((message) =>
-            message.role === "tool"
-            && message.toolCallKey === invalidRead.callId
-            && message.text?.includes("缺少有效且独立的 tools_use_statement")
-          ));
-          return {
-            answer: "",
-            continuationMessage: { role: "assistant", text: null, toolCalls: [statement] },
-            finishCause: "tool_calls",
-            thinking: "",
-            toolCalls: [statement]
-          };
-        }
-        if (turn === 3) {
-          request.onFragment?.({ ...validRead, kind: "tool_call" });
-          return {
-            answer: "",
-            continuationMessage: { role: "assistant", text: null, toolCalls: [validRead] },
-            finishCause: "tool_calls",
-            thinking: "",
-            toolCalls: [validRead]
-          };
-        }
-        return {
-          answer: "读取完成",
-          continuationMessage: { role: "assistant", text: "读取完成" },
-          finishCause: "complete",
-          thinking: "",
-          toolCalls: []
-        };
-      }
-    };
-    const store = new RuntimeStore(directory);
-    store.createSession({
-      compactThresholdTokens: 850_000,
-      contextWindowTokens: 1_000_000,
-      model: "test",
-      projectRoot: directory,
-      sessionId: "session_statement_gate",
-      title: "声明门禁"
-    });
-    store.append({
-      data: { model: "test", prompt: "读取代码文件", startedAt: new Date().toISOString() },
-      runId: "run_statement_gate",
-      sessionId: "session_statement_gate",
-      type: "run.started"
-    });
-    const registry = new RunRegistry();
-    const controller = registry.startRun("run_statement_gate");
-    await runAgent({
-      model: "test",
-      projectRoot: directory,
-      prompt: "读取代码文件",
-      provider,
-      registry,
-      runId: "run_statement_gate",
-      sessionId: "session_statement_gate",
-      signal: controller.signal,
-      store,
-      tools: toolHost
-    });
-
-    const run = store.getRun("run_statement_gate")!;
-    assert.equal(run.status, "completed");
-    assert.equal(run.activities.some((activity) => activity.tool?.callId === invalidRead.callId), false);
-    assert.equal(run.activities.some((activity) => activity.tool?.callId === statement.callId), false);
-    assert.equal(run.activities.find((activity) => activity.tool?.callId === validRead.callId)?.tool?.statement?.title, "读取项目文件");
-    assert.ok(store.readContextEntries("session_statement_gate").some((record) =>
-      record.kind === "tool_result" && record.toolCallKey === invalidRead.callId && record.isError
-    ));
-    store.close();
-  } finally {
-    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
-  }
-});
-
-test("publishes streamed and authoritative file diffs before mutation settlement", async () => {
+test("buffers mutation arguments and publishes only authoritative file diffs before settlement", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-mutation-"));
   try {
     const eventToolHost = {
@@ -435,21 +404,6 @@ test("publishes streamed and authoritative file diffs before mutation settlement
       async stream(request) {
         turn += 1;
         if (turn === 1) {
-          const declaration = {
-            argumentsText: JSON.stringify({ mode: "new", title: "创建代码文件" }),
-            callId: "call_write_statement",
-            index: 0,
-            name: "tools_use_statement"
-          };
-          return {
-            answer: "",
-            continuationMessage: { role: "assistant", text: null, toolCalls: [declaration] },
-            finishCause: "tool_calls",
-            thinking: "",
-            toolCalls: [declaration]
-          };
-        }
-        if (turn === 2) {
           for (let index = 0; index < argumentsText.length; index += 11) {
             request.onFragment?.({
               argumentsText: argumentsText.slice(index, index + 11),
@@ -493,7 +447,7 @@ test("publishes streamed and authoritative file diffs before mutation settlement
     const liveOffset = events.find((event) => event.scope.activityId === mutationActivityId && event.type === "activity.updated" && ((event.data as { liveFiles?: Array<{ additions: number }> }).liveFiles?.[0]?.additions ?? 0) > 0)?.offset ?? 0;
     const changesOffset = events.find((event) => event.type === "changes.changed" && ((event.data as { additions?: number }).additions ?? 0) > 0)?.offset ?? 0;
     const finishedOffset = events.find((event) => event.scope.activityId === mutationActivityId && event.type === "activity.finished")?.offset ?? 0;
-    assert.ok(liveOffset > 0 && liveOffset < changesOffset, "streamed diff is visible before the filesystem result");
+    assert.equal(liveOffset, 0, "provider argument fragments stay out of the public activity stream");
     assert.ok(changesOffset < finishedOffset, "authoritative diff is published while the activity is still running");
 
     const run = store.getRun("run_mutation")!;
@@ -517,12 +471,9 @@ test("does not accept final content while a managed command is running", async (
   let turns = 0;
   const guardedToolHost = {
     ...toolHost,
-    runningCommands: () => {
-      commandChecks += 1;
-      return turns === 1
+    runningCommands: () => commandChecks++ === 0
       ? [{ commandId: "command_live", elapsedMs: 60_000 }]
-      : [];
-    },
+      : [],
     stopCommands: async () => { stopCalls += 1; }
   };
   const provider: Provider = {
@@ -709,6 +660,118 @@ test("command control calls update the original activity without creating a slot
   }
 });
 
+test("command settlement is idempotent when callback and return path observe the same terminal state", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-settlement-race-"));
+  const store = new RuntimeStore(directory);
+  let turns = 0;
+  const racingToolHost = {
+    ...toolHost,
+    execute: async (input: Parameters<typeof toolHost.execute>[0]) => {
+      if (input.name !== "run_command") return toolHost.execute(input);
+      const result = {
+        command: "printf done",
+        commandId: "command_settlement_race",
+        commandState: "completed" as const,
+        elapsedMs: 1,
+        exitCode: 0,
+        mutatedWorkspace: false,
+        output: "done",
+        outputTruncated: false
+      };
+      input.onCommandSettled?.(result);
+      return result;
+    },
+    runningCommands: () => [],
+    stopCommands: async () => undefined
+  };
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      turns += 1;
+      if (turns === 1) {
+        const argumentsText = JSON.stringify({ command: "printf done" });
+        request.onFragment?.({
+          argumentsText,
+          callId: "call_settlement_race",
+          index: 0,
+          kind: "tool_call",
+          name: "run_command"
+        });
+        return {
+          answer: "",
+          continuationMessage: {
+            role: "assistant",
+            text: null,
+            toolCalls: [{ argumentsText, callId: "call_settlement_race", index: 0, name: "run_command" }]
+          },
+          finishCause: "tool_calls",
+          thinking: "",
+          toolCalls: [{ argumentsText, callId: "call_settlement_race", index: 0, name: "run_command" }]
+        };
+      }
+      request.onFragment?.({ kind: "answer", text: "命令已完成。" });
+      return {
+        answer: "命令已完成。",
+        continuationMessage: { role: "assistant", text: "命令已完成。" },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+
+  try {
+    store.createSession({
+      accessMode: "full_access",
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_settlement_race",
+      title: "命令结算竞态"
+    });
+    store.append({
+      data: { model: "test", prompt: "运行命令", startedAt: new Date().toISOString() },
+      runId: "run_settlement_race",
+      sessionId: "session_settlement_race",
+      type: "run.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_settlement_race");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "运行命令",
+      provider,
+      registry,
+      runId: "run_settlement_race",
+      sessionId: "session_settlement_race",
+      signal: controller.signal,
+      store,
+      tools: racingToolHost
+    });
+
+    const run = store.getRun("run_settlement_race")!;
+    const commandActivity = run.activities.find((activity) => activity.tool?.callId === "call_settlement_race");
+    const finishEvents = store.readEvents("session_settlement_race").filter((event) =>
+      event.type === "activity.finished" && event.scope.activityId === commandActivity?.activityId
+    );
+    assert.equal(run.status, "completed");
+    assert.equal(run.answer, "命令已完成。");
+    assert.equal(commandActivity?.status, "completed");
+    assert.equal(finishEvents.length, 1);
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
 test("an interrupted tool-call step is closed before the next conversation", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-interrupted-step-"));
   const store = new RuntimeStore(directory);
@@ -736,8 +799,7 @@ test("an interrupted tool-call step is closed before the next conversation", asy
     const firstController = firstRegistry.startRun("run_interrupted_step");
     const interruptedTools = {
       ...toolHost,
-      parallel: (name: string) => {
-        if (name === "tools_use_statement") return false;
+      parallel: () => {
         firstController.abort();
         throw new Error("scheduler interrupted");
       }
@@ -751,23 +813,6 @@ test("an interrupted tool-call step is closed before the next conversation", asy
         supportsTools: true
       },
       async stream() {
-        if (!store.readContextEntries("session_interrupted_step").some((entry) =>
-          entry.kind === "tool_result" && entry.toolName === "tools_use_statement"
-        )) {
-          const declaration = {
-            argumentsText: JSON.stringify({ mode: "new", title: "检查项目状态" }),
-            callId: "call_interrupted_statement",
-            index: 0,
-            name: "tools_use_statement"
-          };
-          return {
-            answer: "",
-            continuationMessage: { role: "assistant", text: null, toolCalls: [declaration] },
-            finishCause: "tool_calls",
-            thinking: "",
-            toolCalls: [declaration]
-          };
-        }
         return {
           answer: "",
           continuationMessage: { role: "assistant", text: null, toolCalls: calls },
@@ -793,7 +838,7 @@ test("an interrupted tool-call step is closed before the next conversation", asy
     assert.equal(store.getRun("run_interrupted_step")?.status, "cancelled");
     assert.deepEqual(store.readContextEntries("session_interrupted_step")
       .filter((entry) => entry.kind === "tool_result")
-      .map((entry) => entry.toolCallKey), ["call_interrupted_statement", "call_interrupted_a", "call_interrupted_b"]);
+      .map((entry) => entry.toolCallKey), ["call_interrupted_a", "call_interrupted_b"]);
 
     store.append({
       data: { model: "test", prompt: "继续", startedAt: new Date().toISOString() },
@@ -842,6 +887,142 @@ test("an interrupted tool-call step is closed before the next conversation", asy
     });
     assert.equal(sawClosedProtocol, true);
     assert.equal(store.getRun("run_after_interruption")?.status, "completed");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("requires final task maintenance after the last work tool before accepting a final answer", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-final-task-maintenance-"));
+  const store = new RuntimeStore(directory);
+  try {
+    writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_final_task_maintenance",
+      title: "最终任务维护"
+    });
+    store.append({
+      data: { model: "test", prompt: "检查 sample.ts", startedAt: new Date().toISOString() },
+      runId: "run_final_task_maintenance",
+      sessionId: "session_final_task_maintenance",
+      type: "run.started"
+    });
+
+    const initialTaskCall = {
+      argumentsText: JSON.stringify({
+        tasks: [{ taskId: "t1", label: "检查 sample.ts", status: "completed" }]
+      }),
+      callId: "call_tasks_initial",
+      index: 0,
+      name: "update_tasks"
+    };
+    const readCall = {
+      argumentsText: JSON.stringify({ path: "sample.ts" }),
+      callId: "call_read_after_tasks",
+      index: 0,
+      name: "read_file"
+    };
+    const finalTaskCall = {
+      argumentsText: JSON.stringify({
+        tasks: [{ taskId: "t1", label: "检查 sample.ts", status: "completed" }]
+      }),
+      callId: "call_tasks_final",
+      index: 0,
+      name: "update_tasks"
+    };
+    let turn = 0;
+    let sawMaintenanceCorrection = false;
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          request.onFragment?.({ kind: "answer", text: "任务已经全部完成。" });
+          return {
+            answer: "任务已经全部完成。",
+            continuationMessage: { role: "assistant", text: "任务已经全部完成。", toolCalls: [initialTaskCall] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [initialTaskCall]
+          };
+        }
+        if (turn === 2) {
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [readCall] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [readCall]
+          };
+        }
+        if (turn === 3) {
+          request.onFragment?.({ kind: "answer", text: "过早的最终回答。" });
+          return {
+            answer: "过早的最终回答。",
+            continuationMessage: { role: "assistant", text: "过早的最终回答。" },
+            finishCause: "complete",
+            thinking: "",
+            toolCalls: []
+          };
+        }
+        if (turn === 4) {
+          sawMaintenanceCorrection = request.messages.some((message) =>
+            message.role === "user" && message.text?.includes("任务计划尚未完成收尾")
+          );
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [finalTaskCall] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [finalTaskCall]
+          };
+        }
+        request.onFragment?.({ kind: "answer", text: "最终回答。" });
+        return {
+          answer: "最终回答。",
+          continuationMessage: { role: "assistant", text: "最终回答。" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_final_task_maintenance");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "检查 sample.ts",
+      provider,
+      registry,
+      runId: "run_final_task_maintenance",
+      sessionId: "session_final_task_maintenance",
+      signal: controller.signal,
+      store,
+      tools: toolHost
+    });
+
+    const run = store.getRun("run_final_task_maintenance")!;
+    assert.equal(turn, 5);
+    assert.equal(sawMaintenanceCorrection, true);
+    assert.equal(run.status, "completed");
+    assert.equal(run.answer, "最终回答。");
+    assert.deepEqual(run.tasks.map((task) => task.status), ["completed"]);
+    assert.equal(run.activities.filter((activity) => activity.tool).at(-1)?.tool?.toolName, "update_tasks");
+    assert.equal(run.activities.find((activity) => activity.body === "任务已经全部完成。")?.audience, "internal");
+    assert.equal(run.activities.find((activity) => activity.body === "过早的最终回答。")?.audience, "internal");
+    assert.equal(run.activities.find((activity) => activity.body === "最终回答。")?.audience, "user");
   } finally {
     store.close();
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });

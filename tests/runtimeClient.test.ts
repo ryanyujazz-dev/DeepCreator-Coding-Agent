@@ -39,3 +39,33 @@ test("sends a bodyless cancellation request without declaring JSON content", asy
     globalThis.fetch = originalFetch;
   }
 });
+
+test("uses the latest Runtime connection after a desktop restart", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ authorization: string | null; url: string }> = [];
+  globalThis.fetch = (async (input, init) => {
+    requests.push({
+      authorization: new Headers(init?.headers).get("Authorization"),
+      url: String(input)
+    });
+    return new Response(JSON.stringify({ sessions: [] }), {
+      headers: { "Content-Type": "application/json" },
+      status: 200
+    });
+  }) as typeof fetch;
+
+  try {
+    const client = new RuntimeClient();
+    client.configure({ baseUrl: "http://127.0.0.1:41001", token: "old-token" });
+    await client.listSessions();
+    client.configure({ baseUrl: "http://127.0.0.1:41002", token: "new-token" });
+    await client.listSessions();
+
+    assert.deepEqual(requests, [
+      { authorization: "Bearer old-token", url: "http://127.0.0.1:41001/api/sessions" },
+      { authorization: "Bearer new-token", url: "http://127.0.0.1:41002/api/sessions" }
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

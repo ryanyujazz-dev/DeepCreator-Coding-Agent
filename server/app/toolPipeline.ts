@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ContextInput } from "../../shared/contracts/context";
 import { ModelMessage, ToolCall } from "../../shared/contracts/provider";
-import { EventPayloadMap, Plan, Question, QuestionPrompt, Task, ToolState, ToolUseStatement } from "../../shared/contracts/runtime";
+import { AggregateHeadlineKind, EventPayloadMap, Plan, Question, QuestionPrompt, Task, ToolState } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
 import { approvalFor } from "../domain/accessPolicy";
@@ -12,7 +12,7 @@ import { RunRegistry } from "./runRegistry";
 import { ContextPort, EventPort, EvidencePort, MemoryPort, SessionPort } from "./runtimeRepo";
 import { ToolHost } from "./toolHost";
 import { durableToolState } from "./toolFacts";
-import { TOOL_USE_STATEMENT_NAME } from "./toolUseStatement";
+import { finishActivity as finishActivityOnce, updateActivity } from "./activityLifecycle";
 
 export type ToolContext = {
   baseline: Baseline;
@@ -68,14 +68,13 @@ function finishActivity(
   input: ToolContext,
   activityId: string,
   data: Omit<EventPayloadMap["activity.finished"], "finishedAt">
-): void {
-  input.store.append({
+): boolean {
+  return finishActivityOnce({
     activityId,
-    data: { liveFiles: [], ...data, tool: durableToolState(data.tool), finishedAt: new Date().toISOString() },
     runId: input.runId,
     sessionId: input.sessionId,
-    type: "activity.finished"
-  });
+    store: input.store
+  }, { ...data, tool: durableToolState(data.tool) });
 }
 
 export type SpawnAgentHandler = (args: {
@@ -92,9 +91,7 @@ export class ToolPipeline {
   ) {}
 
   stepRejection(calls: ToolCall[], modelStepId: string, projectRoot: string): string | undefined {
-    const tools = calls
-      .filter((call) => call.name !== TOOL_USE_STATEMENT_NAME)
-      .flatMap((call): ToolState[] => {
+    const tools = calls.flatMap((call): ToolState[] => {
       try {
         if (!this.host.has(call.name)) return [];
         const args = parseArgs(call.argumentsText);
@@ -110,8 +107,8 @@ export class ToolPipeline {
         return [];
       }
     });
-    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user") && tools.length > 1) {
-      return "模式控制或暂停工具必须是当前模型步骤中的唯一工具调用。";
+    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user" || tool.toolName === "update_tasks") && tools.length > 1) {
+      return "模式控制、暂停或任务维护工具必须是当前模型步骤中的唯一工具调用。";
     }
     return hasConflictingControlStep(tools)
       ? "模式控制工具不能与产生副作用的工具出现在同一个模型步骤中。"
@@ -125,13 +122,10 @@ export class ToolPipeline {
     knownRuleIds: Set<string>,
     existingActivityId?: string,
     stepRejection?: string,
-    statement?: ToolUseStatement
+    stepHeadline?: AggregateHeadlineKind
   ): Promise<ToolOutcome> {
     let activityId = existingActivityId;
     let retainedCommandBaseline = false;
-    if (call.name === TOOL_USE_STATEMENT_NAME) {
-      return this.recordToolUseStatement(input, call, modelStepId);
-    }
     try {
       // normalize
       const args = parseArgs(call.argumentsText);
@@ -139,15 +133,18 @@ export class ToolPipeline {
 
       // validate
       if (!this.host.has(call.name)) throw new Error(`未知工具：${call.name}。可用工具：${this.host.names().join(", ")}`);
-      const preparedBase = this.host.prepare({
+      const prepared = {
+        ...this.host.prepare({
         args,
         argumentsPreview: argsSummary,
         callId: call.callId,
         modelStepId,
         name: call.name,
         projectRoot: input.projectRoot
-      });
-      const prepared = statement ? { ...preparedBase, statement } : preparedBase;
+        }),
+        callIndex: call.index,
+        stepHeadline
+      };
       if (call.name === "wait_command" || call.name === "stop_command") {
         return await this.controlManagedCommand(input, call, modelStepId, args, prepared);
       }
@@ -178,7 +175,7 @@ export class ToolPipeline {
       if (call.name === "enter_plan") return this.enterPlan(input, call, modelStepId, activityId, args, prepared);
       if (call.name === "ask_user") return this.askUser(input, call, modelStepId, activityId, args, prepared);
       if (call.name === "submit_plan") return this.submitPlan(input, call, modelStepId, activityId, args, prepared);
-      if (call.name === "update_tasks") return this.updateTasks(input, call, modelStepId, activityId, args, prepared);
+      if (call.name === "update_tasks") return this.updateTasks(input, call, modelStepId, activityId, args, argsSummary);
       if (call.name === "search_memory") return this.searchMemory(input, call, modelStepId, activityId, args, prepared);
       if (call.name === "spawn_agent") return await this.spawnAgentTask(input, call, modelStepId, activityId!, args, prepared);
 
@@ -239,7 +236,7 @@ export class ToolPipeline {
           void this.settleManagedCommand(input, activityId!, settled, true);
         } : undefined,
         onOutput: call.name === "run_command" ? ({ text }) => {
-          input.store.append({ activityId, data: { bodyDelta: text }, runId: input.runId, sessionId: input.sessionId, type: "activity.updated" });
+          updateActivity({ activityId: activityId!, runId: input.runId, sessionId: input.sessionId, store: input.store }, { bodyDelta: text });
         } : undefined,
         projectRoot: input.projectRoot,
         runId: input.runId,
@@ -272,7 +269,8 @@ export class ToolPipeline {
       }
 
       // record
-      const completedBase = this.host.prepare({
+      const completed = {
+        ...this.host.prepare({
         args,
         argumentsPreview: argsSummary,
         callId: call.callId,
@@ -281,8 +279,10 @@ export class ToolPipeline {
         output: result.output,
         projectRoot: input.projectRoot,
         result
-      });
-      const completed = statement ? { ...completedBase, statement } : completedBase;
+        }),
+        callIndex: call.index,
+        stepHeadline
+      };
       const command = result.command ? {
         command: result.command,
         commandId: result.commandId,
@@ -379,33 +379,6 @@ export class ToolPipeline {
     }
   }
 
-  private recordToolUseStatement(
-    input: ToolContext,
-    call: ToolCall,
-    modelStepId: string
-  ): ToolOutcome {
-    let args: Record<string, unknown> = {};
-    try {
-      args = parseArgs(call.argumentsText);
-    } catch {
-      // A malformed declaration must not create a visible failure activity or block real tools.
-    }
-    const mode = args.mode === "continue" ? "continue" : "new";
-    const text = JSON.stringify({ accepted: true, mode });
-    this.record(input, call, modelStepId, text, {
-      controlOnly: true,
-      mode,
-      target: "tool use statement"
-    });
-    return {
-      contextRecords: [],
-      message: { role: "tool", text, toolCallKey: call.callId },
-      mutatedWorkspace: false,
-      protocolError: false,
-      target: "tool use statement"
-    };
-  }
-
   private async controlManagedCommand(
     input: ToolContext,
     call: ToolCall,
@@ -495,7 +468,7 @@ export class ToolPipeline {
       const status = result.commandState === "cancelled"
         ? "cancelled"
         : result.exitCode && result.exitCode !== 0 ? "failed" : "completed";
-      finishActivity({ ...input, runId: activity.runId, sessionId }, activityId, {
+      const settled = finishActivity({ ...input, runId: activity.runId, sessionId }, activityId, {
         body: result.output,
         command: {
           command: result.command ?? activity.command?.command ?? "",
@@ -508,6 +481,7 @@ export class ToolPipeline {
         status,
         tool: activity.tool ? { ...activity.tool, resultSummary: result.output.slice(0, 500) } : undefined
       });
+      if (!settled) return;
       const evidence = reduceToolEvidence("run_command", result);
       input.store.appendContextEntry({
         kind: "context_update",
@@ -690,7 +664,7 @@ export class ToolPipeline {
     modelStepId: string,
     activityId: string,
     args: Record<string, unknown>,
-    prepared: ToolState
+    argsSummary: string
   ): ToolOutcome {
     const tasks = tasksFrom(args.tasks);
     input.store.append({ data: { items: tasks }, runId: input.runId, sessionId: input.sessionId, type: "tasks.changed" });
@@ -698,7 +672,16 @@ export class ToolPipeline {
     finishActivity(input, activityId, {
       body: text,
       status: "completed",
-      tool: { ...prepared, resultSummary: text }
+      tool: this.host.prepare({
+        args,
+        argumentsPreview: argsSummary,
+        callId: call.callId,
+        modelStepId,
+        name: call.name,
+        output: text,
+        projectRoot: input.projectRoot,
+        result: { mutatedWorkspace: false, output: text }
+      })
     });
     this.record(input, call, modelStepId, text, { action: "task", target: "执行任务" });
     return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "执行任务" };

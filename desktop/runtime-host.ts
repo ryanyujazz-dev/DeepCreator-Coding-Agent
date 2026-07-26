@@ -120,7 +120,7 @@ export class RuntimeHost {
           settled = true;
           clearTimeout(timeout);
           this.connectionValue = { baseUrl: `http://127.0.0.1:${message.port}`, phase: "ready", token };
-          this.setState({ phase: "ready" });
+          this.setState({ connection: this.connectionValue, phase: "ready" });
           resolve(this.connectionValue);
         } else if (message.type === "failed") {
           fail(new Error(message.error || "Runtime 启动失败。"));

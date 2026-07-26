@@ -185,6 +185,7 @@ export class DeepSeekProvider implements Provider {
         model: request.model,
         stream: true,
         stream_options: { include_usage: true },
+        ...(request.thinkingMode ? { thinking: { type: request.thinkingMode } } : {}),
         ...(request.tools.length > 0
           ? {
               tools: request.tools.map((tool) => ({

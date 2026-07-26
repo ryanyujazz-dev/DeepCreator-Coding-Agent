@@ -121,12 +121,34 @@ export function useWorkspace() {
 
   useEffect(() => {
     if (!window.deepseeker) return;
-    return window.deepseeker.runtime.onState((state) => {
-      if (state.phase === "ready") setConnection("connecting");
-      else if (state.phase === "failed" || state.phase === "stopped") setConnection("offline");
-      else setConnection("reconnecting");
+    let disposed = false;
+    const unsubscribe = window.deepseeker.runtime.onState((state) => {
+      if (state.phase === "ready") {
+        setConnection("connecting");
+        void (async () => {
+          const nextConnection = state.connection ?? await window.deepseeker!.runtime.connection();
+          runtimeApi.configure(nextConnection);
+          const [nextConfig] = await Promise.all([runtimeApi.config(), refreshSessions()]);
+          if (disposed) return;
+          setConfig(nextConfig);
+          setConnection("connected");
+          setError(null);
+        })().catch((nextError) => {
+          if (disposed) return;
+          setConnection("offline");
+          setError(nextError instanceof Error ? nextError.message : String(nextError));
+        });
+      } else if (state.phase === "failed" || state.phase === "stopped") {
+        setConnection("offline");
+      } else {
+        setConnection("reconnecting");
+      }
     });
-  }, []);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [refreshSessions]);
 
   useEffect(() => {
     const sessionId = session?.sessionId;

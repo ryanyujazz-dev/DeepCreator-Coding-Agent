@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { DesktopSettings } from "../../../shared/contracts/desktop";
+import { runtimeApi } from "../../runtimeApi";
 
 export function ModelSettings() {
   const [settings, setSettings] = useState<DesktopSettings | null>(null);
@@ -25,12 +26,13 @@ export function ModelSettings() {
     setError(null);
     setNotice(null);
     try {
-      const saved = await window.deepseeker.settings.save({
+      const result = await window.deepseeker.settings.save({
         apiKey: apiKey || undefined,
         defaultModel: settings?.defaultModel ?? "deepseek-v4-flash",
         zhipuApiKey: zhipuApiKey || undefined
       });
-      setSettings(saved);
+      runtimeApi.configure(result.connection);
+      setSettings(result.settings);
       setApiKey("");
       setZhipuApiKey("");
       setNotice("设置已保存，Runtime 已重新连接。");

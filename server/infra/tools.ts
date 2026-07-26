@@ -1001,31 +1001,6 @@ const objectSchema = (properties: Record<string, unknown>, required: string[] = 
 
 const toolRegistry: ToolRegistration[] = [
   {
-    name: "tools_use_statement",
-    description: "声明下一次普通工具调用或并行工具批次所属的用户可理解工作目的。Runtime 会把这项声明作为向用户展示的聚合活动标题；它不能替代普通工具。\n\n本工具必须独占一个 assistant 工具调用轮次：只调用一次 tools_use_statement，不得同时调用其他工具，然后等待其结果。紧接着的下一轮 assistant 消息才能调用目标普通工具或并行批次，不要再次调用 tools_use_statement。该普通工具轮次会消耗本次声明。没有紧邻有效声明的普通工具会被拒绝且不会执行。\n\n声明按语义目的分组，不按工具批次、文件批次或证据来源分组。title 应描述连续多批工具共同服务的具体结论、决策、问题或改动。首次开始一个目的、真正切换问题对象或工作意图、或输出过非空 assistant content 后，使用 mode=\"new\"。后续工具只要仍在推进当前标题表达的同一目的，就必须使用 mode=\"continue\"；读取的目录、配置、源码、文档、测试和 Git 信息不同，或工具组合发生变化，都不构成新目的。从现状评估转入具体修复、从修复转入验证，通常应使用 mode=\"new\"。\n\nmode=\"new\" 必须提供简短、正式的动宾短语 title。标题要说明为什么调用这些工具，而不是这些工具机械上做什么。适合的标题包括“评估项目架构与实现现状”“定位主题切换崩溃原因”“核对对比度状态更新链路”“验证工具声明语言约束”。禁止使用“读取项目配置文件与核心源码”“深入阅读关键源文件与测试”“检查 CI、测试与剩余组件”等按材料分类的标题，也禁止“继续工作”“推进开发”“修复高/中优先级问题”“处理剩余问题”“检查项目”“开始实现”等宽泛标题。title 不得描述工具名称、工具数量、完成状态、文件路径、命令内容、参数、内部推理或 Markdown。\n\n示例：评估项目现状时，第一批工具使用 mode=\"new\" 和 title=\"评估项目架构与实现现状\"；后续继续读取配置、源码、文档、测试、持久层或 CI 时都使用 mode=\"continue\"。开始修复其中一个已确认问题时，才用 mode=\"new\" 创建具体修复标题。\n\ntitle 必须遵循系统语言规则：与最新真实用户输入使用相同语言；输入语言无法可靠判断时，使用用户系统环境 locale 对应的语言。mode=\"continue\" 应省略 title，由 Runtime 复用当前具体标题。",
-    inputSchema: objectSchema({
-      mode: {
-        type: "string",
-        enum: ["new", "continue"],
-        description: "开始新的语义工作目的组，或继续当前有效目的组。证据来源、文件批次和工具组合变化时应继续；问题对象或工作意图真正变化时才新建。"
-      },
-      title: {
-        type: "string",
-        maxLength: 80,
-        description: "mode=\"new\" 时必填，mode=\"continue\" 时省略。使用简短、正式的动宾短语，描述连续工具组共同服务的具体语义目的；不得描述读取哪些材料或调用哪些工具。"
-      }
-    }, ["mode"]),
-    presentation: {
-      groupMode: "standalone",
-      detail: COLLAPSED_RAW_DETAIL,
-      effect: "control_only",
-      importance: "routine",
-      action: "task",
-      targetKind: "task",
-      resolveTarget: () => "tool use statement"
-    }
-  },
-  {
     // 搜索项目 Skill / MCP / 长尾能力(渐进式披露)
     name: "search_capabilities",
     description: "搜索未预加载进系统提示词的项目 Skill、MCP 工具或其他长尾能力。返回简短元数据；需要完整内容时，再使用 invoke_capability 加载。\n\n适用场景：需要可能以 Skill 提供的专业工作流，例如 PDF 处理、Android 开发或 iOS 开发；不确定项目中存在哪些能力。\n\n不适用场景：已经知道 capabilityId，应直接使用 invoke_capability；需要搜索项目源码，应使用 grep、glob 或 read_file。\n\n示例：\n  search_capabilities(query=\"pdf\")\n  search_capabilities(query=\"android emulator\", limit=5)",
@@ -1363,7 +1338,7 @@ const toolRegistry: ToolRegistration[] = [
   {
     // 请求进入计划模式
     name: "enter_plan",
-    description: "在产生任何副作用前，请求进入计划模式。计划模式只允许只读操作，包括读取、搜索、提问和形成方案，不得修改工作区或产生外部副作用。\n\n适用场景：任务复杂、跨模块、涉及重大权衡或迁移、存在安全风险、难以回滚；用户明确要求先制定计划。\n\n不适用场景：任务简单且明确，应直接完成；已经开始修改文件，计划模式只适用于实施前阶段。\n\n重要：必须先完成一个独立的 tools_use_statement 轮次。收到其结果后，下一轮只能调用 enter_plan，并且 Run 可能暂停直至用户确认。\n\n示例：\n  enter_plan(reason=\"该重构跨越 3 个模块和 12 个文件，并存在迁移风险\")",
+    description: "在产生任何副作用前，请求进入计划模式。计划模式只允许只读操作，包括读取、搜索、提问和形成方案，不得修改工作区或产生外部副作用。\n\n适用场景：任务复杂、跨模块、涉及重大权衡或迁移、存在安全风险、难以回滚；用户明确要求先制定计划。\n\n不适用场景：任务简单且明确，应直接完成；已经开始修改文件，计划模式只适用于实施前阶段。\n\n重要：这是独立控制工具，Run 可能暂停直至用户确认。\n\n示例：\n  enter_plan(reason=\"该重构跨越 3 个模块和 12 个文件，并存在迁移风险\")",
     inputSchema: objectSchema({
       reason: { type: "string", description: "说明本任务为何需要计划模式，例如“该重构跨越 3 个模块和 12 个文件，并存在迁移风险”" }
     }, ["reason"]),
@@ -1380,7 +1355,7 @@ const toolRegistry: ToolRegistration[] = [
   {
     // 在计划模式中向用户提问
     name: "ask_user",
-    description: "向用户提出一至三个会实质影响计划的简短问题，然后等待回答。每个问题可以提供两至三个选项，也可以开放回答。\n\n适用场景：在计划模式中已经收集足够上下文，可以形成方案，但完成计划前仍需要用户做关键决策，例如“使用 A 还是 B 库”“现在迁移还是保留向后兼容”。\n\n不适用场景：信息已经足够提交计划，应使用 submit_plan；当前处于工作模式，ask_user 仅限计划模式；问题琐碎且不会改变计划。\n\n重要：只询问答案会改变计划的问题。能通过工具自行查明的信息不要询问用户。\n\n示例：\n  ask_user(questions=[\n    {questionId: \"q1\", label: \"状态库\", prompt: \"应使用哪个状态管理库？\", options: [\"Zustand\", \"Redux\", \"Jotai\"]},\n    {questionId: \"q2\", label: \"迁移\", prompt: \"现在迁移，还是暂时保留向后兼容？\"}\n  ])",
+    description: "向用户提出一至三个会实质影响计划的简短问题，然后等待回答。每个问题可以提供两至三个选项，也可以开放回答。\n\n适用场景：在计划模式中已经收集足够上下文，可以形成方案，但完成计划前仍需要用户做关键决策，例如“使用 A 还是 B 库”“现在迁移还是保留向后兼容”。\n\n不适用场景：信息已经足够提交计划，应使用 submit_plan；当前处于工作模式，ask_user 仅限计划模式；问题琐碎且不会改变计划。\n\n重要：这是独立控制工具。只询问答案会改变计划的问题；能通过工具自行查明的信息不要询问用户。\n\n示例：\n  ask_user(questions=[\n    {questionId: \"q1\", label: \"状态库\", prompt: \"应使用哪个状态管理库？\", options: [\"Zustand\", \"Redux\", \"Jotai\"]},\n    {questionId: \"q2\", label: \"迁移\", prompt: \"现在迁移，还是暂时保留向后兼容？\"}\n  ])",
     inputSchema: objectSchema({
       questions: {
         type: "array",
@@ -1408,7 +1383,7 @@ const toolRegistry: ToolRegistration[] = [
   {
     // 提交实施方案
     name: "submit_plan",
-    description: "以 Markdown 提交一份可直接决策的完整实施计划供用户审阅。提交后 Run 会暂停并等待用户决定，绝不能自行开始实施。\n\n适用场景：在计划模式中，方案已经可直接决策，所有关键选择均已确定且没有待确认问题；ask_user 轮次已经结束，可以提交审批。\n\n不适用场景：仍有待确认问题，应先使用 ask_user；当前处于工作模式，应直接执行；任务足够简单，不需要计划。\n\n重要：计划必须是完整、可执行的 Markdown 文档，不能只是模糊提纲。应包含改动内容、原因、文件级步骤、风险和验证命令。\n\n示例：\n  submit_plan(title=\"增加 JWT 身份认证\", markdown=\"## 目标\\n使用 JWT 保护 API...\\n## 步骤\\n1. 安装 jsonwebtoken\\n2. 创建认证中间件\\n3. 增加登录路由\\n## 验证\\n- npm test\\n- curl localhost:3000/login\")",
+    description: "以 Markdown 提交一份可直接决策的完整实施计划供用户审阅。提交后 Run 会暂停并等待用户决定，绝不能自行开始实施。\n\n适用场景：在计划模式中，方案已经可直接决策，所有关键选择均已确定且没有待确认问题；ask_user 轮次已经结束，可以提交审批。\n\n不适用场景：仍有待确认问题，应先使用 ask_user；当前处于工作模式，应直接执行；任务足够简单，不需要计划。\n\n重要：这是独立控制工具。计划必须是完整、可执行的 Markdown 文档，不能只是模糊提纲；应包含改动内容、原因、文件级步骤、风险和验证命令。\n\n示例：\n  submit_plan(title=\"增加 JWT 身份认证\", markdown=\"## 目标\\n使用 JWT 保护 API...\\n## 步骤\\n1. 安装 jsonwebtoken\\n2. 创建认证中间件\\n3. 增加登录路由\\n## 验证\\n- npm test\\n- curl localhost:3000/login\")",
     inputSchema: objectSchema({
       title: { type: "string", description: "计划的简短标题，例如“使用 JWT 增加用户认证”" },
       markdown: { type: "string", description: "完整的 Markdown 计划正文，应包含目标、方案、文件级步骤、风险和验证方式" }
@@ -1426,7 +1401,7 @@ const toolRegistry: ToolRegistration[] = [
   {
     // 执行期任务清单(对标 Claude Code TodoWrite / Codex update_plan)
     name: "update_tasks",
-    description: "创建或替换当前 Run 的执行任务列表。任务用于跟踪工作模式中的进度，供执行过程自我管理，不用于用户审批计划。\n\n适用场景：任务包含三个或更多跨文件、跨阶段的独立步骤，例如“在代码库中重命名符号”可拆为读取用法、修改导入、修改调用点和运行类型检查；希望在工作过程中向用户展示进度；复杂缺陷修复包含多个调查步骤。\n\n不适用场景：简单问答或单文件编辑，应直接完成；只有一至两个步骤；当前处于计划模式，应使用 submit_plan。\n\n重要：复杂任务开始时调用 update_tasks 列出步骤，完成每一步后更新状态。任何时刻必须只保留一个 'running' 任务。本工具不用于计划审批，只用于提升执行透明度。\n\n示例，为“增加深色模式”建立高质量任务列表：\n  update_tasks(tasks=[\n    {taskId:'t1', label:'读取现有主题系统', status:'running'},\n    {taskId:'t2', label:'增加深色调色板 CSS 变量', status:'pending'},\n    {taskId:'t3', label:'在设置中接入主题开关', status:'pending'},\n    {taskId:'t4', label:'通过构建和手动检查验证', status:'pending'}\n  ])",
+    description: "创建或替换当前 Run 的执行任务列表。这是整体任务清单、当前任务以及 pending、running、completed、blocked 状态的唯一维护渠道。调用本工具后，界面会将任务进度直接呈现给用户；不要在调用工具时的回答内容中再次汇报任务计划进度，也不要重复播报任务完成、当前任务、下一任务、阶段切换或执行批次。\n\n适用场景：任务包含三个或更多跨文件、跨阶段的独立步骤，例如“在代码库中重命名符号”可拆为读取用法、修改导入、修改调用点和运行类型检查；希望在工作过程中向用户展示进度；复杂缺陷修复包含多个调查步骤。\n\n不适用场景：简单问答或单文件编辑，应直接完成；只有一至两个步骤；当前处于计划模式，应使用 submit_plan。\n\n重要：这是独立控制工具。复杂任务开始时调用 update_tasks 列出步骤，状态变化时提交包含全部步骤的完整列表。任何时刻必须只保留一个 'running' 任务；已经完成的步骤保留为 'completed'，受阻步骤标记为 'blocked'。如果已经建立任务清单，所有工作和验证结束后，必须在最后一个工作工具调用之后再次调用本工具，提交不含 pending 或 running 的最终完整列表。最终维护必须是独立的 assistant step，同一响应不要输出面向用户的最终回答；收到工具结果后的下一轮再给出最终回答。本工具不用于计划审批。\n\n示例，为“增加深色模式”建立高质量任务列表：\n  update_tasks(tasks=[\n    {taskId:'t1', label:'读取现有主题系统', status:'running'},\n    {taskId:'t2', label:'增加深色调色板 CSS 变量', status:'pending'},\n    {taskId:'t3', label:'在设置中接入主题开关', status:'pending'},\n    {taskId:'t4', label:'通过构建和手动检查验证', status:'pending'}\n  ])",
     inputSchema: objectSchema(
       {
         tasks: {
@@ -1495,7 +1470,6 @@ export function toolNames(): string[] {
 }
 
 export function toolCanRunInParallel(name: string): boolean {
-  if (name === "tools_use_statement") return false;
   if (name === "run_command") return true;
   if (name === "search_memory") return false;
   const registration = toolRegistry.find((tool) => tool.name === name);
@@ -1545,10 +1519,30 @@ function resultMetricsFor(
   action: ActionKind
 ): ToolMetrics {
   const lines = output.split("\n").filter(Boolean).length;
+  const grepItemCount = name === "grep" ? (() => {
+    const mode = String(args.output_mode ?? "files_with_matches");
+    if (mode === "json") {
+      try {
+        const hits = JSON.parse(output) as Array<{ path?: string }>;
+        return new Set(hits.map((hit) => hit.path).filter(Boolean)).size;
+      } catch {
+        return undefined;
+      }
+    }
+    const paths = output.split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("(") && line !== "未找到匹配内容。")
+      .map((line) => mode === "files_with_matches" ? line : line.split(":", 1)[0]);
+    return new Set(paths).size;
+  })() : undefined;
   return {
     byteCount: Buffer.byteLength(output),
     exitCode: result.exitCode,
-    itemCount: name === "list_files" || name === "glob" ? lines : name === "read_file" || action === "modify" ? 1 : undefined,
+    itemCount: name === "grep"
+      ? grepItemCount
+      : name === "list_files" || name === "glob"
+        ? lines
+        : name === "read_file" || action === "modify" ? 1 : undefined,
     matchCount: action === "search" ? lines : undefined,
     timedOut: result.timedOut,
     truncated: name === "read_file" && output.length >= Number(args.maxChars ?? 40_000)
@@ -1564,7 +1558,6 @@ export function activityKindForTool(tool: ToolState): ActivityKind {
 
 export function toolTitle(name: string): string {
   return ({
-    tools_use_statement: "声明工具用途",
     invoke_capability: "启用能力",
     ask_user: "询问方案问题",
     delete_file: "删除文件",

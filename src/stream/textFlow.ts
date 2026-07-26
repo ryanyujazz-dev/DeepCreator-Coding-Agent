@@ -24,15 +24,12 @@ export function splitGraphemes(text: string): string[] {
 }
 
 export function streamFrameQuota(pendingCount: number): number {
-  if (pendingCount <= 96) return 1;
-  if (pendingCount <= 240) return 2;
-  if (pendingCount <= 600) return 4;
-  return Math.min(24, Math.ceil(pendingCount / 45));
+  return Math.min(64, Math.max(2, Math.ceil(pendingCount / 8)));
 }
 
 export function streamReleaseInterval(pendingCount: number): number {
-  if (pendingCount <= 96) return 28;
-  if (pendingCount <= 240) return 20;
+  if (pendingCount <= 16) return 24;
+  if (pendingCount <= 96) return 16;
   return 0;
 }
 

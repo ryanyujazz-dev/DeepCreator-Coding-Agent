@@ -13,7 +13,7 @@ import { ContextEntry, ContextInput } from "../../shared/contracts/context";
 import { RunRegistry } from "./runRegistry";
 import { prompts } from "./prompts";
 import { Provider, ModelDelta, ModelMessage, ToolCall, ToolSpec } from "../../shared/contracts/provider";
-import { EventPayloadMap } from "../../shared/contracts/runtime";
+import { EventPayloadMap, Run } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { CapabilitySource, emptyCapabilitySource } from "../../shared/contracts/capability";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
@@ -29,14 +29,9 @@ import { finishRun } from "./runLifecycle";
 import { classifyInteraction } from "./interaction";
 import { ToolHost } from "./toolHost";
 import { ToolPipeline } from "./toolPipeline";
-import { PlanArgumentStream } from "./planStream";
-import { MutationArgumentStream } from "./mutationStream";
-import { durableToolState } from "./toolFacts";
-import {
-  resolveToolUseStatement,
-  ToolUseStatementGate,
-  TOOL_USE_STATEMENT_NAME
-} from "./toolUseStatement";
+import { dominantHeadlineKind } from "../../shared/domain/toolActivitySemantics";
+import { finishActivity as finishActivityOnce, updateActivity } from "./activityLifecycle";
+import { ThinkingSummaryLoop } from "./thinkingSummary";
 
 export type RunnerPorts = ContextPort & EventPort & EvidencePort & MemoryPort & MetricPort & SessionPort;
 
@@ -56,15 +51,40 @@ type RuntimeInput = {
   rules: RuleSource;
   workspaceBaseline: Baseline;
   continuation?: boolean;
+  summaryModel?: string;
+  thinkingSummary?: ThinkingSummaryLoop;
 };
 
-export type RunInput = Omit<RuntimeInput, "workspaceBaseline" | "capabilities" | "context" | "rules"> & Partial<Pick<RuntimeInput, "capabilities" | "context" | "rules">>;
+export type RunInput = Omit<RuntimeInput, "workspaceBaseline" | "capabilities" | "context" | "rules" | "thinkingSummary"> & Partial<Pick<RuntimeInput, "capabilities" | "context" | "rules">>;
 
 export class ModelProtocolError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ModelProtocolError";
   }
+}
+
+const TASK_MAINTENANCE_NEUTRAL_TOOLS = new Set(["ask_user", "enter_plan", "submit_plan", "update_tasks"]);
+
+export function finalTaskMaintenanceIssue(run: Run): string | undefined {
+  if (run.tasks.length === 0) return undefined;
+  const unfinished = run.tasks.filter((task) => task.status === "pending" || task.status === "running");
+  if (unfinished.length > 0) {
+    return `仍有 ${unfinished.length} 个任务处于 pending 或 running 状态`;
+  }
+  let lastTaskUpdate = -1;
+  let lastWorkTool = -1;
+  run.activities.forEach((activity, index) => {
+    const toolName = activity.tool?.toolName;
+    if (!toolName) return;
+    if (toolName === "update_tasks" && activity.status === "completed") lastTaskUpdate = index;
+    else if (!TASK_MAINTENANCE_NEUTRAL_TOOLS.has(toolName)) lastWorkTool = index;
+  });
+  if (lastTaskUpdate < lastWorkTool) {
+    return "最后一次 update_tasks 早于最后一次工作工具调用";
+  }
+  if (lastTaskUpdate < 0) return "任务清单尚未通过 update_tasks 完成最终维护";
+  return undefined;
 }
 
 function tryParseArguments(text: string): Record<string, unknown> | undefined {
@@ -84,24 +104,17 @@ function finishActivity(
   input: RuntimeInput,
   activityId: string,
   data: Omit<EventPayloadMap["activity.finished"], "finishedAt">
-): void {
-  input.store.append({
+): boolean {
+  return finishActivityOnce({
+    activityId,
     runId: input.runId,
-    data: { liveFiles: [], ...data, finishedAt: new Date().toISOString() },
     sessionId: input.sessionId,
-    type: "activity.finished",
-    activityId
-  });
+    store: input.store
+  }, data);
 }
 
 function suspendActivity(input: RuntimeInput, activityId: string): void {
-  input.store.append({
-    runId: input.runId,
-    data: { status: "suspended" as const },
-    sessionId: input.sessionId,
-    type: "activity.updated",
-    activityId
-  });
+  updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, { status: "suspended" });
 }
 
 function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {
@@ -163,26 +176,6 @@ function persistAssistantRecord(input: RuntimeInput, message: ModelMessage): Con
     text: message.text ?? undefined,
     toolCalls: message.toolCalls
   });
-}
-
-function persistToolProtocolRejection(
-  input: RuntimeInput,
-  call: ToolCall,
-  modelStepId: string,
-  text: string
-): ModelMessage {
-  input.store.appendContextEntry({
-    isError: true,
-    kind: "tool_result",
-    metadata: { modelStepId, protocolGate: "tools_use_statement" },
-    runId: input.runId,
-    sessionId: input.sessionId,
-    source: "runtime",
-    text,
-    toolCallKey: call.callId,
-    toolName: call.name
-  });
-  return { role: "tool", text, toolCallKey: call.callId };
 }
 
 function persistPreparedContext(input: RuntimeInput, previousTokens: number, prepared: BuiltContext): void {
@@ -312,13 +305,13 @@ async function executeRun(input: RuntimeInput): Promise<void> {
   ]);
   let answer = "";
   let protocolCorrectionCount = 0;
+  let taskMaintenanceCorrectionCount = 0;
   let consecutiveToolProtocolErrors = 0;
   let providerRequestCount = 0;
-  let toolUseStatementGate: ToolUseStatementGate = {};
   let initialThinkingCaptured = input.store.getRun(input.runId)?.activities
     .some((activity) => activity.kind === "thinking") ?? false;
   let visibleStageStarted = input.store.getRun(input.runId)?.activities
-    .some((activity) => activity.kind === "statement" || activity.kind === "message" || Boolean(activity.tool)) ?? false;
+    .some((activity) => activity.kind === "message" || Boolean(activity.tool)) ?? false;
 
   while (true) {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
@@ -336,24 +329,70 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     let thinkingActivity: string | undefined;
     let answerActivity: string | undefined;
     const modelStepId = `model_step_${randomUUID()}`;
-    const toolActivities = new Map<string, string>();
-    const toolArgumentBuffers = new Map<string, string>();
-    const planArgumentStreams = new Map<string, PlanArgumentStream>();
-    const mutationArgumentStreams = new Map<string, MutationArgumentStream>();
+    let reasoningBuffer = "";
+    let reasoningBufferTimer: ReturnType<typeof setTimeout> | undefined;
+    let thinkingSummaryPhaseEnded = false;
+    const endThinkingSummaryPhase = () => {
+      if (thinkingSummaryPhaseEnded) return;
+      thinkingSummaryPhaseEnded = true;
+      input.thinkingSummary?.endModelStep();
+    };
+    const flushReasoning = () => {
+      if (reasoningBufferTimer) clearTimeout(reasoningBufferTimer);
+      reasoningBufferTimer = undefined;
+      if (!reasoningBuffer) return;
+      const textDelta = reasoningBuffer;
+      reasoningBuffer = "";
+      input.store.append({
+        data: { modelStepId, textDelta },
+        runId: input.runId,
+        sessionId: input.sessionId,
+        type: "reasoning.updated"
+      });
+    };
+    const appendReasoning = (text: string) => {
+      if (!text) return;
+      reasoningBuffer += text;
+      if (reasoningBuffer.length >= 48 || reasoningBuffer.includes("\n")) {
+        flushReasoning();
+        return;
+      }
+      reasoningBufferTimer ??= setTimeout(flushReasoning, 40);
+    };
     const pendingBuffers = new Map<string, string>();
-    const statementForVisibleBatch = toolUseStatementGate.armed;
-
+    const pendingBufferTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const flushBuffered = (activityId: string) => {
+      const timer = pendingBufferTimers.get(activityId);
+      if (timer) clearTimeout(timer);
+      pendingBufferTimers.delete(activityId);
+      const text = pendingBuffers.get(activityId);
+      pendingBuffers.delete(activityId);
+      if (text) updateActivity({
+        activityId,
+        runId: input.runId,
+        sessionId: input.sessionId,
+        store: input.store
+      }, { bodyDelta: text });
+    };
+    const flushPendingBuffers = () => {
+      for (const activityId of pendingBuffers.keys()) flushBuffered(activityId);
+    };
     const appendBuffered = (activityId: string, text: string) => {
       const next = (pendingBuffers.get(activityId) ?? "") + text;
       if (next.length < 48 && !next.includes("\n")) {
         pendingBuffers.set(activityId, next);
+        if (!pendingBufferTimers.has(activityId)) {
+          pendingBufferTimers.set(activityId, setTimeout(() => flushBuffered(activityId), 40));
+        }
         return;
       }
-      pendingBuffers.delete(activityId);
-      input.store.append({ runId: input.runId, data: { bodyDelta: next }, sessionId: input.sessionId, type: "activity.updated", activityId });
+      pendingBuffers.set(activityId, next);
+      flushBuffered(activityId);
     };
     const onFragment = (fragment: ModelDelta) => {
       if (fragment.kind === "thinking") {
+        input.thinkingSummary?.append(fragment.text);
+        appendReasoning(fragment.text);
         if (!initialThinkingCaptured && !visibleStageStarted) {
           initialThinkingCaptured = true;
           thinkingActivity ??= openActivity(input, {
@@ -364,7 +403,9 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           });
         }
       } else if (fragment.kind === "answer") {
+        endThinkingSummaryPhase();
         visibleStageStarted = true;
+        flushReasoning();
         if (!answerActivity) {
           answerActivity = openActivity(input, {
             audience: "user",
@@ -375,72 +416,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         } else {
           appendBuffered(answerActivity, fragment.text);
         }
-      } else if (fragment.kind === "tool_call" && fragment.name) {
-        if (
-          fragment.name === TOOL_USE_STATEMENT_NAME
-          || fragment.name === "wait_command"
-          || fragment.name === "stop_command"
-        ) return;
-        if (!statementForVisibleBatch || answerActivity) return;
-        const argumentsText = (toolArgumentBuffers.get(fragment.callId) ?? "") + (fragment.argumentsText ?? "");
-        toolArgumentBuffers.set(fragment.callId, argumentsText);
-        const streamedArgs = tryParseArguments(argumentsText);
-        const streamedToolBase = input.tools.has(fragment.name) ? input.tools.prepare({
-            args: streamedArgs ?? {},
-            argumentsPreview: streamedArgs ? input.tools.summarizeArgs(fragment.name, streamedArgs) : "",
-            callId: fragment.callId,
-            modelStepId,
-            name: fragment.name,
-            projectRoot: input.projectRoot
-          }) : undefined;
-        const streamedTool = streamedToolBase
-          ? { ...streamedToolBase, statement: statementForVisibleBatch }
-          : undefined;
-        const activityId = toolActivities.get(fragment.callId) ?? openActivity(input, streamedTool ? {
-          audience: "user",
-          kind: input.tools.kind(streamedTool),
-          modelStepId,
-          startedAt: new Date().toISOString(),
-          tool: durableToolState(streamedTool)
-        } : {
-          audience: "user",
-          kind: "tool",
-          modelStepId,
-          startedAt: new Date().toISOString()
-        });
-        toolActivities.set(fragment.callId, activityId);
-        if (fragment.name === "write_file" || fragment.name === "edit_file") {
-          const mutationStream = mutationArgumentStreams.get(fragment.callId) ?? new MutationArgumentStream(fragment.name);
-          mutationArgumentStreams.set(fragment.callId, mutationStream);
-          const liveFile = mutationStream.push(fragment.argumentsText ?? "");
-          if (liveFile) {
-            input.store.append({
-              activityId,
-              data: { liveFiles: [liveFile] },
-              runId: input.runId,
-              sessionId: input.sessionId,
-              type: "activity.updated"
-            });
-          }
-        }
-        if (fragment.name === "submit_plan") {
-          const planStream = planArgumentStreams.get(fragment.callId) ?? new PlanArgumentStream();
-          planArgumentStreams.set(fragment.callId, planStream);
-          const update = planStream.push(fragment.argumentsText ?? "");
-          if (update.markdownDelta) appendBuffered(activityId, update.markdownDelta);
-        }
-        if (streamedArgs && streamedTool) {
-          input.store.append({
-            runId: input.runId,
-            data: {
-              kind: input.tools.kind(streamedTool),
-              tool: durableToolState(streamedTool)
-            },
-            sessionId: input.sessionId,
-            type: "activity.updated",
-            activityId
-          });
-        }
+      } else if (fragment.kind === "tool_call") {
+        endThinkingSummaryPhase();
+        visibleStageStarted = true;
+        flushReasoning();
+        flushPendingBuffers();
       }
     };
 
@@ -458,26 +438,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       onFragment,
       signal: input.signal,
       tools
+    }).finally(() => {
+      endThinkingSummaryPhase();
+      flushReasoning();
+      flushPendingBuffers();
     });
-    for (const [callId, mutationStream] of mutationArgumentStreams) {
-      const liveFile = mutationStream.flush();
-      const activityId = toolActivities.get(callId);
-      if (activityId && liveFile) {
-        input.store.append({
-          activityId,
-          data: { liveFiles: [liveFile] },
-          runId: input.runId,
-          sessionId: input.sessionId,
-          type: "activity.updated"
-        });
-      }
-    }
-    for (const [activityId, text] of pendingBuffers) {
-      const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
-      if (activity?.kind !== "thinking") {
-        input.store.append({ runId: input.runId, data: { bodyDelta: text }, sessionId: input.sessionId, type: "activity.updated", activityId });
-      }
-    }
     if (response.usage) {
       input.store.append({
         runId: input.runId,
@@ -496,12 +461,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     if (response.protocolIssue) {
       if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "completed" });
       if (answerActivity) finishActivity(input, answerActivity, { audience: "internal", error: response.protocolIssue.message, status: "failed" });
-      for (const activityId of toolActivities.values()) {
-        const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
-        if (activity?.status === "running") finishActivity(input, activityId, activity.kind === "plan"
-          ? { error: response.protocolIssue.message, status: "failed" }
-          : { body: response.protocolIssue.message, error: response.protocolIssue.message, status: "failed" });
-      }
       messages.push(response.continuationMessage);
       if (response.protocolIssue.retryable && protocolCorrectionCount === 0) {
         protocolCorrectionCount += 1;
@@ -517,28 +476,24 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     const runningCommandsAtFinal = response.toolCalls.length === 0
       ? input.tools.runningCommands(input.runId)
       : [];
+    const currentRun = response.toolCalls.length === 0
+      ? input.store.getRun(input.runId)
+      : undefined;
+    const taskMaintenanceIssue = currentRun
+      ? finalTaskMaintenanceIssue(currentRun)
+      : undefined;
+    const hasTaskMaintenanceCall = response.toolCalls.some((call) => call.name === "update_tasks");
     if (thinkingActivity) {
       if (response.toolCalls.length > 0) suspendActivity(input, thinkingActivity);
       else finishActivity(input, thinkingActivity, { status: "completed" });
     }
     if (answerActivity) finishActivity(input, answerActivity, {
-      audience: runningCommandsAtFinal.length > 0 ? "internal" : "user",
+      audience: runningCommandsAtFinal.length > 0 || taskMaintenanceIssue || hasTaskMaintenanceCall ? "internal" : "user",
       status: "completed"
     });
     if (response.answer.trim()) answer = response.answer.trim();
     messages.push(response.continuationMessage);
     persistAssistantRecord(input, response.continuationMessage);
-    const statementResolution = resolveToolUseStatement({
-      ...toolUseStatementGate,
-      calls: response.toolCalls,
-      contentBoundary: Boolean(response.answer.trim()),
-      modelStepId
-    });
-    toolUseStatementGate = {
-      active: statementResolution.active,
-      armed: statementResolution.armed
-    };
-
     if (response.finishCause === "length" || response.finishCause === "content_filter" || response.finishCause === "insufficient_system_resource") {
       throw new Error(response.finishCause === "length"
         ? "模型输出达到长度限制，未形成完整回答。"
@@ -546,23 +501,24 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           ? "模型输出被内容策略中止。"
           : "DeepSeek 推理资源不足，本轮未完成。");
     }
-    if (statementResolution.kind === "declaration" && statementResolution.armed) {
-      visibleStageStarted = true;
-      const statementActivity = openActivity(input, {
-        audience: "internal",
-        kind: "statement",
-        modelStepId,
-        startedAt: new Date().toISOString(),
-        statement: statementResolution.armed
-      });
-      finishActivity(input, statementActivity, { status: "completed" });
-    }
     if (response.toolCalls.length === 0) {
       if (runningCommandsAtFinal.length > 0) {
         answer = "";
         messages.push({
           role: "user",
-          text: `当前文本不能作为最终回答，因为仍有 ${runningCommandsAtFinal.length} 个托管命令正在运行。请先通过独占的 tools_use_statement 声明下一步目的，再调用 wait_command 等待，或调用 stop_command 结束命令；所有命令进入终态后才能给出最终回答。`
+          text: `当前文本不能作为最终回答，因为仍有 ${runningCommandsAtFinal.length} 个托管命令正在运行。请调用 wait_command 等待，或调用 stop_command 结束命令；所有命令进入终态后才能给出最终回答。`
+        });
+        continue;
+      }
+      if (taskMaintenanceIssue) {
+        taskMaintenanceCorrectionCount += 1;
+        if (taskMaintenanceCorrectionCount > 2) {
+          throw new ModelProtocolError(`模型未能在最终回答前维护任务计划：${taskMaintenanceIssue}。`);
+        }
+        answer = "";
+        messages.push({
+          role: "user",
+          text: `当前文本不能作为最终回答，因为任务计划尚未完成收尾：${taskMaintenanceIssue}。不要继续输出最终回答；请先在一个独立步骤中调用 update_tasks，提交完整且真实的任务列表，将已完成事项标记为 completed、受阻事项标记为 blocked，并确保没有 pending 或 running。收到工具结果后的下一轮再生成最终回答。`
         });
         continue;
       }
@@ -576,6 +532,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         sessionId: input.sessionId,
         type: "changes.changed"
       });
+      await input.thinkingSummary?.finish();
       finishRun({
         runId: input.runId,
         answer: answer || "已完成。",
@@ -586,31 +543,27 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       });
       return;
     }
-    if (statementResolution.kind === "rejected") {
-      const rejection = statementResolution.error ?? "工具协议错误。";
-      for (const activityId of toolActivities.values()) {
-        const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
-        if (activity?.status === "running") {
-          finishActivity(input, activityId, {
-            audience: "internal",
-            error: rejection,
-            status: "cancelled"
-          });
-        }
-      }
-      for (const call of [...response.toolCalls].sort((left, right) => left.index - right.index)) {
-        messages.push(persistToolProtocolRejection(input, call, modelStepId, rejection));
-      }
-      consecutiveToolProtocolErrors += 1;
-      if (consecutiveToolProtocolErrors >= 3) {
-        throw new ModelProtocolError("模型连续三次违反 tools_use_statement 协议。");
-      }
-      continue;
-    }
     let protocolErrors = 0;
     const deferredContextRecords: ContextInput[] = [];
     const deferredEvidenceRecords: ContextInput[] = [];
     const stepRejection = pipeline.stepRejection(response.toolCalls, modelStepId, input.projectRoot);
+    const stepHeadline = dominantHeadlineKind(response.toolCalls.flatMap((call) => {
+      try {
+        if (!input.tools.has(call.name)) return [];
+        const args = tryParseArguments(call.argumentsText);
+        if (!args) return [];
+        return [input.tools.prepare({
+          args,
+          argumentsPreview: input.tools.summarizeArgs(call.name, args),
+          callId: call.callId,
+          modelStepId,
+          name: call.name,
+          projectRoot: input.projectRoot
+        })];
+      } catch {
+        return [];
+      }
+    }));
     let suspended = false;
     const runToolCall = (call: ToolCall) => pipeline.run({
         baseline: input.workspaceBaseline,
@@ -620,7 +573,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         sessionId: input.sessionId,
         signal: input.signal,
         store: input.store
-      }, call, modelStepId, knownInstructionKeys, toolActivities.get(call.callId), stepRejection, statementResolution.statementByCallId.get(call.callId));
+      }, call, modelStepId, knownInstructionKeys, undefined, stepRejection, stepHeadline);
     const outcomes = new Map<string, Awaited<ReturnType<typeof runToolCall>>>();
     let parallelBatch: ToolCall[] = [];
     const flushParallel = async () => {
@@ -652,9 +605,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       const persisted = input.store.appendContextEntry(record);
       messages.push({ role: "user", text: persisted.text ?? "" });
     }
-    if (suspended) return;
-    const realToolCallCount = response.toolCalls.filter((call) => call.name !== TOOL_USE_STATEMENT_NAME).length;
-    consecutiveToolProtocolErrors = realToolCallCount > 0 && protocolErrors === realToolCallCount
+    if (suspended) {
+      await input.thinkingSummary?.finish();
+      return;
+    }
+    consecutiveToolProtocolErrors = protocolErrors === response.toolCalls.length
       ? consecutiveToolProtocolErrors + 1
       : 0;
     if (consecutiveToolProtocolErrors >= 3) {
@@ -664,17 +619,38 @@ async function executeRun(input: RuntimeInput): Promise<void> {
 }
 
 export async function runAgent(input: RunInput): Promise<void> {
+  const thinkingSummary = input.summaryModel
+    ? new ThinkingSummaryLoop({
+        initialThinking: input.store.getRun(input.runId)?.reasoningSteps?.at(-1)?.text,
+        initialTitle: input.store.getRun(input.runId)?.reasoningTitle,
+        model: input.summaryModel,
+        onTitle: (title) => {
+          const run = input.store.getRun(input.runId);
+          if (!run || ["completed", "failed", "cancelled"].includes(run.status)) return;
+          input.store.append({
+            data: { title },
+            runId: input.runId,
+            sessionId: input.sessionId,
+            type: "reasoning.title.updated"
+          });
+        },
+        provider: input.provider,
+        signal: input.signal
+      })
+    : undefined;
   const normalized: RuntimeInput = {
     ...input,
     capabilities: input.capabilities ?? emptyCapabilitySource,
     context: input.context ?? defaultContextConfig,
     rules: input.rules ?? emptyRuleSource,
+    thinkingSummary,
     workspaceBaseline: await input.tools.capture(input.projectRoot)
   };
   const workspaceBaseline = normalized.workspaceBaseline;
   try {
     await executeRun(normalized);
   } catch (error) {
+    thinkingSummary?.cancel();
     const message = error instanceof Error ? error.message : String(error);
     const cancelled = input.signal?.aborted ?? false;
     const run = input.store.getRun(input.runId);
@@ -697,6 +673,7 @@ export async function runAgent(input: RunInput): Promise<void> {
       });
     }
   } finally {
+    thinkingSummary?.cancel();
     await input.tools.stopCommands(input.runId);
     await input.tools.close(workspaceBaseline);
   }

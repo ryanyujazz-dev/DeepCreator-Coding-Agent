@@ -22,6 +22,7 @@ import { ensureScratchWorkspace } from "../server/infra/sessionWorkspace";
 import { toolHost } from "../server/infra/tools";
 import { commandManager } from "../server/infra/commandManager";
 import { createHttp } from "../server/transport/http";
+import { SUMMARY_MODEL_BY_PROVIDER } from "../server/bootstrap/runtime";
 import { emptyCapabilitySource } from "../shared/contracts/capability";
 import { emptyRuleSource } from "../shared/contracts/rules";
 import { Provider } from "../shared/contracts/provider";
@@ -41,6 +42,14 @@ const registration: SessionInput = {
   sessionId: "session_v2",
   title: "Runtime V2"
 };
+
+test("maps each provider family to its fixed reasoning summary model", () => {
+  assert.deepEqual(SUMMARY_MODEL_BY_PROVIDER, {
+    deepseek: "deepseek-v4-flash",
+    mock: "mock-agent",
+    zhipu: "glm-5-turbo"
+  });
+});
 
 function event(offset: number, type: Event["type"], data: unknown, runId?: string): Event {
   return {
@@ -193,18 +202,46 @@ test("runs ordered migrations idempotently", () => {
   }
 });
 
-test("keeps DeepSeek private response fields outside public Events", async () => {
+test("projects reasoning through a dedicated Run event without leaking provider field names", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-provider-boundary-"));
   try {
+    writeFileSync(path.join(directory, "sample.txt"), "sample\n");
     const store = new RuntimeStore(directory);
     store.createSession({ ...registration, projectRoot: directory, sessionId: "session_provider" });
     store.append({ data: { model: registration.model, prompt: "你好", startedAt: createdAt }, runId: "run_provider", sessionId: "session_provider", type: "run.started" });
+    let turn = 0;
     const provider: Provider = {
       capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: true, supportsThinking: true, supportsTools: true },
       async stream(request) {
-        request.onFragment?.({ kind: "thinking", text: "private reasoning" });
+        turn += 1;
+        if (turn === 1) {
+          request.onFragment?.({ kind: "thinking", text: "first private reasoning" });
+          await new Promise((resolve) => setTimeout(resolve, 70));
+          assert.equal(store.getRun("run_provider")?.reasoningSteps?.[0].text, "first private reasoning");
+          const toolCall = {
+            argumentsText: "{\"path\":\"sample.txt\"}",
+            callId: "call_reasoning_read",
+            index: 0,
+            name: "read_file"
+          };
+          request.onFragment?.({ ...toolCall, kind: "tool_call" });
+          return {
+            answer: "",
+            continuationMessage: { continuationThinking: "first private reasoning", role: "assistant", text: "", toolCalls: [toolCall] },
+            finishCause: "tool_calls",
+            thinking: "first private reasoning",
+            toolCalls: [toolCall]
+          };
+        }
+        request.onFragment?.({ kind: "thinking", text: "second private reasoning" });
         request.onFragment?.({ kind: "answer", text: "完成" });
-        return { answer: "完成", continuationMessage: { continuationThinking: "private reasoning", role: "assistant", text: "完成" }, finishCause: "complete", thinking: "private reasoning", toolCalls: [] };
+        return {
+          answer: "完成",
+          continuationMessage: { continuationThinking: "second private reasoning", role: "assistant", text: "完成" },
+          finishCause: "complete",
+          thinking: "second private reasoning",
+          toolCalls: []
+        };
       }
     };
     const registry = new RunRegistry();
@@ -212,7 +249,15 @@ test("keeps DeepSeek private response fields outside public Events", async () =>
     const serialized = JSON.stringify(store.readEvents("session_provider"));
     assert.ok(!serialized.includes("reasoning_content"));
     assert.ok(!serialized.includes("tool_calls"));
-    assert.ok(!serialized.includes("private reasoning"));
+    assert.ok(serialized.includes("first private reasoning"));
+    assert.ok(serialized.includes("second private reasoning"));
+    const steps = store.getRun("run_provider")?.reasoningSteps ?? [];
+    assert.equal(steps.length, 2);
+    assert.equal(steps[0].text, "first private reasoning");
+    assert.equal(steps[1].text, "second private reasoning");
+    assert.match(steps[0].modelStepId, /^model_step_/);
+    assert.match(steps[1].modelStepId, /^model_step_/);
+    assert.notEqual(steps[0].modelStepId, steps[1].modelStepId);
     store.close();
   } finally {
     rmSync(directory, { force: true, recursive: true });

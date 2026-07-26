@@ -170,8 +170,8 @@ export class ZhipuProvider implements Provider {
         type: "function"
       }));
     }
-    // GLM 深度思考:显式启用(DeepSeek 是自动的,GLM 需要在请求体里声明)。
-    body.thinking = { type: "enabled" };
+    // GLM 普通请求保持显式启用；轻量摘要请求可单独关闭思考。
+    body.thinking = { type: request.thinkingMode ?? "enabled" };
 
     const response = await fetch(this.apiUrl, {
       body: JSON.stringify(body),
