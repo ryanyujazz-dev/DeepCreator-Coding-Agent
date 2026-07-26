@@ -97,6 +97,21 @@ export class RuntimeClient {
     const sessionId = input.sessionId ?? browserPlatform.createId("session");
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, decodeSessionResponse, { body: JSON.stringify(input), method: "POST" });
   };
+  queueFollowUp = (sessionId: string, input: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; prompt: string }) => this.request(
+    `/api/sessions/${encodeURIComponent(sessionId)}/follow-ups`,
+    decodeSessionResponse,
+    { body: JSON.stringify(input), method: "POST" }
+  );
+  removeFollowUp = (sessionId: string, followUpId: string) => this.request(
+    `/api/sessions/${encodeURIComponent(sessionId)}/follow-ups/${encodeURIComponent(followUpId)}`,
+    decodeSessionResponse,
+    { method: "DELETE" }
+  );
+  steerFollowUp = (sessionId: string, followUpId: string) => this.request(
+    `/api/sessions/${encodeURIComponent(sessionId)}/follow-ups/${encodeURIComponent(followUpId)}/steer`,
+    decodeSessionResponse,
+    { method: "POST" }
+  );
   cancelRun = (runId: string) => this.request(`/api/runs/${encodeURIComponent(runId)}/cancel`, decodeOkResponse, { method: "POST" });
   stopCommand = (commandId: string) => this.request(`/api/commands/${encodeURIComponent(commandId)}/stop`, decodeOkResponse, { method: "POST" });
   setSessionSidebar = (sessionId: string, input: { archived?: boolean; pinned?: boolean }) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/sidebar`, decodeOkResponse, {

@@ -36,6 +36,9 @@ export function RunTimeline({
         .filter((activity) => activity.kind === "message" && activity.body.trim() === run.answer.trim())
         .map((activity) => activity.activityId));
   const timelineEntries = projectDisplayTimeline(run, run.activities, { suppressedContentActivityIds });
+  const hasSteerMessages = timelineEntries.some((entry) =>
+    entry.type === "activity" && entry.activity.kind === "user_message"
+  );
   const activeDisplaySegmentId = run.status === "running"
     ? [...timelineEntries].reverse().find((entry) => entry.type === "display_segment")?.entryId
     : undefined;
@@ -54,9 +57,10 @@ export function RunTimeline({
           : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
         <span>{elapsed(run)}</span>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
       </button>
-      {expanded && timelineEntries.length > 0 && (
+      {(expanded || hasSteerMessages) && timelineEntries.length > 0 && (
         <section className="work-process" aria-label="工作过程">
           {timelineEntries.map((entry) => {
+            if (!expanded && (entry.type !== "activity" || entry.activity.kind !== "user_message")) return null;
             if (entry.type === "display_segment") {
               return (
                 <DisplaySegmentRenderer

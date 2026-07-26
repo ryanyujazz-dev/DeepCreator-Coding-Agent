@@ -41,6 +41,35 @@ export const runInputSchema = {
   }
 } as const;
 
+export const followUpInputSchema = {
+  params: {
+    type: "object",
+    properties: { sessionId: id },
+    required: ["sessionId"]
+  },
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      model: id,
+      prompt: id,
+      accessMode: { type: "string", enum: ["request_approval", "smart_approval", "full_access"] },
+      mode: { type: "string", enum: ["work", "plan"] },
+      planEntry: { type: "string", enum: ["manual", "suggest", "auto"] }
+    },
+    required: ["model", "prompt", "accessMode", "mode", "planEntry"]
+  }
+} as const;
+
+export const followUpParamsSchema = {
+  params: {
+    type: "object",
+    additionalProperties: false,
+    properties: { sessionId: id, followUpId: id },
+    required: ["sessionId", "followUpId"]
+  }
+} as const;
+
 export const modeInputSchema = {
   ...sessionParamsSchema,
   body: {

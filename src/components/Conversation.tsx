@@ -207,7 +207,7 @@ export function Conversation({
               />
             </div>
           ))}
-          <div className="conversation-column-bottom-spacer" />
+          <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 30}px` }} />
         </div>
       ) : (
         <div className="conversation-empty-state"><h1>我们该构建什么？</h1></div>

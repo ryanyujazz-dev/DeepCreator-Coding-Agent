@@ -46,6 +46,7 @@ export class ContextQueries {
       contextTokens: 0,
       contextWindowTokens: getContextWindowTokens(this.deps.context),
       createdAt: now,
+      followUps: [],
       grants: [],
       lastOffset: 0,
       mode: "work",

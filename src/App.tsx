@@ -77,6 +77,7 @@ export function App() {
     resolvePlan,
     revisePlan,
     refreshBalance,
+    removeFollowUp,
     answerQuestion,
     searchSessions,
     selectSession,
@@ -86,6 +87,7 @@ export function App() {
     session,
     sessions,
     startRun,
+    steerFollowUp,
     stopCommand,
     retryRuntime,
     workspace
@@ -268,11 +270,15 @@ export function App() {
               workspace={workspace}
             />
             <Conversation notices={modelNotices} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
-            {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
-            {workspace?.exists === false && <div className="composer-error">项目目录不存在，请新建任务并重新选择项目。</div>}
-            {error && <div className="composer-error">{error}</div>}
+            {(workspace?.exists === false || error) && (
+              <div className="conversation-error-overlay">
+                {workspace?.exists === false && <div className="conversation-error-toast" role="alert">项目目录不存在，请新建任务并重新选择项目。</div>}
+                {error && <div className="conversation-error-toast" role="alert">{error}</div>}
+              </div>
+            )}
             <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
             <div className={`composer-stack ${!session ? "has-project-context" : ""}`}>
+              {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
               {currentRun && (
                 <div
                   aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
@@ -297,6 +303,7 @@ export function App() {
                 disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : draftWorkspace ? undefined : "正在准备工作区"}
                 isRunning={agentRunning}
                 isWaiting={Boolean(waitingRun)}
+                followUps={session?.followUps ?? []}
                 model={model}
                 models={config?.models ?? []}
                 onCancel={() => void cancelRun()}
@@ -305,8 +312,10 @@ export function App() {
                 onAnswerQuestion={answerQuestion}
                 onModelChange={handleModelChange}
                 onRefreshBalance={refreshBalance}
+                onRemoveFollowUp={(followUpId) => void removeFollowUp(followUpId)}
                 onResolvePlan={resolvePlan}
                 onSubmit={startRun}
+                onSteerFollowUp={(followUpId) => void steerFollowUp(followUpId)}
                 pendingPlan={pendingPlan}
                 pendingQuestion={pendingQuestion}
                 resetKey={session?.sessionId ?? `draft:${draftRevision}`}

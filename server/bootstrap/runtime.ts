@@ -4,6 +4,7 @@ import { RunLauncher } from "../app/runLauncher";
 import { Runner } from "../app/runner";
 import { CancelRun } from "../app/cancelRun";
 import { ContextQueries } from "../app/contextQueries";
+import { FollowUpService } from "../app/followUps";
 import { SessionService } from "../app/sessionService";
 import { StartRun } from "../app/startRun";
 import { WorkspaceQueries } from "../app/workspaceQueries";
@@ -152,6 +153,8 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     tools: toolHost.specs,
     workspaceRoot: path.resolve(options.workspaceRoot)
   });
+  const followUps = new FollowUpService({ registry, startRun, store, system });
+  followUps.recover();
   const app = createHttp({
     cancelRun: new CancelRun(registry, commandManager),
     config: {
@@ -165,6 +168,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
       workspaceRoot: path.resolve(options.workspaceRoot)
     },
     contextQueries,
+    followUps,
     launcher,
     providerFor,
     registry,
@@ -181,6 +185,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     app.server.closeAllConnections();
     await registry.cancelAllAndWait();
     await commandManager.stopAll();
+    followUps.close();
     await app.close().catch(() => undefined);
     store.close();
   };

@@ -116,6 +116,16 @@ export async function spawnSubAgent(input: SpawnAgentInput): Promise<string> {
     sessionId: childSessionId,
     title: `子 Agent: ${input.description.slice(0, 60)}`
   });
+  input.store.append({
+    data: { model: input.model, prompt: input.prompt, startedAt: input.registry.system.now() },
+    runId: childRunId,
+    sessionId: childSessionId,
+    type: "run.started"
+  });
+  const childController = input.registry.startRun(childRunId);
+  const abortChild = () => childController.abort(input.signal?.reason);
+  if (input.signal?.aborted) abortChild();
+  else input.signal?.addEventListener("abort", abortChild, { once: true });
 
   // 启动子 Run(continuation=true 跳过 plan-mode 交互入口)
   try {
@@ -132,13 +142,16 @@ export async function spawnSubAgent(input: SpawnAgentInput): Promise<string> {
       rules: input.rules ?? emptyRuleSource,
       store: input.store,
       tools: restrictedTools,
-      signal: input.signal,
+      signal: childController.signal,
       continuation: true
     });
   } catch (error) {
     // 子 Agent 失败不崩溃父 Run,返回错误摘要
     const message = error instanceof Error ? error.message : String(error);
     return `子 Agent 执行失败:${message}`;
+  } finally {
+    input.signal?.removeEventListener("abort", abortChild);
+    input.registry.finishRun(childRunId);
   }
 
   // 提取子 Session 的最终 assistant 回答

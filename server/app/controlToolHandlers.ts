@@ -21,19 +21,32 @@ type ControlToolCallbacks = {
   now: () => string;
 };
 
-function tasksFrom(value: unknown, createId: (prefix: string) => string): Task[] {
+function tasksFrom(value: unknown): Task[] {
   if (!Array.isArray(value) || value.length === 0) throw new Error("执行任务至少需要一项。");
-  return value.map((raw) => {
-    if (!raw || typeof raw !== "object") throw new Error("执行任务格式无效。");
+  const tasks = value.map((raw, index) => {
+    if (!raw || typeof raw !== "object") throw new Error(`执行任务第 ${index + 1} 项参数格式无效。`);
     const item = raw as Record<string, unknown>;
-    const status = String(item.status ?? "pending") as Task["status"];
-    if (!["pending", "running", "completed", "blocked"].includes(status)) throw new Error("执行任务状态无效。");
+    const taskId = typeof item.taskId === "string" ? item.taskId.trim() : "";
+    const label = typeof item.label === "string" ? item.label.trim() : "";
+    const status = typeof item.status === "string" ? item.status as Task["status"] : undefined;
+    if (!taskId) throw new Error(`执行任务第 ${index + 1} 项缺少必填参数 taskId。`);
+    if (!label) throw new Error(`执行任务第 ${index + 1} 项缺少必填参数 label。必须在每次更新中提交完整的用户可读任务描述。`);
+    if (!status || !["pending", "running", "completed", "blocked"].includes(status)) {
+      throw new Error(`执行任务第 ${index + 1} 项 status 参数无效。`);
+    }
     return {
-      label: String(item.label ?? item.taskId ?? "未命名任务"),
+      label,
       status,
-      taskId: String(item.taskId ?? createId("task"))
+      taskId
     };
   });
+  if (new Set(tasks.map((task) => task.taskId)).size !== tasks.length) {
+    throw new Error("执行任务的 taskId 参数必须唯一。");
+  }
+  if (tasks.filter((task) => task.status === "running").length > 1) {
+    throw new Error("执行任务同时最多只能有一个 running 状态。");
+  }
+  return tasks;
 }
 
 export class ControlToolHandlers {
@@ -177,7 +190,7 @@ export class ControlToolHandlers {
 
   private updateTasks(input: Parameters<ControlToolHandlers["handle"]>[0]): ToolOutcome {
     const { activityId, args, argsSummary, call, context, modelStepId } = input;
-    const tasks = tasksFrom(args.tasks, this.callbacks.createId);
+    const tasks = tasksFrom(args.tasks);
     context.store.append({ data: { items: tasks }, runId: context.runId, sessionId: context.sessionId, type: "tasks.changed" });
     const text = "执行任务已更新。";
     this.callbacks.finishActivity(context, activityId, {

@@ -15,10 +15,29 @@ type PendingApproval = {
   resolve: (decision: ApprovalChoice) => void;
 };
 
+type InterruptibleStep = {
+  controller: AbortController;
+  detach: () => void;
+  reason?: "steer";
+};
+
+export type RunStepControl = {
+  interruptedBySteer: () => boolean;
+  release: () => void;
+  signal: AbortSignal;
+};
+
+export type RunSteer = {
+  prompt: string;
+  steerId: string;
+};
+
 export class RunRegistry {
   private readonly runs = new Map<string, AbortController>();
   private readonly approvals = new Map<string, PendingApproval>();
   private readonly finishListeners = new Map<string, Set<() => void>>();
+  private readonly interruptibleSteps = new Map<string, InterruptibleStep>();
+  private readonly steers = new Map<string, RunSteer[]>();
 
   constructor(readonly system: SystemPort) {}
 
@@ -33,10 +52,63 @@ export class RunRegistry {
   }
 
   finishRun(runId: string): void {
+    const step = this.interruptibleSteps.get(runId);
+    step?.detach();
+    this.interruptibleSteps.delete(runId);
     this.runs.delete(runId);
+    this.steers.delete(runId);
     const listeners = this.finishListeners.get(runId);
     this.finishListeners.delete(runId);
     listeners?.forEach((listener) => listener());
+  }
+
+  enqueueSteer(runId: string, steer: RunSteer): boolean {
+    if (!this.runs.has(runId)) return false;
+    const pending = this.steers.get(runId) ?? [];
+    pending.push(steer);
+    this.steers.set(runId, pending);
+    return true;
+  }
+
+  interruptForSteer(runId: string): boolean {
+    const step = this.interruptibleSteps.get(runId);
+    if (!step) return this.runs.has(runId);
+    step.reason = "steer";
+    step.controller.abort(new DOMException("当前步骤已被用户引导打断。", "AbortError"));
+    return true;
+  }
+
+  hasSteers(runId: string): boolean {
+    return (this.steers.get(runId)?.length ?? 0) > 0;
+  }
+
+  beginInterruptibleStep(runId: string): RunStepControl {
+    const run = this.runs.get(runId);
+    if (!run) throw new Error(`Run ${runId} is not active.`);
+    const previous = this.interruptibleSteps.get(runId);
+    previous?.detach();
+    const controller = new AbortController();
+    const step: InterruptibleStep = { controller, detach: () => undefined };
+    const abortWithRun = () => controller.abort(run.signal.reason);
+    run.signal.addEventListener("abort", abortWithRun, { once: true });
+    step.detach = () => run.signal.removeEventListener("abort", abortWithRun);
+    this.interruptibleSteps.set(runId, step);
+    if (run.signal.aborted) abortWithRun();
+    return {
+      interruptedBySteer: () => step.reason === "steer",
+      release: () => {
+        if (this.interruptibleSteps.get(runId) !== step) return;
+        step.detach();
+        this.interruptibleSteps.delete(runId);
+      },
+      signal: controller.signal
+    };
+  }
+
+  takeSteers(runId: string): RunSteer[] {
+    const pending = this.steers.get(runId) ?? [];
+    this.steers.delete(runId);
+    return pending;
   }
 
   afterRun(runId: string, listener: () => void): () => void {

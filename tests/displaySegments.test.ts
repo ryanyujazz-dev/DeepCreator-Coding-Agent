@@ -104,6 +104,20 @@ test("keeps later thinking in the activity slot after content exists", () => {
   assert.equal(segment.activitySlots[0]?.visual.label, "正在思考");
 });
 
+test("keeps an in-run user steer as a standalone timeline entry", () => {
+  const steer = activity(3, {
+    body: "停止修改配置，先检查测试。",
+    kind: "user_message",
+    tool: undefined
+  });
+  const entries = projectDisplayTimeline(run([message(1, "开始处理。"), activity(2), steer, thinking(4)]));
+  assert.equal(entries.length, 3);
+  assert.equal(entries[1].type, "activity");
+  if (entries[1].type !== "activity") return;
+  assert.equal(entries[1].activity.kind, "user_message");
+  assert.equal(entries[1].activity.body, "停止修改配置，先检查测试。");
+});
+
 test("holds suspended thinking visually without treating it as terminal", () => {
   const held = onlySegment(run([thinking(1, "suspended")]));
   assert.equal(held.activitySlots[0]?.logicalState, "empty");

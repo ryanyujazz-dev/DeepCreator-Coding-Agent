@@ -7,6 +7,7 @@ import { testSystem, TestRunRegistry as RunRegistry } from "./support/system";
 import { RunLauncher } from "../server/app/runLauncher";
 import { CancelRun } from "../server/app/cancelRun";
 import { ContextQueries } from "../server/app/contextQueries";
+import { FollowUpService } from "../server/app/followUps";
 import { runAgent } from "../server/app/runner";
 import { SessionService } from "../server/app/sessionService";
 import { StartRun } from "../server/app/startRun";
@@ -295,6 +296,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     cancelRun: new CancelRun(registry, commandManager),
     config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, models: [], workspaceRoot: directory },
     contextQueries,
+    followUps: new FollowUpService({ registry, startRun, store, system: testSystem }),
     launcher,
     providerFor,
     registry,
@@ -439,6 +441,7 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
     cancelRun: new CancelRun(registry, commandManager),
     config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, models: [], workspaceRoot: directory },
     contextQueries,
+    followUps: new FollowUpService({ registry, startRun, store, system: testSystem }),
     launcher,
     providerFor,
     registry,

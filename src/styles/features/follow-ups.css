@@ -1,0 +1,152 @@
+/* The composer is a floating overlay. Conversation.tsx measures from its top
+   edge to the viewport bottom and gives the scroll flow that distance plus
+   30px, so the last turn clears the composer with deliberate breathing room. */
+.conversation-main > .composer-stack {
+  position: absolute;
+  right: 0;
+  bottom: 18px;
+  left: 0;
+  z-index: 8;
+  margin: 0 auto;
+}
+
+.conversation-main .conversation-scroll {
+  padding-bottom: 18px;
+}
+
+.conversation-error-overlay {
+  position: absolute;
+  z-index: 10;
+  top: 70px;
+  right: 0;
+  left: 0;
+  display: flex;
+  padding: 0 24px;
+  align-items: center;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.conversation-error-toast {
+  display: flex;
+  width: fit-content;
+  max-width: min(720px, 100%);
+  min-height: 30px;
+  padding: 6px 12px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 20%, var(--color-border));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-surface-elevated) 94%, transparent);
+  box-shadow: var(--shadow-floating);
+  color: var(--color-danger);
+  font-size: var(--type-meta-size);
+  font-weight: 650;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-align: center;
+  backdrop-filter: blur(18px);
+}
+
+.inspector-layout-reserved .conversation-error-overlay {
+  right: var(--inspector-boundary-offset);
+}
+
+.queued-follow-ups {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  margin: 0 14px -8px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 18px 18px 10px 10px;
+  background: color-mix(in srgb, var(--color-surface-elevated) 96%, transparent);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(18px);
+}
+
+.queued-follow-up {
+  display: grid;
+  min-height: 42px;
+  padding: 0 9px 8px 12px;
+  align-items: center;
+  grid-template-columns: 16px minmax(0, 1fr) auto 30px;
+  color: var(--color-text-secondary);
+  column-gap: 7px;
+}
+
+.queued-follow-up + .queued-follow-up {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.queued-follow-up > span {
+  overflow: hidden;
+  font-size: var(--type-body-size);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queued-follow-up > svg {
+  color: var(--color-text-subtle);
+}
+
+.queued-follow-up-steer {
+  display: inline-flex;
+  height: 28px;
+  padding: 0 8px;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--type-meta-size);
+  font-weight: 620;
+  gap: 4px;
+}
+
+.queued-follow-up-steer:hover:not(:disabled) {
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+}
+
+.queued-follow-up-steer:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.work-process .steer-user-turn {
+  width: 100%;
+  margin: 8px 0 20px;
+}
+
+.work-process .steer-user-turn p {
+  font-family: var(--font-family-ui);
+  font-size: var(--type-conversation-size);
+  font-weight: 560;
+  line-height: var(--type-conversation-line-height);
+}
+
+.queue-button {
+  background: var(--theme-blue);
+  color: var(--color-on-accent);
+}
+
+@media (max-width: 760px) {
+  .conversation-main > .composer-stack {
+    bottom: 12px;
+  }
+
+  .conversation-main .conversation-scroll {
+    padding-bottom: 12px;
+  }
+
+  .conversation-error-overlay {
+    top: 60px;
+    padding-inline: 14px;
+  }
+
+  .queued-follow-ups {
+    margin-inline: 8px;
+  }
+}

@@ -52,6 +52,7 @@ export function activityTitle(activity: Pick<Activity, "kind" | "title" | "tool"
     error: "运行错误",
     file_mutation: "修改文件",
     message: "回复",
+    user_message: "用户引导",
     plan: "正在编写计划",
     thinking: "正在思考",
     tool: "使用工具"

@@ -1,6 +1,6 @@
-import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
+import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, Trash2, X } from "lucide-react";
 import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessMode, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
+import { AccessMode, FollowUp, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { ModelOption } from "../../shared/contracts/provider";
 import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 import { FloatingSurface, IconButton, PillButton } from "../shared-ui/ControlPrimitives";
@@ -16,6 +16,7 @@ export function Composer({
   contextConfig,
   contextObserver,
   disabledReason,
+  followUps,
   isRunning,
   isWaiting,
   model,
@@ -26,8 +27,10 @@ export function Composer({
   onAnswerQuestion,
   onModelChange,
   onRefreshBalance,
+  onRemoveFollowUp,
   onResolvePlan,
   onSubmit,
+  onSteerFollowUp,
   resetKey,
   pendingPlan,
   pendingQuestion,
@@ -38,6 +41,7 @@ export function Composer({
   contextConfig: RuntimeConfig | null;
   contextObserver: RuntimeContextObserver | null;
   disabledReason?: string;
+  followUps: FollowUp[];
   isRunning: boolean;
   isWaiting: boolean;
   model: string;
@@ -48,8 +52,10 @@ export function Composer({
   onAnswerQuestion: (interactionId: string, answers: Record<string, string>) => Promise<void> | void;
   onModelChange: (model: string) => void;
   onRefreshBalance: () => void;
+  onRemoveFollowUp: (followUpId: string) => void;
   onResolvePlan: (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => Promise<void> | void;
   onSubmit: (prompt: string) => Promise<boolean>;
+  onSteerFollowUp: (followUpId: string) => void;
   pendingPlan?: Plan;
   pendingQuestion?: Question;
   resetKey: string | number;
@@ -133,7 +139,7 @@ export function Composer({
   }, [contextConfig, contextObserver, contextSort]);
   async function sendDraft() {
     const prompt = draft.trim();
-    if (!prompt || isRunning || isWaiting || disabledReason || submitting) return;
+    if (!prompt || isWaiting || disabledReason || submitting) return;
     setSubmitting(true);
     try {
       const succeeded = await onSubmit(prompt);
@@ -175,10 +181,28 @@ export function Composer({
       setInteractionBusy(false);
     }
   };
+  const queuedRows = followUps.length > 0 ? (
+    <div aria-label="排队消息" className="queued-follow-ups" role="list">
+      {followUps.map((followUp) => (
+        <div className="queued-follow-up" key={followUp.followUpId} role="listitem">
+          <CornerDownRight aria-hidden="true" size={14} />
+          <span title={followUp.prompt}>{followUp.prompt}</span>
+          <PillButton
+            className="queued-follow-up-steer"
+            disabled={!isRunning || submitting}
+            onClick={() => onSteerFollowUp(followUp.followUpId)}
+          >
+            <CornerDownRight size={13} />引导
+          </PillButton>
+          <IconButton label="删除排队消息" onClick={() => onRemoveFollowUp(followUp.followUpId)}><Trash2 size={14} /></IconButton>
+        </div>
+      ))}
+    </div>
+  ) : null;
 
   if (pendingPlan) {
     return (
-      <form className="composer interaction-composer plan-review-composer" onSubmit={(event) => event.preventDefault()}>
+      <>{queuedRows}<form className="composer interaction-composer plan-review-composer" onSubmit={(event) => event.preventDefault()}>
         <header className="interaction-header">
           <strong>实施此计划？</strong>
           <IconButton disabled={interactionBusy} label="取消计划" onClick={() => void resolvePlan("cancel")}><X size={14} /></IconButton>
@@ -209,7 +233,7 @@ export function Composer({
           </div>
           <button disabled={interactionBusy} onClick={() => void resolvePlan("cancel")} type="button">取消计划</button>
         </footer>
-      </form>
+      </form></>
     );
   }
 
@@ -217,7 +241,7 @@ export function Composer({
     const prompt = pendingQuestion.prompts[questionIndex] ?? pendingQuestion.prompts[0];
     const complete = pendingQuestion.prompts.every((item) => answers[item.questionId]?.trim());
     return (
-      <form className="composer interaction-composer question-composer" onSubmit={(event) => { event.preventDefault(); void submitAnswers(); }}>
+      <>{queuedRows}<form className="composer interaction-composer question-composer" onSubmit={(event) => { event.preventDefault(); void submitAnswers(); }}>
         <header className="interaction-header">
           <strong>{prompt.prompt}</strong>
           {pendingQuestion.prompts.length > 1 && <div className="question-pagination"><IconButton disabled={questionIndex === 0} label="上一项" onClick={() => setQuestionIndex((value) => Math.max(0, value - 1))}><ChevronLeft size={13} /></IconButton><span>{questionIndex + 1} of {pendingQuestion.prompts.length}</span><IconButton disabled={questionIndex === pendingQuestion.prompts.length - 1} label="下一项" onClick={() => setQuestionIndex((value) => Math.min(pendingQuestion.prompts.length - 1, value + 1))}><ChevronRight size={13} /></IconButton></div>}
@@ -229,12 +253,12 @@ export function Composer({
         ))}
         {!prompt.options?.length && <div className="interaction-feedback-row"><span className="interaction-number"><PencilLine size={13} /></span><textarea aria-label={prompt.label} onChange={(event) => setAnswers((current) => ({ ...current, [prompt.questionId]: event.target.value }))} placeholder={prompt.label} value={answers[prompt.questionId] ?? ""} /></div>}
         <footer className="interaction-footer"><span>{pendingQuestion.prompts.length > 1 ? `已回答 ${Object.values(answers).filter((value) => value.trim()).length}/${pendingQuestion.prompts.length}` : ""}</span><button className="interaction-submit" disabled={interactionBusy || !complete} type="submit">提交回答</button></footer>
-      </form>
+      </form></>
     );
   }
   return (
-    <form aria-busy={submitting} className="composer" onSubmit={submit}>
-      <textarea aria-label="输入任务" disabled={isRunning || isWaiting || submitting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "Agent 正在处理" : submitting ? "正在创建任务" : "随心输入")} ref={textareaRef} value={draft} />
+    <>{queuedRows}<form aria-busy={submitting} className="composer" onSubmit={submit}>
+      <textarea aria-label="输入任务" disabled={isWaiting || submitting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "输入后按 Enter 加入队列" : submitting ? "正在创建任务" : "随心输入")} ref={textareaRef} value={draft} />
       <div className="composer-row">
         <div className="composer-left">
           <div className="add-selector">
@@ -342,10 +366,22 @@ export function Composer({
               </FloatingSurface>
             )}
           </div>
-          <IconButton className="plain-icon" disabled={isWaiting || submitting} label="语音输入"><Mic size={16} /></IconButton>{isRunning ? <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton> : <IconButton className={"send-button" + (draft.trim() ? " has-draft" : "")} disabled={isWaiting || submitting || Boolean(disabledReason)} label="发送" type="submit"><ArrowUp size={18} /></IconButton>}
+          <IconButton className="plain-icon" disabled={isWaiting || submitting} label="语音输入"><Mic size={16} /></IconButton>
+          {isRunning && !draft.trim() ? (
+            <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton>
+          ) : (
+            <IconButton
+              className={"send-button" + (draft.trim() ? " has-draft" : "")}
+              disabled={isWaiting || submitting || Boolean(disabledReason)}
+              label={isRunning ? "加入队列" : "发送"}
+              type="submit"
+            >
+              <ArrowUp size={18} />
+            </IconButton>
+          )}
         </div>
       </div>
-    </form>
+    </form></>
   );
 }
 

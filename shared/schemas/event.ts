@@ -48,6 +48,17 @@ function task(value: unknown): boolean {
     && oneOf(value.status, ["pending", "running", "completed", "blocked"] as const);
 }
 
+function followUp(value: unknown): boolean {
+  return record(value)
+    && string(value.followUpId)
+    && string(value.prompt)
+    && string(value.createdAt)
+    && string(value.model)
+    && oneOf(value.accessMode, ["request_approval", "smart_approval", "full_access"] as const)
+    && oneOf(value.mode, ["work", "plan"] as const)
+    && oneOf(value.planEntry, ["manual", "suggest", "auto"] as const);
+}
+
 function plan(value: unknown): boolean {
   return record(value)
     && string(value.planId)
@@ -174,6 +185,8 @@ const payloadSchemas = {
     && optional(value.previousMode, (item) => oneOf(item, ["work", "plan"] as const))
     && optional(value.reason, string)
     && optional(value.source, (item) => oneOf(item, ["user", "model", "runtime"] as const)),
+  "follow_up.queued": (value) => record(value) && followUp(value.followUp),
+  "follow_up.removed": (value) => record(value) && string(value.followUpId),
   "run.started": (value) => record(value)
     && string(value.model)
     && string(value.prompt)
@@ -217,7 +230,7 @@ const payloadSchemas = {
     && optional(value.inputTokens, number)
     && optional(value.outputTokens, number),
   "activity.started": (value) => record(value)
-    && oneOf(value.kind, ["thinking", "message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const)
+    && oneOf(value.kind, ["thinking", "message", "user_message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const)
     && oneOf(value.audience, ["user", "debug", "internal"] as const)
     && optional(value.title, string)
     && string(value.startedAt)
@@ -231,7 +244,7 @@ const payloadSchemas = {
     && optional(value.command, (item) => command(item, true))
     && optional(value.files, (item) => Array.isArray(item) && item.every(fileChange))
     && optional(value.liveFiles, (item) => Array.isArray(item) && item.every(fileChange))
-    && optional(value.kind, (item) => oneOf(item, ["thinking", "message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const))
+    && optional(value.kind, (item) => oneOf(item, ["thinking", "message", "user_message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const))
     && optional(value.status, (item) => oneOf(item, ["running", "suspended"] as const))
     && optional(value.title, string)
     && optional(value.tool, (item) => toolState(item, true)),
@@ -281,9 +294,14 @@ export const eventSchema = {
       const type = input.type as EventType;
       const validate = payloadSchemas[type] as (value: unknown) => boolean;
       if (!validate(input.data)) issues.push({ path: "data", message: `Invalid payload for ${type}.` });
-      if (type !== "session.created" && type !== "session.updated" && type !== "mode.changed" && !record(input.scope)) {
+      const sessionScoped = type === "session.created"
+        || type === "session.updated"
+        || type === "mode.changed"
+        || type === "follow_up.queued"
+        || type === "follow_up.removed";
+      if (!sessionScoped && !record(input.scope)) {
         issues.push({ path: "scope", message: `${type} requires a Run scope.` });
-      } else if (type !== "session.created" && type !== "session.updated" && type !== "mode.changed" && !string((input.scope as RecordValue).runId)) {
+      } else if (!sessionScoped && !string((input.scope as RecordValue).runId)) {
         issues.push({ path: "scope.runId", message: `${type} requires runId.` });
       }
       if (type.startsWith("activity.") && record(input.scope) && !string(input.scope.activityId)) {

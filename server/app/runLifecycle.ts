@@ -53,7 +53,7 @@ export function appendInterruptedToolResults(input: {
   sessionId: string;
   store: RunLifecyclePorts;
   system: SystemPort;
-  terminalPhase: "completed" | "failed" | "cancelled";
+  terminalPhase?: "completed" | "failed" | "cancelled";
 }): number {
   const createdAt = input.createdAt ?? input.system.now();
   for (const { assistant, call } of input.missingResults) {
@@ -65,7 +65,7 @@ export function appendInterruptedToolResults(input: {
         assistantRecordId: assistant.recordId,
         interruptionReason: input.interruptionReason,
         synthetic: true,
-        terminalPhase: input.terminalPhase
+        ...(input.terminalPhase ? { terminalPhase: input.terminalPhase } : {})
       },
       runId: input.runId,
       sessionId: input.sessionId,

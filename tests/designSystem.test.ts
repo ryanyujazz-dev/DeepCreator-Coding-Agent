@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const styles = readFileSync(path.join(root, "src/styles.css"), "utf8");
 const applicationSurfaces = readFileSync(path.join(root, "src/styles/features/application-surfaces.css"), "utf8");
+const followUpStyles = readFileSync(path.join(root, "src/styles/features/follow-ups.css"), "utf8");
 
 test("keeps one semantic token source and the licensed HarmonyOS font", () => {
   assert.equal(styles.match(/^:root\s*\{/gm)?.length, 1);
@@ -56,6 +57,22 @@ test("anchors the scroll-to-bottom control to the responsive composer center", (
   const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
   assert.match(conversation, /setComposerPortalTarget\(parent\.querySelector<HTMLElement>\("\.composer-stack"\)\)/);
   assert.match(conversation, /createPortal\([\s\S]*className="scroll-to-bottom-button"[\s\S]*composerPortalTarget/s);
+});
+
+test("floats the composer and reserves its bottom offset plus 30px in the conversation flow", () => {
+  assert.match(followUpStyles, /\.conversation-main > \.composer-stack\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*18px/s);
+  assert.match(followUpStyles, /\.queued-follow-ups\s*\{[^}]*background:\s*color-mix/s);
+  const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
+  assert.match(conversation, /setComposerBottomOffset\(portalTarget\.clientHeight - composer\.offsetTop\)/);
+  assert.match(conversation, /conversation-column-bottom-spacer" style=\{\{ height: `\$\{composerBottomOffset \+ 30\}px` \}\}/);
+});
+
+test("floats runtime errors at the centered top of the conversation flow", () => {
+  const app = readFileSync(path.join(root, "src/App.tsx"), "utf8");
+  assert.match(app, /<Conversation[\s\S]*className="conversation-error-overlay"[\s\S]*className=\{`composer-stack/s);
+  assert.doesNotMatch(app, /className="composer-error"/);
+  assert.match(followUpStyles, /\.conversation-error-overlay\s*\{[^}]*position:\s*absolute;[^}]*top:\s*70px;[^}]*right:\s*0;[^}]*left:\s*0;[^}]*align-items:\s*center/s);
+  assert.match(followUpStyles, /\.conversation-error-toast\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--color-surface-elevated\) 94%, transparent\);[^}]*color:\s*var\(--color-danger\)/s);
 });
 
 test("keeps aggregate failures muted instead of coloring the entire header", () => {
@@ -166,6 +183,13 @@ test("keeps primary conversation controls visible and aligned", () => {
   const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
   assert.match(conversation, /const \[composerPortalTarget, setComposerPortalTarget\]/);
   assert.doesNotMatch(conversation, /composerCenterX|composerRect\.left - mainRect\.left/);
+});
+
+test("uses one composer action for stopping or sending a queued follow-up", () => {
+  const composer = readFileSync(path.join(root, "src/components/Composer.tsx"), "utf8");
+  assert.match(composer, /isRunning && !draft\.trim\(\) \? \(/);
+  assert.match(composer, /label=\{isRunning \? "加入队列" : "发送"\}/);
+  assert.doesNotMatch(composer, /className="send-button queue-button has-draft"/);
 });
 
 test("provides the shared interaction primitives required by the design guide", () => {

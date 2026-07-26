@@ -8,6 +8,8 @@ import {
   commandParamsSchema,
   eventQuerySchema,
   fileQuerySchema,
+  followUpInputSchema,
+  followUpParamsSchema,
   memoryInputSchema,
   memoryParamsSchema,
   modeInputSchema,
@@ -25,6 +27,7 @@ import { ContextConfig, getCompactThresholdTokens, getContextWindowTokens, getEf
 import { AppError, AppErrorCode } from "../app/appError";
 import { CancelRun } from "../app/cancelRun";
 import { ContextQueries } from "../app/contextQueries";
+import { FollowUpService } from "../app/followUps";
 import { RunRegistry } from "../app/runRegistry";
 import { answerQuestion, resolvePlan, ResumeRun, revisePlan } from "../app/planReview";
 import { RunLaunchPort } from "../app/runLauncher";
@@ -48,6 +51,7 @@ export type HttpDeps = {
   cancelRun: CancelRun;
   config: HttpConfig;
   contextQueries: ContextQueries;
+  followUps: FollowUpService;
   launcher: RunLaunchPort;
   providerFor: (model: string) => { model: string; provider: Provider };
   registry: RunRegistry;
@@ -64,7 +68,7 @@ function statusFor(code: AppErrorCode): 400 | 404 | 409 {
 }
 
 export function createHttp(deps: HttpDeps): FastifyInstance {
-  const { cancelRun, config, contextQueries, launcher, providerFor, registry, sessions, startRun, store, workspace } = deps;
+  const { cancelRun, config, contextQueries, followUps, launcher, providerFor, registry, sessions, startRun, store, workspace } = deps;
   const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, models, workspaceRoot } = config;
   const app = Fastify({ logger: false });
   const frontendOrigin = new URL(frontendUrl).origin;
@@ -179,6 +183,25 @@ app.post<{
 }>("/api/projects/archive-sessions", { schema: projectArchiveInputSchema }, async (request) => {
   return { archived: sessions.archiveProject(request.body.projectRoot ?? "") };
 });
+
+app.post<{
+  Params: { sessionId: string };
+  Body: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; prompt: string };
+}>("/api/sessions/:sessionId/follow-ups", { schema: followUpInputSchema }, async (request) => {
+  return followUps.queue({ ...request.body, sessionId: request.params.sessionId });
+});
+
+app.delete<{ Params: { sessionId: string; followUpId: string } }>(
+  "/api/sessions/:sessionId/follow-ups/:followUpId",
+  { schema: followUpParamsSchema },
+  async (request) => followUps.remove(request.params.sessionId, request.params.followUpId)
+);
+
+app.post<{ Params: { sessionId: string; followUpId: string } }>(
+  "/api/sessions/:sessionId/follow-ups/:followUpId/steer",
+  { schema: followUpParamsSchema },
+  async (request) => followUps.steer(request.params.sessionId, request.params.followUpId)
+);
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId", { schema: sessionParamsSchema }, async (request, reply) => {
   const session = store.getSession(request.params.sessionId);

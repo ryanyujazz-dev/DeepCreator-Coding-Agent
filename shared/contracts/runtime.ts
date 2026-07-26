@@ -9,6 +9,7 @@ export type PlanEntry = "manual" | "suggest" | "auto";
 export type ActivityKind =
   | "thinking"
   | "message"
+  | "user_message"
   | "plan"
   | "tool"
   | "command"
@@ -247,6 +248,16 @@ export type ReasoningStep = {
 
 export type WorkspaceKind = "project" | "scratch";
 
+export type FollowUp = {
+  followUpId: string;
+  prompt: string;
+  createdAt: string;
+  model: string;
+  accessMode: AccessMode;
+  mode: Mode;
+  planEntry: PlanEntry;
+};
+
 export type Session = {
   sessionId: string;
   title: string;
@@ -255,6 +266,7 @@ export type Session = {
   planEntry: PlanEntry;
   plans: Plan[];
   questions: Question[];
+  followUps: FollowUp[];
   projectRoot: string;
   workspaceKind: WorkspaceKind;
   createdAt: string;
@@ -300,6 +312,8 @@ export type EventPayloadMap = {
     reason?: string;
     source?: "user" | "model" | "runtime";
   };
+  "follow_up.queued": { followUp: FollowUp };
+  "follow_up.removed": { followUpId: string };
   "run.started": Pick<Run, "model" | "prompt" | "startedAt"> & { mode?: Mode };
   "reasoning.updated": {
     /** Optional only so pre-step-grouping Events remain replayable. */

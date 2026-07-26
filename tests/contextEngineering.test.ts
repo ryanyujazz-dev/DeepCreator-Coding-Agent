@@ -18,7 +18,8 @@ import { toolHost, toolSpecs } from "../server/infra/tools";
 import { finishRun } from "../server/app/runLifecycle";
 import { Session } from "../shared/contracts/runtime";
 
-const sessionDefaults: Pick<Session, "mode" | "planEntry" | "plans" | "questions" | "workspaceKind"> = {
+const sessionDefaults: Pick<Session, "followUps" | "mode" | "planEntry" | "plans" | "questions" | "workspaceKind"> = {
+  followUps: [],
   mode: "work",
   planEntry: "suggest",
   plans: [],

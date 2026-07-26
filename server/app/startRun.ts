@@ -15,6 +15,7 @@ export type StartRunInput = {
   prompt: string;
   sessionId: string;
   workspaceKind?: WorkspaceKind;
+  consumeFollowUpId?: string;
 };
 
 export type StartRunResult = { run: Run; session: Session };
@@ -125,12 +126,23 @@ export class StartRun {
     }
 
     const runId = this.deps.system.createId("run");
-    this.deps.store.append({
+    const started = {
       data: { mode: session.mode, model, prompt, startedAt: this.deps.system.now() },
       runId,
       sessionId: input.sessionId,
-      type: "run.started"
-    });
+      type: "run.started" as const
+    };
+    if (input.consumeFollowUpId) {
+      if (!session.followUps.some((item) => item.followUpId === input.consumeFollowUpId)) {
+        throw new StartRunError("queued follow-up not found", "conflict");
+      }
+      this.deps.store.appendMany([
+        { data: { followUpId: input.consumeFollowUpId }, sessionId: input.sessionId, type: "follow_up.removed" },
+        started
+      ]);
+    } else {
+      this.deps.store.append(started);
+    }
     this.deps.launcher.launch({ model, projectRoot, prompt, runId, sessionId: input.sessionId });
     return {
       run: this.deps.store.getRun(runId)!,

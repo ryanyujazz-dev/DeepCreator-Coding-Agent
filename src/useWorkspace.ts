@@ -7,6 +7,7 @@ import { SessionEventStore, SessionUpdater } from "./features/runtime/sessionEve
 import { browserPlatform } from "./platform/browser";
 import { desktopBridge } from "./platform/desktop";
 import { useRuntimeObservers } from "./features/runtime/useRuntimeObservers";
+import { useFollowUps } from "./features/runtime/useFollowUps";
 
 export function useWorkspace() {
   const desktop = desktopBridge();
@@ -154,6 +155,16 @@ export function useWorkspace() {
   const changeModel = useCallback((next: string) => {
     setSelectedModel(next);
   }, []);
+  const { queueIfActive, removeFollowUp, steerFollowUp } = useFollowUps({
+    accessMode: draftAccessMode,
+    activeRun,
+    mode: draftMode,
+    model,
+    planEntry: draftPlanEntry,
+    reportError,
+    session,
+    setSession
+  });
 
   const startRun = useCallback(async (prompt: string): Promise<boolean> => {
     setError(null);
@@ -162,6 +173,8 @@ export function useWorkspace() {
       return false;
     }
     try {
+      const queued = await queueIfActive(prompt);
+      if (queued !== undefined) return queued;
       const result = await runtimeApi.startRun({
         model,
         accessMode: draftAccessMode,
@@ -181,7 +194,7 @@ export function useWorkspace() {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       return false;
     }
-  }, [draftAccessMode, draftMode, draftPlanEntry, draftWorkspace, model, refreshSessions, session, setSession]);
+  }, [draftAccessMode, draftMode, draftPlanEntry, draftWorkspace, model, queueIfActive, refreshSessions, session, setSession]);
 
   const newSession = useCallback((nextWorkspace: DraftWorkspace) => {
     setSession(null);
@@ -366,6 +379,7 @@ export function useWorkspace() {
     resolvePlan,
     revisePlan,
     refreshBalance,
+    removeFollowUp,
     retryRuntime,
     searchSessions: (query: string) => void refreshSessions(query),
     selectSession,
@@ -375,6 +389,7 @@ export function useWorkspace() {
     session,
     sessions,
     startRun,
+    steerFollowUp,
     stopCommand,
     workspace
   };

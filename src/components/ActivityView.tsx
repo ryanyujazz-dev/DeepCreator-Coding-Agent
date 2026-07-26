@@ -102,6 +102,9 @@ export function ActivityView({
   if (activity.kind === "message") {
     return <MessageActivity activity={activity} onTextFrame={onTextFrame} runActive={runActive} />;
   }
+  if (activity.kind === "user_message") {
+    return <article className="user-turn steer-user-turn"><p>{activity.body}</p></article>;
+  }
   if (activity.kind === "plan" && activity.tool?.callId) {
     return <InlinePlanCard activity={activity} onOpen={() => onOpenPlan(activity.runId, activity.tool!.callId)} onTextFrame={onTextFrame} plan={plan} runActive={runActive} />;
   }

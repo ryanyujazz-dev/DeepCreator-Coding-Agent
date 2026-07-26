@@ -86,6 +86,18 @@ function session(value: unknown, path: string): Session {
   const runs = array(item.runs, `${path}.runs`);
   array(item.plans, `${path}.plans`);
   array(item.questions, `${path}.questions`);
+  const followUps = item.followUps === undefined ? [] : array(item.followUps, `${path}.followUps`);
+  item.followUps = followUps;
+  followUps.forEach((entry, index) => {
+    const followUp = record(entry, `${path}.followUps[${index}]`);
+    string(followUp.followUpId, `${path}.followUps[${index}].followUpId`);
+    string(followUp.prompt, `${path}.followUps[${index}].prompt`);
+    string(followUp.createdAt, `${path}.followUps[${index}].createdAt`);
+    string(followUp.model, `${path}.followUps[${index}].model`);
+    string(followUp.accessMode, `${path}.followUps[${index}].accessMode`);
+    string(followUp.mode, `${path}.followUps[${index}].mode`);
+    string(followUp.planEntry, `${path}.followUps[${index}].planEntry`);
+  });
   array(item.grants, `${path}.grants`);
   runs.forEach((entry, index) => {
     const run = record(entry, `${path}.runs[${index}]`);

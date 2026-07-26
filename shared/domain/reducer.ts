@@ -51,6 +51,18 @@ export function reduceEvent(current: Session, event: Event): Session {
     return next;
   }
 
+  if (event.type === "follow_up.queued") {
+    if (!next.followUps.some((item) => item.followUpId === event.data.followUp.followUpId)) {
+      next.followUps.push(clone(event.data.followUp));
+    }
+    return next;
+  }
+
+  if (event.type === "follow_up.removed") {
+    next.followUps = next.followUps.filter((item) => item.followUpId !== event.data.followUpId);
+    return next;
+  }
+
   if (event.type === "run.started") {
     const data = event.data;
     const runId = event.scope.runId;
@@ -247,6 +259,7 @@ export function createSession(input: SessionInput, offset = 0): Session {
     compactSummary: undefined,
     contextTokens: 0,
     grants: [],
+    followUps: [],
     mode: input.mode ?? "work",
     planEntry: input.planEntry ?? "suggest",
     plans: [],

@@ -132,6 +132,7 @@ export class ToolPipeline {
     let activityId = existingActivityId;
     let retainedCommandBaseline = false;
     try {
+      if (input.signal?.aborted) throw input.signal.reason ?? new DOMException("当前工具步骤已中断。", "AbortError");
       // normalize
       const args = parseArgs(call.argumentsText);
       const argsSummary = this.host.summarizeArgs(call.name, args);
@@ -220,6 +221,7 @@ export class ToolPipeline {
           toolName: call.name
         });
         if (decision === "deny") {
+          if (input.signal?.aborted) throw input.signal.reason ?? new DOMException("当前工具步骤已中断。", "AbortError");
           const text = "用户拒绝了本次操作，请不要再次尝试同一操作。";
           finishActivity(input, activityId, { body: "用户拒绝了本次操作。", status: "cancelled", tool: { ...prepared, resultSummary: "用户拒绝了本次操作。" } });
           this.record(input, call, modelStepId, text, { action: prepared.action, target: prepared.normalizedTarget }, true);

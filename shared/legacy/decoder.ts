@@ -198,7 +198,8 @@ export function decodeStoredSession(input: unknown): Session {
     tasks?: unknown[];
     resume?: StoredResume;
   };
-  const source = input as Omit<Session, "mode" | "planEntry" | "plans" | "questions" | "runs" | "workspaceKind"> & {
+  const source = input as Omit<Session, "followUps" | "mode" | "planEntry" | "plans" | "questions" | "runs" | "workspaceKind"> & {
+    followUps?: Session["followUps"];
     mode?: Session["mode"];
     planEntry?: Session["planEntry"];
     plans?: Session["plans"];
@@ -208,6 +209,7 @@ export function decodeStoredSession(input: unknown): Session {
   };
   return {
     ...source,
+    followUps: source.followUps ?? [],
     mode: source.mode ?? "work",
     planEntry: source.planEntry ?? "suggest",
     plans: source.plans ?? [],

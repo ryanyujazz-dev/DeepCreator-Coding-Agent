@@ -300,6 +300,11 @@ export function projectDisplayTimeline(
 
   for (const [index, activity] of activities.entries()) {
     if (isInternal(activity)) continue;
+    if (activity.kind === "user_message") {
+      entries.push({ activity, type: "activity" });
+      current = undefined;
+      continue;
+    }
     if (activity.kind === "message") {
       if (current && (current.contentSeen || current.tools.length > 0)) {
         // The next content visually replaces the old activity slot while anchoring a new segment.

@@ -7,7 +7,7 @@ import {
 import { ContextInput } from "../../shared/contracts/context";
 import { RunRegistry } from "./runRegistry";
 import { prompts } from "./prompts";
-import { Provider, ToolCall } from "../../shared/contracts/provider";
+import { ModelResponse, Provider, ToolCall } from "../../shared/contracts/provider";
 import { EventPayloadMap } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { CapabilitySource, emptyCapabilitySource } from "../../shared/contracts/capability";
@@ -20,7 +20,8 @@ import {
   MetricPort,
   SessionPort
 } from "./runtimeRepo";
-import { finishRun } from "./runLifecycle";
+import { appendInterruptedToolResults, finishRun } from "./runLifecycle";
+import { missingToolResults } from "../../shared/domain/toolProtocol";
 import { classifyInteraction } from "./interaction";
 import { ToolHost } from "./toolHost";
 import { ToolPipeline } from "./toolPipeline";
@@ -163,9 +164,27 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     .some((activity) => activity.kind === "thinking") ?? false;
   let visibleStageStarted = input.store.getRun(input.runId)?.activities
     .some((activity) => activity.kind === "message" || Boolean(activity.tool)) ?? false;
+  const applyPendingSteers = () => {
+    const steers = input.registry.takeSteers(input.runId);
+    for (const steer of steers) {
+      const record = input.store.readContextEntries(input.sessionId).find((entry) =>
+        entry.runId === input.runId && entry.kind === "human_text" && entry.metadata?.steerId === steer.steerId
+      ) ?? input.store.appendContextEntry({
+          kind: "human_text",
+          metadata: { steerId: steer.steerId },
+          runId: input.runId,
+          sessionId: input.sessionId,
+          source: "user",
+          text: steer.prompt
+        });
+      messages.push({ role: "user", text: record.text ?? steer.prompt });
+    }
+    return steers.length > 0;
+  };
 
   while (true) {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
+    applyPendingSteers();
     if (providerRequestCount > 0 && estimateProviderRequestTokens(messages, tools) >= prepared.thresholdTokens) {
       const refreshedSession = input.store.getSession(input.sessionId)!;
       const refreshed = await prepareRuntimeContext(input, refreshedSession, tools, true);
@@ -233,28 +252,49 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       providerRequestCount,
       updatedAt: input.registry.system.now()
     });
-    const response = await streamProviderWithRecovery({
-      onRetry: ({ attempt, maxAttempts }) => input.store.appendContextEntry({
-        kind: "runtime_fact",
-        metadata: { attempt, transient: true },
-        runId: input.runId,
-        sessionId: input.sessionId,
-        source: "runtime",
-        text: `Provider 连接重试 ${attempt}/${maxAttempts}。`
-      }),
-      provider: input.provider,
-      request: {
-        maxOutputTokens: prepared.requestedMaxOutputTokens,
-        messages,
-        model: input.model,
-        onFragment: (fragment) => stepStream.push(fragment),
-        signal: input.signal,
-        tools
-      },
-      signal: input.signal
-    }).finally(() => {
+    const providerStep = input.registry.beginInterruptibleStep(input.runId);
+    let response: ModelResponse;
+    try {
+      response = await streamProviderWithRecovery({
+        onRetry: ({ attempt, maxAttempts }) => input.store.appendContextEntry({
+          kind: "runtime_fact",
+          metadata: { attempt, transient: true },
+          runId: input.runId,
+          sessionId: input.sessionId,
+          source: "runtime",
+          text: `Provider 连接重试 ${attempt}/${maxAttempts}。`
+        }),
+        provider: input.provider,
+        request: {
+          maxOutputTokens: prepared.requestedMaxOutputTokens,
+          messages,
+          model: input.model,
+          onFragment: (fragment) => stepStream.push(fragment),
+          signal: providerStep.signal,
+          tools
+        },
+        signal: providerStep.signal
+      });
+    } catch (error) {
+      if (!input.signal?.aborted && providerStep.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
+        if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "cancelled" });
+        if (answerActivity) finishActivity(input, answerActivity, { status: "cancelled" });
+        answer = "";
+        applyPendingSteers();
+        continue;
+      }
+      throw error;
+    } finally {
       stepStream.finish();
-    });
+      providerStep.release();
+    }
+    if (!input.signal?.aborted && providerStep.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
+      if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "cancelled" });
+      if (answerActivity) finishActivity(input, answerActivity, { status: "cancelled" });
+      answer = "";
+      applyPendingSteers();
+      continue;
+    }
     if (response.usage) {
       input.store.append({
         runId: input.runId,
@@ -272,7 +312,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
 
     if (response.protocolIssue) {
       if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "completed" });
-      if (answerActivity) finishActivity(input, answerActivity, { audience: "internal", error: response.protocolIssue.message, status: "failed" });
+      if (answerActivity) finishActivity(input, answerActivity, { error: response.protocolIssue.message, status: "failed" });
       messages.push(response.continuationMessage);
       if (response.protocolIssue.retryable && protocolCorrectionCount === 0) {
         protocolCorrectionCount += 1;
@@ -294,13 +334,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     const completionBlock = response.toolCalls.length === 0
       ? evaluateCompletion({ run: currentRun, runningCommandCount: runningCommandsAtFinal.length })
       : undefined;
-    const hasTaskMaintenanceCall = response.toolCalls.some((call) => call.name === "update_tasks");
     if (thinkingActivity) {
       if (response.toolCalls.length > 0) suspendActivity(input, thinkingActivity);
       else finishActivity(input, thinkingActivity, { status: "completed" });
     }
     if (answerActivity) finishActivity(input, answerActivity, {
-      audience: completionBlock || hasTaskMaintenanceCall ? "internal" : "user",
       status: "completed"
     });
     if (response.answer.trim()) answer = response.answer.trim();
@@ -333,7 +371,15 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         sessionId: input.sessionId,
         type: "changes.changed"
       });
+      if (applyPendingSteers()) {
+        answer = "";
+        continue;
+      }
       await input.thinkingSummary?.finish();
+      if (applyPendingSteers()) {
+        answer = "";
+        continue;
+      }
       finishRun({
         runId: input.runId,
         answer: answer || "已完成。",
@@ -367,20 +413,50 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       }
     }));
     let suspended = false;
+    const toolControl = input.registry.beginInterruptibleStep(input.runId);
     const runToolCall = (call: ToolCall) => pipeline.run({
         baseline: input.workspaceBaseline,
         projectRoot: input.projectRoot,
         registry: input.registry,
         runId: input.runId,
         sessionId: input.sessionId,
-        signal: input.signal,
+        signal: toolControl.signal,
         store: input.store
       }, call, modelStepId, knownInstructionKeys, undefined, stepRejection, stepHeadline);
-    const toolStep = await executeToolStep({
-      calls: response.toolCalls,
-      execute: runToolCall,
-      parallel: (toolName) => input.tools.parallel(toolName)
-    });
+    let toolStep: Awaited<ReturnType<typeof executeToolStep>>;
+    try {
+      toolStep = await executeToolStep({
+        calls: response.toolCalls,
+        execute: runToolCall,
+        parallel: (toolName) => input.tools.parallel(toolName)
+      });
+    } catch (error) {
+      if (!input.signal?.aborted && toolControl.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
+        const interruptionReason = "用户发送了新的引导，当前工具步骤已中断";
+        const missing = missingToolResults(input.store.readContextEntries(input.sessionId).filter((record) => record.runId === input.runId));
+        appendInterruptedToolResults({
+          interruptionReason,
+          missingResults: missing,
+          runId: input.runId,
+          sessionId: input.sessionId,
+          store: input.store,
+          system: input.system
+        });
+        for (const { call } of missing) {
+          messages.push({
+            role: "tool",
+            text: `工具调用 ${call.name} (${call.callId}) 已中断：${interruptionReason}。该结果仅用于闭合工具协议，不能视为工具执行成功。`,
+            toolCallKey: call.callId
+          });
+        }
+        answer = "";
+        applyPendingSteers();
+        continue;
+      }
+      throw error;
+    } finally {
+      toolControl.release();
+    }
     for (const { outcome } of toolStep) {
       if (outcome.message) messages.push(outcome.message);
       deferredEvidenceRecords.push(...(outcome.evidenceRecords ?? []));
@@ -392,6 +468,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     for (const record of deferredContextRecords) {
       const persisted = input.store.appendContextEntry(record);
       messages.push({ role: "user", text: persisted.text ?? "" });
+    }
+    if (toolControl.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
+      answer = "";
+      applyPendingSteers();
+      continue;
     }
     if (suspended) {
       await input.thinkingSummary?.finish();

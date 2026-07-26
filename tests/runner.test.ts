@@ -9,6 +9,285 @@ import { Provider } from "../shared/contracts/provider";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 import { toolHost } from "../server/infra/tools";
 
+test("applies a queued steer before accepting a terminal model response", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-"));
+  try {
+    let turn = 0;
+    const registry = new RunRegistry();
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          assert.equal(registry.enqueueSteer("run_steer", { prompt: "请再检查测试", steerId: "follow_up_1" }), true);
+          return {
+            answer: "初步完成",
+            continuationMessage: { role: "assistant", text: "初步完成" },
+            finishCause: "complete",
+            thinking: "",
+            toolCalls: []
+          };
+        }
+        assert.equal(request.messages.at(-1)?.role, "user");
+        assert.equal(request.messages.at(-1)?.text, "请再检查测试");
+        return {
+          answer: "检查后完成",
+          continuationMessage: { role: "assistant", text: "检查后完成" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_steer", title: "引导" });
+    store.append({ runId: "run_steer", data: { model: "test", prompt: "检查实现", startedAt: new Date().toISOString() }, sessionId: "session_steer", type: "run.started" });
+    const controller = registry.startRun("run_steer");
+
+    await runAgent({ tools: toolHost, runId: "run_steer", model: "test", projectRoot: directory, prompt: "检查实现", provider, registry, sessionId: "session_steer", signal: controller.signal, store });
+
+    assert.equal(turn, 2);
+    assert.equal(store.getRun("run_steer")?.answer, "检查后完成");
+    assert.ok(store.readContextEntries("session_steer").some((entry) =>
+      entry.text === "请再检查测试" && entry.metadata?.steerId === "follow_up_1"
+    ));
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
+  }
+});
+
+test("preempts an in-flight model request and continues with the steer as user input", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-model-"));
+  const store = new RuntimeStore(directory);
+  const registry = new RunRegistry();
+  let turn = 0;
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      turn += 1;
+      if (turn === 1) {
+        return new Promise((_, reject) => {
+          request.signal?.addEventListener("abort", () => reject(request.signal?.reason), { once: true });
+          const steerId = "follow_up_preempt_model";
+          assert.equal(registry.enqueueSteer("run_steer_preempt_model", { prompt: "改为先检查测试", steerId }), true);
+          store.appendContextEntry({
+            kind: "human_text",
+            metadata: { steerId },
+            runId: "run_steer_preempt_model",
+            sessionId: "session_steer_preempt_model",
+            source: "user",
+            text: "改为先检查测试"
+          });
+          assert.equal(registry.interruptForSteer("run_steer_preempt_model"), true);
+        });
+      }
+      assert.equal(request.messages.at(-1)?.role, "user");
+      assert.equal(request.messages.at(-1)?.text, "改为先检查测试");
+      return {
+        answer: "已按新要求检查测试",
+        continuationMessage: { role: "assistant", text: "已按新要求检查测试" },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+  try {
+    store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_steer_preempt_model", title: "即时引导" });
+    store.append({ runId: "run_steer_preempt_model", data: { model: "test", prompt: "检查实现", startedAt: new Date().toISOString() }, sessionId: "session_steer_preempt_model", type: "run.started" });
+    const controller = registry.startRun("run_steer_preempt_model");
+
+    await runAgent({ tools: toolHost, runId: "run_steer_preempt_model", model: "test", projectRoot: directory, prompt: "检查实现", provider, registry, sessionId: "session_steer_preempt_model", signal: controller.signal, store });
+
+    assert.equal(turn, 2);
+    assert.equal(store.getRun("run_steer_preempt_model")?.status, "completed");
+    assert.equal(store.getRun("run_steer_preempt_model")?.answer, "已按新要求检查测试");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
+  }
+});
+
+test("preempts a parallel tool step, closes every tool call, then applies the steer", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-tools-"));
+  const store = new RuntimeStore(directory);
+  const registry = new RunRegistry();
+  const calls = [
+    { argumentsText: "{}", callId: "call_steer_tool_a", index: 0, name: "list_files" },
+    { argumentsText: "{}", callId: "call_steer_tool_b", index: 1, name: "git_status" }
+  ];
+  let interrupted = false;
+  let turn = 0;
+  const interruptingTools = {
+    ...toolHost,
+    execute: async (input: Parameters<typeof toolHost.execute>[0]) => {
+      if (!interrupted) {
+        interrupted = true;
+        const steerId = "follow_up_preempt_tools";
+        assert.equal(registry.enqueueSteer("run_steer_preempt_tools", { prompt: "停止工具，改为总结现状", steerId }), true);
+        store.appendContextEntry({
+          kind: "human_text",
+          metadata: { steerId },
+          runId: "run_steer_preempt_tools",
+          sessionId: "session_steer_preempt_tools",
+          source: "user",
+          text: "停止工具，改为总结现状"
+        });
+        assert.equal(registry.interruptForSteer("run_steer_preempt_tools"), true);
+      }
+      throw input.signal?.reason ?? new DOMException("工具步骤已中断", "AbortError");
+    },
+    parallel: () => true
+  };
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      turn += 1;
+      if (turn === 1) {
+        return {
+          answer: "",
+          continuationMessage: { role: "assistant", text: null, toolCalls: calls },
+          finishCause: "tool_calls",
+          thinking: "",
+          toolCalls: calls
+        };
+      }
+      const assistantIndex = request.messages.findIndex((message) =>
+        message.role === "assistant" && message.toolCalls?.[0]?.callId === "call_steer_tool_a"
+      );
+      assert.ok(assistantIndex >= 0);
+      assert.deepEqual(request.messages.slice(assistantIndex + 1, assistantIndex + 4).map((message) => ({
+        role: message.role,
+        toolCallKey: message.toolCallKey
+      })), [
+        { role: "tool", toolCallKey: "call_steer_tool_a" },
+        { role: "tool", toolCallKey: "call_steer_tool_b" },
+        { role: "user", toolCallKey: undefined }
+      ]);
+      assert.equal(request.messages.at(-1)?.text, "停止工具，改为总结现状");
+      return {
+        answer: "已停止原工具并总结现状",
+        continuationMessage: { role: "assistant", text: "已停止原工具并总结现状" },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+  try {
+    store.createSession({ accessMode: "full_access", compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_steer_preempt_tools", title: "工具中即时引导" });
+    store.append({ runId: "run_steer_preempt_tools", data: { model: "test", prompt: "检查项目", startedAt: new Date().toISOString() }, sessionId: "session_steer_preempt_tools", type: "run.started" });
+    const controller = registry.startRun("run_steer_preempt_tools");
+
+    await runAgent({ tools: interruptingTools, runId: "run_steer_preempt_tools", model: "test", projectRoot: directory, prompt: "检查项目", provider, registry, sessionId: "session_steer_preempt_tools", signal: controller.signal, store });
+
+    const results = store.readContextEntries("session_steer_preempt_tools").filter((entry) => entry.kind === "tool_result");
+    assert.deepEqual(results.map((entry) => entry.toolCallKey), ["call_steer_tool_a", "call_steer_tool_b"]);
+    assert.equal(store.getRun("run_steer_preempt_tools")?.answer, "已停止原工具并总结现状");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
+  }
+});
+
+test("preempts a tool waiting for approval and closes its call before continuing", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-approval-"));
+  const store = new RuntimeStore(directory);
+  const registry = new RunRegistry();
+  let turn = 0;
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      turn += 1;
+      if (turn === 1) {
+        const argumentsText = JSON.stringify({ path: "value.ts" });
+        const call = { argumentsText, callId: "call_steer_approval", index: 0, name: "delete_file" };
+        return {
+          answer: "",
+          continuationMessage: { role: "assistant", text: null, toolCalls: [call] },
+          finishCause: "tool_calls",
+          thinking: "",
+          toolCalls: [call]
+        };
+      }
+      const assistantIndex = request.messages.findIndex((message) =>
+        message.role === "assistant" && message.toolCalls?.[0]?.callId === "call_steer_approval"
+      );
+      assert.ok(assistantIndex >= 0);
+      assert.equal(request.messages[assistantIndex + 1]?.role, "tool");
+      assert.equal(request.messages[assistantIndex + 1]?.toolCallKey, "call_steer_approval");
+      assert.equal(request.messages[assistantIndex + 2]?.role, "user");
+      assert.equal(request.messages[assistantIndex + 2]?.text, "不要写文件，先解释方案");
+      return {
+        answer: "已停止写入并改为说明方案",
+        continuationMessage: { role: "assistant", text: "已停止写入并改为说明方案" },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+  try {
+    writeFileSync(path.join(directory, "value.ts"), "export const value = 1;\n");
+    store.createSession({ accessMode: "request_approval", compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_steer_preempt_approval", title: "审批中即时引导" });
+    store.append({ runId: "run_steer_preempt_approval", data: { model: "test", prompt: "写入文件", startedAt: new Date().toISOString() }, sessionId: "session_steer_preempt_approval", type: "run.started" });
+    const unsubscribe = store.subscribe("session_steer_preempt_approval", (events) => {
+      if (!events.some((event) => event.type === "approval.requested")) return;
+      queueMicrotask(() => {
+        const steerId = "follow_up_preempt_approval";
+        assert.equal(registry.enqueueSteer("run_steer_preempt_approval", { prompt: "不要写文件，先解释方案", steerId }), true);
+        store.appendContextEntry({
+          kind: "human_text",
+          metadata: { steerId },
+          runId: "run_steer_preempt_approval",
+          sessionId: "session_steer_preempt_approval",
+          source: "user",
+          text: "不要写文件，先解释方案"
+        });
+        assert.equal(registry.interruptForSteer("run_steer_preempt_approval"), true);
+      });
+    });
+    const controller = registry.startRun("run_steer_preempt_approval");
+
+    await runAgent({ tools: toolHost, runId: "run_steer_preempt_approval", model: "test", projectRoot: directory, prompt: "写入文件", provider, registry, sessionId: "session_steer_preempt_approval", signal: controller.signal, store });
+
+    unsubscribe();
+    assert.equal(existsSync(path.join(directory, "value.ts")), true);
+    assert.equal(store.readContextEntries("session_steer_preempt_approval").filter((entry) =>
+      entry.kind === "tool_result" && entry.toolCallKey === "call_steer_approval"
+    ).length, 1);
+    assert.equal(store.getRun("run_steer_preempt_approval")?.answer, "已停止写入并改为说明方案");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
+  }
+});
+
 test("persists a non-thinking reasoning summary before the Run finishes", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-reasoning-summary-"));
   try {
@@ -121,6 +400,159 @@ test("recovers a transient provider failure before any stream fragment", async (
       event.type === "activity.started" && (event.data as { kind?: string }).kind === "message"
     );
     assert.equal((answerStart?.data as { body?: string }).body, "恢复成功");
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
+  }
+});
+
+test("keeps model content user-visible when a protocol correction follows", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-visible-protocol-content-"));
+  try {
+    let turn = 0;
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          request.onFragment?.({ kind: "answer", text: "未完整的模型输出" });
+          return {
+            answer: "未完整的模型输出",
+            continuationMessage: { role: "assistant", text: "未完整的模型输出" },
+            finishCause: "unknown",
+            protocolIssue: {
+              code: "incomplete_stream",
+              message: "响应未完整结束。",
+              retryable: true
+            },
+            thinking: "",
+            toolCalls: []
+          };
+        }
+        request.onFragment?.({ kind: "answer", text: "修正后的模型输出" });
+        return {
+          answer: "修正后的模型输出",
+          continuationMessage: { role: "assistant", text: "修正后的模型输出" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_visible_protocol_content", title: "协议修正内容" });
+    store.append({ runId: "run_visible_protocol_content", data: { model: "test", prompt: "输出内容", startedAt: new Date().toISOString() }, sessionId: "session_visible_protocol_content", type: "run.started" });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_visible_protocol_content");
+    await runAgent({ tools: toolHost, runId: "run_visible_protocol_content", model: "test", projectRoot: directory, prompt: "输出内容", provider, registry, sessionId: "session_visible_protocol_content", signal: controller.signal, store });
+
+    const messages = store.getRun("run_visible_protocol_content")!.activities.filter((activity) => activity.kind === "message");
+    assert.equal(turn, 2);
+    assert.deepEqual(messages.map((activity) => [activity.body, activity.audience, activity.status]), [
+      ["未完整的模型输出", "user", "failed"],
+      ["修正后的模型输出", "user", "completed"]
+    ]);
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
+  }
+});
+
+test("rejects incomplete task updates without replacing readable labels", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-complete-task-labels-"));
+  try {
+    let turn = 0;
+    let sawMissingLabelError = false;
+    const store = new RuntimeStore(directory);
+    const initialTaskCall = {
+      argumentsText: JSON.stringify({
+        tasks: [
+          { label: "读取现有实现", status: "running", taskId: "h1" },
+          { label: "完成修改并验证", status: "pending", taskId: "h2" }
+        ]
+      }),
+      callId: "call_tasks_with_labels",
+      index: 0,
+      name: "update_tasks"
+    };
+    const incompleteTaskCall = {
+      argumentsText: JSON.stringify({
+        tasks: [
+          { status: "completed", taskId: "h1" },
+          { status: "running", taskId: "h2" }
+        ]
+      }),
+      callId: "call_tasks_without_labels",
+      index: 0,
+      name: "update_tasks"
+    };
+    const correctedTaskCall = {
+      argumentsText: JSON.stringify({
+        tasks: [
+          { label: "读取现有实现", status: "completed", taskId: "h1" },
+          { label: "完成修改并验证", status: "completed", taskId: "h2" }
+        ]
+      }),
+      callId: "call_tasks_corrected",
+      index: 0,
+      name: "update_tasks"
+    };
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        const toolCall = turn === 1 ? initialTaskCall : turn === 2 ? incompleteTaskCall : turn === 3 ? correctedTaskCall : undefined;
+        if (toolCall) {
+          if (turn === 3) {
+            sawMissingLabelError = request.messages.some((message) => message.role === "tool" && message.text?.includes("缺少必填参数 label"));
+            assert.deepEqual(store.getRun("run_complete_task_labels")?.tasks, [
+              { label: "读取现有实现", status: "running", taskId: "h1" },
+              { label: "完成修改并验证", status: "pending", taskId: "h2" }
+            ]);
+          }
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: [toolCall] },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [toolCall]
+          };
+        }
+        request.onFragment?.({ kind: "answer", text: "任务完成。" });
+        return {
+          answer: "任务完成。",
+          continuationMessage: { role: "assistant", text: "任务完成。" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_complete_task_labels", title: "完整任务描述" });
+    store.append({ runId: "run_complete_task_labels", data: { model: "test", prompt: "执行任务", startedAt: new Date().toISOString() }, sessionId: "session_complete_task_labels", type: "run.started" });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_complete_task_labels");
+    await runAgent({ tools: toolHost, runId: "run_complete_task_labels", model: "test", projectRoot: directory, prompt: "执行任务", provider, registry, sessionId: "session_complete_task_labels", signal: controller.signal, store });
+
+    assert.equal(turn, 4);
+    assert.equal(sawMissingLabelError, true);
+    assert.deepEqual(store.getRun("run_complete_task_labels")?.tasks, [
+      { label: "读取现有实现", status: "completed", taskId: "h1" },
+      { label: "完成修改并验证", status: "completed", taskId: "h2" }
+    ]);
+    assert.equal(store.readEvents("session_complete_task_labels").filter((event) => event.type === "tasks.changed").length, 2);
     store.close();
   } finally {
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
@@ -1082,8 +1514,8 @@ test("requires final task maintenance after the last work tool before accepting 
     assert.equal(run.answer, "最终回答。");
     assert.deepEqual(run.tasks.map((task) => task.status), ["completed"]);
     assert.equal(run.activities.filter((activity) => activity.tool).at(-1)?.tool?.toolName, "update_tasks");
-    assert.equal(run.activities.find((activity) => activity.body === "任务已经全部完成。")?.audience, "internal");
-    assert.equal(run.activities.find((activity) => activity.body === "过早的最终回答。")?.audience, "internal");
+    assert.equal(run.activities.find((activity) => activity.body === "任务已经全部完成。")?.audience, "user");
+    assert.equal(run.activities.find((activity) => activity.body === "过早的最终回答。")?.audience, "user");
     assert.equal(run.activities.find((activity) => activity.body === "最终回答。")?.audience, "user");
   } finally {
     store.close();
