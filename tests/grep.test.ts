@@ -101,6 +101,21 @@ test("grep: path 限定后仍返回工作区相对路径", async () => {
   }
 });
 
+test("grep: path 可直接限定到单个文件", async () => {
+  const directory = setupProject();
+  try {
+    const result = await executeTool({
+      args: { pattern: "TODO", path: "src/a.ts", output_mode: "content" },
+      name: "grep",
+      projectRoot: directory
+    });
+    assert.match(result.output, /^src\/a\.ts:\d+:.*TODO/m);
+    assert.doesNotMatch(result.output, /src\/sub\/b\.ts/);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
 test("grep: output_mode=json 返回结构化字段", async () => {
   const directory = setupProject();
   try {

@@ -369,6 +369,62 @@ test("persists semantic tool facts while provider schemas stay presentation-free
   }
 });
 
+test("retains started ToolState when tool execution fails", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-tool-failure-"));
+  try {
+    let turn = 0;
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream() {
+        turn += 1;
+        if (turn === 1) {
+          const toolCalls = [{
+            argumentsText: "{\"path\":\"missing.ts\"}",
+            callId: "call_missing_read",
+            index: 0,
+            name: "read_file"
+          }];
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls
+          };
+        }
+        return {
+          answer: "文件不存在。",
+          continuationMessage: { role: "assistant", text: "文件不存在。" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_tool_failure", title: "工具失败" });
+    store.append({ runId: "run_tool_failure", data: { model: "test", prompt: "读取缺失文件", startedAt: new Date().toISOString() }, sessionId: "session_tool_failure", type: "run.started" });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_tool_failure");
+    await runAgent({ tools: toolHost, runId: "run_tool_failure", model: "test", projectRoot: directory, prompt: "读取缺失文件", provider, registry, sessionId: "session_tool_failure", signal: controller.signal, store });
+
+    const failed = store.getRun("run_tool_failure")?.activities.find((activity) => activity.tool?.callId === "call_missing_read");
+    assert.equal(failed?.status, "failed");
+    assert.equal(failed?.tool?.toolName, "read_file");
+    assert.equal(failed?.tool?.action, "inspect");
+    assert.equal(failed?.tool?.normalizedTarget, "missing.ts");
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
 test("buffers mutation arguments and publishes only authoritative file diffs before settlement", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-mutation-"));
   try {

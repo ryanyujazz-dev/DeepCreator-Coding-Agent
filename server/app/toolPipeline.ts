@@ -69,12 +69,15 @@ function finishActivity(
   activityId: string,
   data: Omit<EventPayloadMap["activity.finished"], "finishedAt">
 ): boolean {
+  const durableData = data.tool === undefined
+    ? data
+    : { ...data, tool: durableToolState(data.tool) };
   return finishActivityOnce({
     activityId,
     runId: input.runId,
     sessionId: input.sessionId,
     store: input.store
-  }, { ...data, tool: durableToolState(data.tool) });
+  }, durableData);
 }
 
 export type SpawnAgentHandler = (args: {

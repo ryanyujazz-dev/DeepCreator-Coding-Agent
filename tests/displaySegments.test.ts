@@ -219,6 +219,19 @@ test("keeps command success and failure facts unambiguous under a semantic headl
   assert.equal(segment.aggregate?.summaryLabel, "成功运行 1 条命令 · 1 项失败");
 });
 
+test("keeps legacy failed tools without ToolState inside the aggregate", () => {
+  const legacyFailure = activity(2, {
+    body: "ENOTDIR: not a directory",
+    error: "ENOTDIR: not a directory",
+    status: "failed",
+    tool: undefined
+  });
+  const segment = onlySegment(run([message(1, "继续检查。"), legacyFailure]));
+  assert.equal(segment.aggregate?.failureCount, 1);
+  assert.equal(segment.aggregate?.status, "failed");
+  assert.deepEqual(segment.aggregate?.memberActivityIds, ["activity_2"]);
+});
+
 test("starts a new segment only when the next content arrives", () => {
   const firstContent = message(1, "第一段。");
   const firstTool = activity(2);

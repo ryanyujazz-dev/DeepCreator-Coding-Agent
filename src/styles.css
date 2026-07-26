@@ -68,13 +68,22 @@
   --color-text-subtle: #929aa0;
   --color-execution-muted: #8e969b;
   --color-execution-highlight: #ffffff;
+  --color-on-accent: #282f33;
   --color-control-idle: #aeb5b9;
   --color-border: rgba(38, 50, 56, 0.09);
   --color-surface: #ffffff;
+  --color-surface-elevated: #ffffff;
   --color-surface-subtle: #f5f6f7;
   --color-hover: #e9edf0;
   --color-danger: #c83f39;
   --color-danger-surface: #fdeaea;
+  --color-success: #159447;
+  --color-warning: #a66b12;
+  --context-segment-tools: var(--theme-blue-dark);
+  --context-segment-system: color-mix(in srgb, var(--theme-blue) 82%, var(--color-text-muted));
+  --context-segment-project: color-mix(in srgb, var(--theme-blue) 68%, var(--color-surface));
+  --context-segment-memory: color-mix(in srgb, var(--theme-blue) 50%, var(--color-surface));
+  --context-segment-history: color-mix(in srgb, var(--theme-blue) 34%, var(--color-surface));
   --focus-ring: 0 0 0 3px rgba(49, 136, 244, 0.14);
   --shadow-faint-color: rgba(20, 31, 43, 0.04);
   --shadow-soft-color: rgba(20, 31, 43, 0.09);
@@ -337,8 +346,8 @@ textarea:disabled {
   height: 35px;
   place-items: center;
   border-radius: 50%;
-  background: #9caaad;
-  color: #ffffff;
+  background: var(--theme-blue);
+  color: var(--color-on-accent);
   font-size: 12px;
   font-weight: 720;
 }
@@ -759,7 +768,7 @@ textarea:disabled {
   background: linear-gradient(
     to bottom,
     var(--conversation-bg) 0%,
-    rgba(255, 255, 255, 0) 100%
+    transparent 100%
   );
 }
 
@@ -768,7 +777,7 @@ textarea:disabled {
   background: linear-gradient(
     to top,
     var(--conversation-bg) 0%,
-    rgba(255, 255, 255, 0) 100%
+    transparent 100%
   );
 }
 
@@ -790,20 +799,21 @@ textarea:disabled {
   width: 36px;
   height: 36px;
   padding: 0;
-  border: 1px solid rgba(44, 57, 62, 0.12);
+  border: 1px solid var(--color-border);
   border-radius: 50%;
-  background: #ffffff;
-  color: #4f5b60;
+  background: color-mix(in srgb, var(--color-surface-elevated) 94%, transparent);
+  color: var(--color-text-muted);
   cursor: pointer;
   place-items: center;
-  box-shadow: 0 4px 14px rgba(39, 45, 46, 0.14);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(8px);
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
 .scroll-to-bottom-button:hover {
   transform: translateX(-50%) translateY(-1px);
-  box-shadow: 0 6px 18px rgba(39, 45, 46, 0.2);
-  color: #1f2b30;
+  box-shadow: 0 6px 18px var(--shadow-soft-color);
+  color: var(--color-text);
 }
 
 .scroll-to-bottom-button:active {
@@ -1282,7 +1292,7 @@ textarea:disabled {
 .operation-group-summary:hover:not(:has(.operation-summary-file:hover)) .operation-group-action,
 .operation-group-summary:focus-visible .operation-group-action,
 .operation-group-summary[aria-expanded="true"] .operation-group-action {
-  color: #252d30;
+  color: var(--color-text);
 }
 
 .activity-aggregate .operation-group-summary[aria-expanded="true"] .operation-group-action,
@@ -1337,7 +1347,7 @@ textarea:disabled {
 }
 
 .operation-failure-word {
-  color: #b74b3f;
+  color: var(--color-danger);
   font: inherit;
   font-weight: inherit;
 }
@@ -1468,7 +1478,7 @@ textarea:disabled {
   height: 14px;
   flex: 0 0 auto;
   place-items: center;
-  color: #9ba2a5;
+  color: var(--process-muted-color);
 }
 
 .operation-file-summary-action {
@@ -1483,9 +1493,9 @@ textarea:disabled {
   max-width: min(380px, 48vw);
   padding: 0;
   border: 0;
-  border-bottom: 1px dotted #a6adaf;
+  border-bottom: 1px dotted var(--process-muted-color);
   background: transparent;
-  color: #747d80;
+  color: var(--process-muted-color);
   cursor: pointer;
   font: inherit;
   text-align: left;
@@ -1496,40 +1506,40 @@ textarea:disabled {
 
 .operation-file-summary-name:hover,
 .operation-file-summary-name:focus-visible {
-  border-bottom-color: #555f63;
-  color: #252d30;
+  border-bottom-color: var(--color-text);
+  color: var(--color-text);
   outline: none;
 }
 
 .operation-file-summary-chevron {
   flex: 0 0 auto;
-  color: #858e91;
+  color: var(--process-muted-color);
   opacity: 0;
   transition: color 120ms ease, opacity 120ms ease, transform 180ms ease;
 }
 
-.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-file-summary-action,
+.operation-file-summary:hover .operation-file-summary-action,
 .operation-file-summary:focus-visible .operation-file-summary-action,
 .operation-file-summary[aria-expanded="true"] .operation-file-summary-action {
-  color: #252d30;
+  color: var(--color-text);
 }
 
-.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-diff-metrics b,
+.operation-file-summary:hover .operation-diff-metrics b,
 .operation-file-summary:focus-visible .operation-diff-metrics b {
-  color: #159447;
+  color: var(--color-success);
 }
 
-.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-diff-metrics i,
+.operation-file-summary:hover .operation-diff-metrics i,
 .operation-file-summary:focus-visible .operation-diff-metrics i {
-  color: #db4b46;
+  color: var(--color-danger);
 }
 
-.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-file-summary-icon,
+.operation-file-summary:hover .operation-file-summary-icon,
 .operation-file-summary:focus-visible .operation-file-summary-icon,
-.operation-file-summary:hover:not(:has(.operation-file-summary-name:hover)) .operation-file-summary-chevron,
+.operation-file-summary:hover .operation-file-summary-chevron,
 .operation-file-summary:focus-visible .operation-file-summary-chevron,
 .operation-file-summary[aria-expanded="true"] .operation-file-summary-chevron {
-  color: #5d676b;
+  color: var(--color-text);
   opacity: 1;
 }
 
@@ -1551,7 +1561,9 @@ textarea:disabled {
 }
 
 .operation-call-row.is-expandable {
-  width: 100%;
+  display: inline-grid;
+  width: auto;
+  max-width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1561,12 +1573,12 @@ textarea:disabled {
 }
 
 .operation-call-row.is-expandable {
-  grid-template-columns: 16px minmax(0, 1fr) 14px;
+  grid-template-columns: 16px minmax(0, auto) 14px;
 }
 
 .operation-call-row > span:first-child {
   display: grid;
-  color: #a0a6a8;
+  color: var(--process-muted-color);
   place-items: center;
 }
 
@@ -1583,6 +1595,12 @@ textarea:disabled {
   min-width: 0;
   align-items: center;
   gap: 4px;
+}
+
+.operation-file-reference > span:first-child,
+.operation-file-reference > .operation-member-outcome,
+.operation-file-reference > .operation-failure-word {
+  flex: 0 0 auto;
 }
 
 .operation-file-reference button,
@@ -1608,7 +1626,7 @@ textarea:disabled {
 .inline-file-reference button:focus-visible,
 .file-reference-button:hover,
 .file-reference-button:focus-visible {
-  color: #303638;
+  color: var(--color-text);
 }
 
 .operation-call-row.is-failed {
@@ -1616,12 +1634,12 @@ textarea:disabled {
 }
 
 .operation-call-row.is-cancelled {
-  color: #b74b3f;
+  color: var(--color-danger);
 }
 
 .operation-call-row > svg,
 .patch-toggle svg {
-  color: #a8afb2;
+  color: var(--process-muted-color);
   transition: transform 160ms ease;
 }
 
@@ -1633,9 +1651,9 @@ textarea:disabled {
 .operation-detail-panel {
   overflow: hidden;
   margin: 5px 0 8px;
-  border: 1px solid #e1e4e5;
+  border: 1px solid var(--color-border);
   border-radius: 7px;
-  background: #f7f7f7;
+  background: var(--color-surface-subtle);
 }
 
 .operation-detail-panel > header {
@@ -1643,8 +1661,8 @@ textarea:disabled {
   min-height: 28px;
   padding: 0 9px;
   align-items: center;
-  border-bottom: 1px solid #e4e6e7;
-  color: #747d80;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
   font-family: inherit;
   font-size: var(--process-meta-size);
   font-weight: 450;
@@ -1675,7 +1693,7 @@ textarea:disabled {
 
 .operation-detail-title.is-interactive:hover,
 .operation-detail-title.is-interactive:focus-visible {
-  color: #252d30;
+  color: var(--color-text);
   outline: none;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -1690,14 +1708,14 @@ textarea:disabled {
   border-radius: 4px;
   place-items: center;
   background: transparent;
-  color: #90989b;
+  color: var(--color-text-muted);
   cursor: pointer;
 }
 
 .operation-detail-copy:hover,
 .operation-detail-copy:focus-visible {
   background: transparent;
-  color: #30383b;
+  color: var(--color-text);
   outline: none;
 }
 
@@ -1707,7 +1725,7 @@ textarea:disabled {
 }
 
 .operation-detail-chevron {
-  color: #92999c;
+  color: var(--color-text-muted);
   transition: transform 180ms ease;
 }
 
@@ -1720,30 +1738,32 @@ textarea:disabled {
   max-height: 160px;
   margin: 0;
   padding: 8px 10px;
-  background: #f4f5f4;
-  color: #687276;
-  font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-code);
+  font-size: var(--type-label-size);
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .operation-detail-empty {
   padding: 8px 10px;
-  color: #8a9396;
+  color: var(--color-text-muted);
   font-family: inherit;
   font-size: var(--process-meta-size);
 }
 
 .operation-call-row.is-expandable:hover,
 .operation-call-row.is-expandable:focus-visible {
-  color: #30383b;
+  color: var(--color-text);
 }
 
 .operation-call-row.is-expandable:hover > span:first-child,
 .operation-call-row.is-expandable:focus-visible > span:first-child,
 .operation-call-row.is-expandable:hover > svg,
 .operation-call-row.is-expandable:focus-visible > svg {
-  color: #5d676b;
+  color: var(--color-text);
 }
 
 .operation-inline-diff {
@@ -2323,10 +2343,10 @@ textarea:disabled {
   align-items: center;
   min-height: 30px;
   padding: 0 12px;
-  border: 1px solid rgba(50, 62, 66, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 10px 28px rgba(39, 45, 46, 0.06);
+  background: color-mix(in srgb, var(--color-surface-elevated) 86%, transparent);
+  box-shadow: var(--shadow-panel);
 }
 
 .composer-hud-primary {
@@ -2342,7 +2362,7 @@ textarea:disabled {
   flex: 0 1 auto;
   overflow: hidden;
   max-width: 280px;
-  color: #5c666b;
+  color: var(--color-text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2691,7 +2711,7 @@ textarea:disabled {
 }
 
 .settings-cancel { background: #ffffff; color: #59666b; }
-.settings-save { border-color: var(--theme-blue) !important; background: var(--theme-blue); color: #ffffff; }
+.settings-save { border-color: var(--theme-blue) !important; background: var(--theme-blue); color: var(--color-on-accent); }
 .settings-save:disabled { cursor: default; opacity: 0.55; }
 
 .bootstrap-error {
@@ -2782,9 +2802,11 @@ textarea:disabled {
   margin: 7px 0 0;
   padding: 8px 10px;
   border-radius: 6px;
-  background: #f5f6f5;
-  color: #667176;
-  font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-code);
+  font-size: var(--type-label-size);
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -3393,6 +3415,7 @@ body.is-resizing-panel * {
   border-radius: 50%;
   background: conic-gradient(#8f999e var(--context-progress), #e5e8e9 0);
   box-shadow: inset 0 0 0 1px rgba(65, 75, 79, 0.04);
+  transition: background 140ms ease, box-shadow 140ms ease;
 }
 
 .context-meter-ring::after {
@@ -3592,7 +3615,7 @@ body.is-resizing-panel * {
 .run-status-pill,
 .command-step-toggle,
 .operation-group-summary,
-button.operation-call-row,
+.operation-call-row,
 .patch-row {
   transition: color 140ms ease;
 }
@@ -3612,11 +3635,18 @@ button.operation-call-row,
 .run-status-pill:focus-visible,
 .command-step-toggle:hover strong,
 .command-step-toggle:focus-visible strong,
-button.operation-call-row:hover,
-button.operation-call-row:focus-visible,
+.operation-call-row:hover,
+.operation-call-row:focus-visible,
 .patch-row:hover .file-reference-button,
 .patch-row:focus-within .file-reference-button {
-  color: #303638;
+  color: var(--color-text);
+}
+
+.operation-call-row:hover .operation-file-reference,
+.operation-call-row:focus-visible .operation-file-reference,
+.operation-call-row:hover .operation-file-reference button,
+.operation-call-row:focus-visible .operation-file-reference button {
+  color: var(--color-text);
 }
 
 .run-status-pill:hover svg,
@@ -3625,20 +3655,20 @@ button.operation-call-row:focus-visible,
 .command-step-toggle:focus-visible svg,
 .operation-group-summary:hover:not(:has(.operation-summary-file:hover)) .operation-group-icon,
 .operation-group-summary:focus-visible .operation-group-icon,
-button.operation-call-row:hover > span:first-child,
-button.operation-call-row:focus-visible > span:first-child,
-button.operation-call-row:hover > svg,
-button.operation-call-row:focus-visible > svg,
+.operation-call-row:hover > span:first-child,
+.operation-call-row:focus-visible > span:first-child,
+.operation-call-row:hover > svg,
+.operation-call-row:focus-visible > svg,
 .patch-row:hover .patch-toggle svg,
 .patch-row:focus-within .patch-toggle svg {
-  color: #303638;
+  color: var(--color-text);
 }
 
-button.operation-call-row.is-failed:hover,
-button.operation-call-row.is-failed:focus-visible,
-button.operation-call-row.is-cancelled:hover,
-button.operation-call-row.is-cancelled:focus-visible {
-  color: #b74b3f;
+.operation-call-row.is-failed:hover,
+.operation-call-row.is-failed:focus-visible,
+.operation-call-row.is-cancelled:hover,
+.operation-call-row.is-cancelled:focus-visible {
+  color: var(--color-text);
 }
 
 .workspace-surface-panel {
@@ -5943,8 +5973,8 @@ body {
 
 .composer-hud-primary {
   border-color: var(--app-border);
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 24px rgba(38, 49, 55, 0.06);
+  background: color-mix(in srgb, var(--color-surface-elevated) 94%, transparent);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(14px);
 }
 
@@ -6590,7 +6620,7 @@ body {
 
 .sidebar-rename-dialog footer button.is-primary {
   background: var(--theme-blue);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .sidebar-rename-dialog footer button:disabled {
@@ -6801,7 +6831,7 @@ body {
 
 .ui-dialog-button.is-primary {
   background: var(--theme-blue);
-  color: #ffffff;
+  color: var(--color-on-accent);
 }
 
 .ui-dialog-button.is-danger {
@@ -6818,7 +6848,7 @@ body {
 .ui-icon-button.send-button {
   width: 34px;
   height: 34px;
-  color: #ffffff;
+  color: var(--app-canvas);
 }
 
 .operation-detail-copy.ui-icon-button {
@@ -6868,6 +6898,34 @@ body {
 .work-process .operation-summary-file,
 .work-process .operation-file-summary-name {
   border-bottom-color: var(--process-muted-color);
+}
+
+.work-process .operation-call-row:hover,
+.work-process .operation-call-row:focus-visible,
+.work-process .operation-call-row:hover > span:first-child,
+.work-process .operation-call-row:focus-visible > span:first-child,
+.work-process .operation-call-row:hover > svg,
+.work-process .operation-call-row:focus-visible > svg,
+.work-process .operation-call-row:hover .operation-file-reference,
+.work-process .operation-call-row:focus-visible .operation-file-reference,
+.work-process .operation-call-row:hover .operation-file-reference button,
+.work-process .operation-call-row:focus-visible .operation-file-reference button,
+.work-process .operation-file-summary:hover,
+.work-process .operation-file-summary:focus-visible,
+.work-process .operation-file-summary:hover .operation-file-summary-action,
+.work-process .operation-file-summary:focus-visible .operation-file-summary-action,
+.work-process .operation-file-summary:hover .operation-file-summary-name,
+.work-process .operation-file-summary:focus-visible .operation-file-summary-name,
+.work-process .operation-file-summary:hover .operation-file-summary-icon,
+.work-process .operation-file-summary:focus-visible .operation-file-summary-icon,
+.work-process .operation-file-summary:hover .operation-file-summary-chevron,
+.work-process .operation-file-summary:focus-visible .operation-file-summary-chevron {
+  color: var(--color-text);
+}
+
+.work-process .operation-file-summary:hover .operation-file-summary-name,
+.work-process .operation-file-summary:focus-visible .operation-file-summary-name {
+  border-bottom-color: var(--color-text);
 }
 
 /* Slot spacing belongs to the timeline structure, never to an individual slot body. */
@@ -6934,7 +6992,7 @@ body {
 .operation-call-row,
 .operation-call-row.is-expandable {
   min-height: var(--type-conversation-line-height);
-  grid-template-columns: var(--execution-icon-column) minmax(0, 1fr) 14px;
+  grid-template-columns: var(--execution-icon-column) minmax(0, auto) 14px;
   align-items: center;
   gap: var(--execution-column-gap);
 }
@@ -7044,19 +7102,19 @@ body {
 
 .ui-icon-button.send-button {
   background: var(--color-control-idle);
-  color: #ffffff;
+  color: var(--app-canvas);
   opacity: 1;
 }
 
 .ui-icon-button.send-button:hover:not(:disabled) {
   background: var(--theme-blue);
-  color: #ffffff;
+  color: var(--color-on-accent);
 }
 
 .ui-icon-button.send-button.has-draft,
 .ui-icon-button.send-button.stop-button {
   background: var(--theme-blue);
-  color: #ffffff;
+  color: var(--color-on-accent);
 }
 
 .ui-icon-button.send-button.has-draft:hover:not(:disabled),
@@ -7066,7 +7124,7 @@ body {
 
 .ui-icon-button.send-button:disabled {
   background: var(--color-control-idle);
-  color: #ffffff;
+  color: var(--app-canvas);
   opacity: 1;
 }
 
@@ -7897,7 +7955,7 @@ body {
 }
 
 .task-list-row.is-completed > svg {
-  color: #238054;
+  color: var(--color-success);
 }
 
 .task-list-row.is-blocked,
@@ -8654,7 +8712,7 @@ body {
   align-items: center;
   border-radius: var(--radius-small);
   background: var(--theme-blue);
-  color: #ffffff;
+  color: var(--color-on-accent);
   cursor: pointer;
   font-weight: 620;
   gap: 6px;
@@ -9052,6 +9110,354 @@ html[data-translucent-sidebar="true"] .account-strip {
   color: var(--color-text);
 }
 
+/* Dark counterparts for audited legacy light baselines. */
+html[data-color-scheme="dark"] .sidebar-hover-card,
+html[data-color-scheme="dark"] .sidebar-context-menu,
+html[data-color-scheme="dark"] .sidebar-rename-dialog,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog {
+  border-color: var(--app-border);
+  background: color-mix(in srgb, var(--color-surface-elevated) 98%, transparent);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .sidebar-hover-card header strong,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog h2,
+html[data-color-scheme="dark"] .sidebar-rename-dialog header span {
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .sidebar-hover-card > div,
+html[data-color-scheme="dark"] .sidebar-context-menu button,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog header button,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog footer button,
+html[data-color-scheme="dark"] .sidebar-rename-dialog footer button {
+  color: var(--color-text-secondary);
+}
+
+html[data-color-scheme="dark"] .sidebar-hover-card header > svg:last-child,
+html[data-color-scheme="dark"] .sidebar-hover-card header time,
+html[data-color-scheme="dark"] .sidebar-rename-dialog header strong,
+html[data-color-scheme="dark"] .sidebar-rename-dialog header button,
+html[data-color-scheme="dark"] .sidebar-action-error button,
+html[data-color-scheme="dark"] .sidebar-context-menu button svg {
+  color: var(--color-text-muted);
+}
+
+html[data-color-scheme="dark"] .sidebar-context-menu button:hover,
+html[data-color-scheme="dark"] .sidebar-context-menu button:focus-visible,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog header button:hover,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog footer button:hover,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog footer button:focus-visible,
+html[data-color-scheme="dark"] .sidebar-rename-dialog header button:hover,
+html[data-color-scheme="dark"] .sidebar-rename-dialog footer button {
+  background: var(--color-hover);
+}
+
+html[data-color-scheme="dark"] .sidebar-context-menu button:disabled:hover {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+html[data-color-scheme="dark"] .sidebar-context-menu button.is-danger:hover,
+html[data-color-scheme="dark"] .sidebar-context-menu button.is-danger:focus-visible,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog footer button.is-danger,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog footer button.is-danger:hover,
+html[data-color-scheme="dark"] .sidebar-confirm-dialog footer button.is-danger:focus-visible,
+html[data-color-scheme="dark"] .sidebar-confirm-error,
+html[data-color-scheme="dark"] .sidebar-action-error {
+  border-color: color-mix(in srgb, var(--color-danger) 24%, transparent);
+  background: var(--color-danger-surface);
+  color: var(--color-danger);
+}
+
+html[data-color-scheme="dark"] .sidebar-context-menu button.is-danger:hover svg,
+html[data-color-scheme="dark"] .sidebar-context-menu button.is-danger:focus-visible svg {
+  color: var(--color-danger);
+}
+
+html[data-color-scheme="dark"] .sidebar-rename-dialog input {
+  border-color: var(--app-border);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .sidebar-rename-dialog footer button.is-primary {
+  background: var(--theme-blue);
+  color: var(--color-on-accent);
+}
+
+html[data-color-scheme="dark"] .environment-section {
+  border-bottom-color: var(--app-border);
+}
+
+html[data-color-scheme="dark"] .environment-section > header,
+html[data-color-scheme="dark"] .environment-row,
+html[data-color-scheme="dark"] .environment-plan-document small {
+  color: var(--color-text-muted);
+}
+
+html[data-color-scheme="dark"] .environment-row svg {
+  color: inherit;
+}
+
+html[data-color-scheme="dark"] .environment-row:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .environment-plan-document strong {
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .model-menu > header,
+html[data-color-scheme="dark"] .model-option-desc,
+html[data-color-scheme="dark"] .conversation-notice {
+  color: var(--color-text-muted);
+}
+
+html[data-color-scheme="dark"] .model-option,
+html[data-color-scheme="dark"] .model-option-label {
+  color: var(--color-text-secondary);
+}
+
+html[data-color-scheme="dark"] .model-option:hover,
+html[data-color-scheme="dark"] .model-option.is-selected {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .model-option:hover .model-option-label,
+html[data-color-scheme="dark"] .model-option.is-selected .model-option-label {
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .conversation-notice::before,
+html[data-color-scheme="dark"] .conversation-notice::after {
+  background: var(--app-border);
+}
+
+/* Remaining popovers, dialogs, forms, inspectors, and empty states share the
+   same semantic hierarchy in dark mode while their light baselines stay exact. */
+html[data-color-scheme="dark"] :is(
+  .permission-menu,
+  .model-menu,
+  .add-menu,
+  .context-inspector-popover,
+  .context-sort-menu,
+  .settings-dialog,
+  .approval-dialog,
+  .status-timeline,
+  .inline-plan-card,
+  .plan-surface,
+  .plan-access-menu
+) {
+  border-color: var(--app-border);
+  background: var(--color-surface-elevated);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-floating);
+}
+
+html[data-color-scheme="dark"] :is(
+  .app-error-state h1,
+  .empty-state h1,
+  .conversation-empty-state h1,
+  .permission-menu strong,
+  .settings-dialog h2,
+  .settings-dialog input,
+  .bootstrap-error,
+  .approval-dialog header,
+  .approval-dialog header strong,
+  .context-inspector-popover header strong,
+  .workspace-surface-panel > header strong,
+  .inline-plan-card,
+  .interaction-header,
+  .interaction-primary-row,
+  .interaction-option-row,
+  .plan-surface-header > div,
+  .plan-title-row h1,
+  .plan-question-panel > header,
+  .plan-question-panel legend
+) {
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .app-error-state p,
+  .permission-menu button,
+  .model-button,
+  .settings-dialog > label,
+  .settings-cancel,
+  .bootstrap-error p,
+  .approval-dialog pre,
+  .approval-dialog footer button,
+  .context-inspector-popover,
+  .context-inspector-popover header span,
+  .context-category-row strong,
+  .context-inspector-popover footer strong,
+  .context-runtime-details b,
+  .add-menu > button,
+  .inline-plan-label > span,
+  .interaction-feedback-row > button,
+  .interaction-footer > button,
+  .plan-surface-header > button,
+  .plan-review-actions > button,
+  .plan-editor-actions > button,
+  .plan-access-selector > button,
+  .plan-editor label,
+  .plan-question-options button,
+  .plan-access-menu button
+) {
+  color: var(--color-text-secondary);
+}
+
+html[data-color-scheme="dark"] :is(
+  .icon-button,
+  .plain-icon,
+  .permission-menu small,
+  .sidebar-empty,
+  .connection-status,
+  .inspector-empty,
+  .inspector-plan-row,
+  .context-header-actions > button,
+  .context-runtime-details,
+  .surface-state,
+  .add-menu header,
+  .inline-plan-card > header,
+  .inline-plan-label small,
+  .inline-plan-card > header > button,
+  .inline-plan-card > footer > button,
+  .inline-plan-empty,
+  .interaction-header > button,
+  .question-pagination button,
+  .interaction-primary-row > svg,
+  .interaction-option-row > svg,
+  .interaction-number,
+  .interaction-feedback-row,
+  .interaction-footer,
+  .question-pagination,
+  .plan-surface-header small,
+  .plan-status
+) {
+  color: var(--color-text-muted);
+}
+
+html[data-color-scheme="dark"] :is(
+  .permission-menu button:hover,
+  .permission-menu button.is-selected,
+  .context-header-actions > button:hover,
+  .context-sort-menu button:hover,
+  .context-sort-menu button.is-selected,
+  .workspace-surface-panel > header button:hover,
+  .surface-toolbar button:hover,
+  .surface-review-actions button:hover,
+  .add-menu > button:hover,
+  .add-menu > button.is-selected,
+  .inline-plan-card > header > button:hover,
+  .inline-plan-card > footer > button:hover,
+  .interaction-header > button:hover,
+  .question-pagination button:hover:not(:disabled),
+  .interaction-feedback-row > button:hover,
+  .interaction-footer > button:hover:not(:disabled),
+  .plan-surface-header > button:hover,
+  .plan-review-actions > button:hover,
+  .plan-editor-actions > button:hover,
+  .plan-access-selector > button:hover,
+  .plan-access-menu button:hover,
+  .plan-access-menu button.is-selected
+) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .settings-dialog input,
+  .approval-dialog pre,
+  .approval-dialog footer button,
+  .context-capacity-track,
+  .surface-mode-pill,
+  .interaction-primary-row,
+  .interaction-option-row,
+  .interaction-number,
+  .interaction-feedback-row > button,
+  .interaction-footer > button,
+  .plan-editor input,
+  .plan-editor textarea,
+  .plan-question-panel textarea,
+  .plan-review-bar > textarea,
+  .plan-question-options button,
+  .plan-access-selector > button
+) {
+  border-color: var(--app-border);
+  background: var(--color-surface-subtle);
+}
+
+html[data-color-scheme="dark"] :is(
+  .interaction-primary-row:hover,
+  .interaction-option-row:hover,
+  .interaction-option-row.is-selected,
+  .plan-question-options button:hover,
+  .plan-question-options button.is-selected
+) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .context-inspector-popover footer,
+  .context-runtime-details,
+  .settings-dialog > header,
+  .plan-surface-header,
+  .plan-review-bar
+) {
+  border-color: var(--app-border);
+}
+
+html[data-color-scheme="dark"] :is(
+  .context-inspector-popover footer:first-of-type,
+  .plan-review-bar,
+  .bootstrap-error
+) {
+  background: var(--app-canvas);
+}
+
+html[data-color-scheme="dark"] :is(
+  .settings-error,
+  .surface-state.is-error,
+  .inline-plan-state.is-failed,
+  .plan-surface-header .plan-stream-interrupted
+) {
+  color: var(--color-danger);
+}
+
+html[data-color-scheme="dark"] :is(
+  .connection-status.is-connected svg,
+  .inspector-plan-row.is-completed,
+  .inline-plan-state.is-approved,
+  .plan-status.is-approved,
+  .task-list-row.is-completed > svg
+) {
+  color: var(--color-success);
+}
+
+html[data-color-scheme="dark"] :is(
+  .inline-plan-state.is-rejected,
+  .inline-plan-state.is-superseded,
+  .plan-status.is-rejected
+) {
+  color: var(--color-warning);
+}
+
+html[data-color-scheme="dark"] :is(
+  .app-error-state button,
+  .approval-dialog footer button.primary,
+  .interaction-footer .interaction-submit,
+  .plan-primary-button
+) {
+  border-color: var(--theme-blue);
+  background: var(--theme-blue);
+  color: var(--color-on-accent);
+}
+
 html[data-color-scheme="dark"] .account-strip::before {
   background: linear-gradient(180deg, transparent, var(--app-chrome));
 }
@@ -9394,4 +9800,270 @@ html[data-color-scheme="dark"] .appearance-mode-card.is-light .appearance-mode-v
     border-top-left-radius: 0;
     box-shadow: none;
   }
+}
+
+/* Audited dark interaction states. Keep this last so legacy light hover values
+   cannot win the cascade after the semantic dark counterpart. */
+html[data-color-scheme="dark"] :is(
+  .icon-button,
+  .plain-icon,
+  .nav-row,
+  .thread-row,
+  .context-row button,
+  .model-button,
+  .window-actions .icon-button,
+  .project-row-actions button,
+  .thread-row-actions button,
+  .app-menubar button,
+  .app-menu-items span,
+  .environment-expand-button,
+  .environment-collapse-button,
+  .reasoning-scroll-to-bottom,
+  .settings-back-button,
+  .settings-navigation button,
+  .theme-editor-actions button,
+  .theme-reset-button,
+  .theme-advanced-toggle
+):hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .project-title,
+  .account-strip > button,
+  .surface-tab-close,
+  .surface-window-actions button,
+  .patch-card-review-trigger,
+  .patch-actions button,
+  .show-more-files,
+  .markdown-code-block > header button
+):is(:hover, :focus-visible) {
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .view-switcher button.active,
+  .thread-row.active-thread,
+  .surface-tab.is-active,
+  .workspace-surface-panel .surface-tab-strip .surface-tab.is-active,
+  .surface-review-file:hover,
+  .surface-review-file.is-active,
+  .settings-navigation button.is-active,
+  .appearance-mode-card.is-active,
+  .theme-scheme-tabs button.is-active
+) {
+  border-color: var(--app-border);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  box-shadow: var(--shadow-panel);
+}
+
+html[data-color-scheme="dark"] :is(
+  .project-title,
+  .thread-row,
+  .context-header-actions > button,
+  .context-sort-menu button,
+  .workspace-surface-panel > header button,
+  .surface-toolbar button,
+  .surface-review-actions button,
+  .surface-window-actions button,
+  .surface-tab-close,
+  .surface-review-file,
+  .add-menu > button,
+  .inline-plan-card > header > button,
+  .inline-plan-card > footer > button,
+  .interaction-header > button,
+  .question-pagination button,
+  .interaction-primary-row,
+  .interaction-option-row,
+  .interaction-feedback-row > button,
+  .interaction-footer > button,
+  .plan-surface-header > button,
+  .plan-review-actions > button,
+  .plan-editor-actions > button,
+  .plan-access-selector > button,
+  .plan-question-options button,
+  .plan-access-menu button,
+  .settings-back-button,
+  .settings-navigation button,
+  .theme-editor-actions button,
+  .theme-reset-button,
+  .theme-advanced-toggle
+):is(:hover, :focus-visible) :is(svg, span, strong, small) {
+  color: inherit;
+}
+
+html[data-color-scheme="dark"] :is(
+  .project-title,
+  .thread-row,
+  .ui-icon-button,
+  .ui-pill-button,
+  .ui-row-action,
+  .ui-disclosure-row,
+  .appearance-mode-card,
+  .theme-editor-actions select,
+  .theme-field-row select,
+  .settings-form-row select,
+  .settings-form-row input,
+  .theme-name-input
+):focus-visible,
+html[data-color-scheme="dark"] :is(
+  .composer,
+  .project-context-search,
+  .settings-search
+):focus-within {
+  border-color: color-mix(in srgb, var(--theme-blue) 36%, var(--app-border));
+  box-shadow: var(--focus-ring);
+}
+
+html[data-color-scheme="dark"] :is(
+  .command-stop-button,
+  .run-stream .command-stop-button
+):is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-danger) 46%, var(--app-border));
+  background: transparent;
+  color: var(--color-danger);
+}
+
+html[data-color-scheme="dark"] :is(
+  .operation-summary-file,
+  .operation-file-summary-name
+):is(:hover, :focus-visible) {
+  border-bottom-color: var(--color-text);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .operation-group-summary,
+  .operation-file-summary,
+  .operation-call-row
+):is(:hover, :focus-visible, [aria-expanded="true"]) :is(svg, span, strong, button) {
+  color: inherit;
+}
+
+html[data-color-scheme="dark"] :is(
+  .operation-group-details,
+  .operation-detail-text,
+  .surface-editor-host .monaco-scrollable-element > .scrollbar,
+  .markdown-code-block pre
+)::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-text-muted) 48%, transparent);
+}
+
+html[data-color-scheme="dark"] :is(
+  .panel-resize-handle:hover,
+  .panel-resize-handle:focus-visible,
+  body.is-resizing-panel .panel-resize-handle
+)::after {
+  background: color-mix(in srgb, var(--theme-blue) 52%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-blue) 12%, transparent);
+}
+
+html[data-color-scheme="dark"] .mode-indicator:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .markdown-code-block > header button:is(:hover, :focus-visible, .is-active) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .markdown-code-block > header button:disabled:hover {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+html[data-color-scheme="dark"] .markdown-mermaid-render:focus-visible {
+  outline-color: color-mix(in srgb, var(--theme-blue) 48%, transparent);
+}
+
+html[data-color-scheme="dark"] .mermaid-lightbox-toolbar button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-execution-highlight) 12%, transparent);
+  color: var(--color-execution-highlight);
+}
+
+html[data-color-scheme="dark"] .run-stream :is(button, .patch-row):is(:hover, :focus-visible, [aria-expanded="true"]) {
+  background: transparent;
+}
+
+html[data-color-scheme="dark"] .context-meter-ring {
+  background: conic-gradient(
+    var(--color-text-muted) var(--context-progress),
+    var(--color-surface-subtle) 0
+  );
+  box-shadow: inset 0 0 0 1px var(--app-border);
+}
+
+html[data-color-scheme="dark"] .context-meter-ring::after {
+  background: var(--color-surface-elevated);
+}
+
+html[data-color-scheme="dark"] .context-meter:is(:hover, :focus-visible, :focus-within) .context-meter-ring {
+  background: conic-gradient(
+    var(--theme-blue) var(--context-progress),
+    var(--color-hover) 0
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-blue) 24%, var(--app-border));
+}
+
+html[data-color-scheme="dark"] .context-meter:is(:hover, :focus-visible, :focus-within) .context-meter-ring::after {
+  background: var(--color-surface-elevated);
+}
+
+html[data-color-scheme="dark"] .project-title-shell:is(:hover, :has(:focus-visible)) {
+  --sidebar-item-surface: var(--color-hover);
+  background: var(--color-hover);
+}
+
+html[data-color-scheme="dark"] .project-title-shell:is(:hover, :has(:focus-visible)) :is(
+  .project-title,
+  .project-title span,
+  .project-title svg,
+  .project-row-actions button
+) {
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .thread-row-shell:is(:hover, :has(:focus-visible)) {
+  --sidebar-item-surface: var(--color-hover);
+}
+
+html[data-color-scheme="dark"] .thread-row-shell:is(:hover, :has(:focus-visible)) :is(
+  .thread-row,
+  .thread-row span,
+  .thread-row svg,
+  .thread-row time,
+  .thread-row-actions button
+) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .thread-row-shell.active-thread:is(:hover, :has(:focus-visible)) :is(
+  .thread-row,
+  .thread-row span,
+  .thread-row svg,
+  .thread-row time,
+  .thread-row-actions button
+) {
+  background: var(--theme-blue-light);
+  color: var(--theme-blue-dark);
+}
+
+html[data-color-scheme="dark"] :is(
+  .project-context-trigger:hover,
+  .project-context-trigger[aria-expanded="true"],
+  .project-context-option:hover,
+  .project-context-option:focus-visible,
+  .project-context-actions button:hover,
+  .project-context-actions button:focus-visible,
+  .ui-icon-button:hover:not(:disabled),
+  .ui-pill-button:hover:not(:disabled),
+  .ui-pill-button[aria-expanded="true"],
+  .ui-row-action:hover:not(:disabled),
+  .ui-disclosure-row:hover:not(:disabled)
+) :is(svg, span, strong, small) {
+  color: inherit;
 }

@@ -263,89 +263,98 @@ async function grepFiles(
   let skippedBinaryFiles = 0;
   let skippedLargeFiles = 0;
 
-  async function walk(current: string): Promise<void> {
+  function reachedLimit(): boolean {
+    if ((wantContent || wantJson) && lineHitCount >= maxLineHits) return true;
+    return (mode === "files_with_matches" || wantCount) && fileHitCount >= maxFiles;
+  }
+
+  async function inspectFile(fullPath: string, matchPath: string): Promise<void> {
     if (signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
-    // files_with_matches/count 模式按文件数截断;content/json 按行数截断
-    if ((wantContent || wantJson) && lineHitCount >= maxLineHits) return;
-    if ((mode === "files_with_matches" || wantCount) && fileHitCount >= maxFiles) return;
-    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-      if (signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
-      if ((wantContent || wantJson) && lineHitCount >= maxLineHits) return;
-      if ((mode === "files_with_matches" || wantCount) && fileHitCount >= maxFiles) return;
-      if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
-      const fullPath = path.join(current, entry.name);
-      const matchPath = path.relative(root, fullPath).replaceAll("\\", "/");
-      const relativePath = path.relative(workspaceRoot, fullPath).replaceAll("\\", "/");
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-        continue;
+    if (reachedLimit()) return;
+    if (isSensitivePath(path.basename(fullPath))) return;
+    if (globFilter && !globFilter.match(matchPath)) return;
+    const relativePath = path.relative(workspaceRoot, fullPath).replaceAll("\\", "/");
+    let contents: string;
+    try {
+      const stat = await fs.stat(fullPath);
+      if (!stat.isFile()) return;
+      if (stat.size > GREP_MAX_FILE_BYTES) {
+        skippedLargeFiles += 1;
+        return;
       }
-      // 安全:搜索前排除敏感文件(.env / *.key / id_rsa 等)
-      if (isSensitivePath(entry.name)) continue;
-      if (globFilter && !globFilter.match(matchPath)) continue;
-      let contents: string;
-      try {
-        const stat = await fs.stat(fullPath);
-        if (!stat.isFile()) continue;
-        if (stat.size > GREP_MAX_FILE_BYTES) {
-          skippedLargeFiles += 1;
-          continue;
-        }
-        const buffer = await fs.readFile(fullPath);
-        if (buffer.byteLength > GREP_MAX_FILE_BYTES) {
-          skippedLargeFiles += 1;
-          continue;
-        }
-        if (buffer.subarray(0, GREP_BINARY_SAMPLE_BYTES).includes(0)) {
-          skippedBinaryFiles += 1;
-          continue;
-        }
-        contents = buffer.toString("utf8");
-      } catch {
-        // 二进制或无权限文件,跳过
-        continue;
+      const buffer = await fs.readFile(fullPath);
+      if (buffer.byteLength > GREP_MAX_FILE_BYTES) {
+        skippedLargeFiles += 1;
+        return;
       }
-      const lines = contents.split("\n");
-      let fileMatches = 0;
-      for (let i = 0; i < lines.length; i++) {
-        if (wantContent || wantJson) {
-          if (lineHitCount >= maxLineHits) break;
-        }
-        regex.lastIndex = 0;
-        const match = regex.exec(lines[i]);
-        if (!match) continue;
-        fileMatches += 1;
-        // files_with_matches 模式:本文件已有命中即可,记录后跳出本文件
-        if (mode === "files_with_matches") break;
-        if (wantCount) continue; // count 模式只累加 fileMatches,不存行
-        lineHitCount += 1;
-        const contextBefore = contextLines > 0 ? lines.slice(Math.max(0, i - contextLines), i) : [];
-        const contextAfter = contextLines > 0 ? lines.slice(i + 1, i + 1 + contextLines) : [];
-        if (wantJson) {
-          hits.push({
-            path: relativePath,
-            line: i + 1,
-            column: match.index + 1,
-            match: match[0],
-            contextBefore,
-            contextAfter
-          });
-        } else if (wantContent) {
-          contentLines.push(`${relativePath}:${i + 1}:${lines[i]}`);
-        }
+      if (buffer.subarray(0, GREP_BINARY_SAMPLE_BYTES).includes(0)) {
+        skippedBinaryFiles += 1;
+        return;
       }
-      if (fileMatches > 0) {
-        fileHitCount += 1;
-        if (mode === "files_with_matches") {
-          matchedFiles.push(relativePath);
-        } else if (wantCount) {
-          fileCounts.push({ path: relativePath, count: fileMatches });
-        }
+      contents = buffer.toString("utf8");
+    } catch {
+      // 二进制或无权限文件,跳过
+      return;
+    }
+    const lines = contents.split("\n");
+    let fileMatches = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if ((wantContent || wantJson) && lineHitCount >= maxLineHits) break;
+      regex.lastIndex = 0;
+      const match = regex.exec(lines[i]);
+      if (!match) continue;
+      fileMatches += 1;
+      if (mode === "files_with_matches") break;
+      if (wantCount) continue;
+      lineHitCount += 1;
+      const contextBefore = contextLines > 0 ? lines.slice(Math.max(0, i - contextLines), i) : [];
+      const contextAfter = contextLines > 0 ? lines.slice(i + 1, i + 1 + contextLines) : [];
+      if (wantJson) {
+        hits.push({
+          path: relativePath,
+          line: i + 1,
+          column: match.index + 1,
+          match: match[0],
+          contextBefore,
+          contextAfter
+        });
+      } else if (wantContent) {
+        contentLines.push(`${relativePath}:${i + 1}:${lines[i]}`);
+      }
+    }
+    if (fileMatches > 0) {
+      fileHitCount += 1;
+      if (mode === "files_with_matches") {
+        matchedFiles.push(relativePath);
+      } else if (wantCount) {
+        fileCounts.push({ path: relativePath, count: fileMatches });
       }
     }
   }
 
-  await walk(root);
+  async function walk(current: string): Promise<void> {
+    if (signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
+    if (reachedLimit()) return;
+    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+      if (signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
+      if (reachedLimit()) return;
+      if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
+      const fullPath = path.join(current, entry.name);
+      const matchPath = path.relative(root, fullPath).replaceAll("\\", "/");
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      await inspectFile(fullPath, matchPath);
+    }
+  }
+
+  const rootStat = await fs.stat(root);
+  if (rootStat.isFile()) {
+    await inspectFile(root, path.basename(root));
+  } else {
+    await walk(root);
+  }
 
   const scanWarnings = [
     skippedLargeFiles > 0 ? `已跳过 ${skippedLargeFiles} 个超过 ${GREP_MAX_FILE_BYTES / 1024 / 1024} MiB 的文件` : "",

@@ -27,6 +27,8 @@ import {
 } from "../../shared/themeCatalog";
 
 const CACHE_KEY = "deepseeker.themeCache.v1";
+const EXECUTION_MUTED_LIGHT_REFERENCE = "#8e969b";
+const EXECUTION_MUTED_LIGHT_CANVAS = "#fbfbfa";
 
 type ThemeCache = {
   preference: ThemePreference;
@@ -96,6 +98,52 @@ function colorLuminance(color: string): number {
   return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
 }
 
+function contrastRatio(left: string, right: string): number {
+  const leftLuminance = colorLuminance(left);
+  const rightLuminance = colorLuminance(right);
+  return (Math.max(leftLuminance, rightLuminance) + 0.05)
+    / (Math.min(leftLuminance, rightLuminance) + 0.05);
+}
+
+function mixHexColors(background: string, foreground: string, foregroundWeight: number): string {
+  const channels = (color: string) => [0, 2, 4].map((offset) =>
+    Number.parseInt(color.slice(1, 7).slice(offset, offset + 2), 16)
+  );
+  const backgroundChannels = channels(background);
+  const foregroundChannels = channels(foreground);
+  return `#${backgroundChannels.map((channel, index) =>
+    Math.round(channel + (foregroundChannels[index] - channel) * foregroundWeight)
+      .toString(16)
+      .padStart(2, "0")
+  ).join("")}`;
+}
+
+export function executionMutedColor(variant: ThemeVariant): string {
+  if (colorLuminance(variant.colors.background) >= 0.25) return EXECUTION_MUTED_LIGHT_REFERENCE;
+  const targetContrast = contrastRatio(EXECUTION_MUTED_LIGHT_REFERENCE, EXECUTION_MUTED_LIGHT_CANVAS);
+  let lower = 0;
+  let upper = 1;
+  let matched = variant.colors.foreground;
+  for (let index = 0; index < 24; index += 1) {
+    const weight = (lower + upper) / 2;
+    const candidate = mixHexColors(variant.colors.background, variant.colors.foreground, weight);
+    if (contrastRatio(candidate, variant.colors.background) < targetContrast) {
+      lower = weight;
+    } else {
+      upper = weight;
+      matched = candidate;
+    }
+  }
+  return matched;
+}
+
+function contrastingThemeText(background: string, variant: ThemeVariant): string {
+  const { foreground, background: canvas } = variant.colors;
+  return contrastRatio(background, foreground) >= contrastRatio(background, canvas)
+    ? foreground
+    : canvas;
+}
+
 function shadowColor(dark: boolean, opacity: number): string {
   const channels = dark ? "0 0 0" : "20 31 43";
   return `rgb(${channels} / ${(opacity * 100).toFixed(1)}%)`;
@@ -144,7 +192,9 @@ function cssVariables(variant: ThemeVariant, codeVariant: ThemeVariant): Record<
     "--color-control-idle": colors.subtle,
     "--color-danger": colors.danger,
     "--color-danger-surface": colors.dangerSurface,
+    "--color-execution-muted": executionMutedColor(variant),
     "--color-hover": colors.hover,
+    "--color-on-accent": contrastingThemeText(colors.accent, variant),
     "--color-success": colors.success,
     "--color-surface": colors.surface,
     "--color-surface-elevated": colors.surfaceElevated,

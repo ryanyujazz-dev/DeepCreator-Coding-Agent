@@ -61,17 +61,19 @@ function memberIcon(activity: Activity) {
 
 function memberLabel(activity: Activity): string {
   const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
-  if (activity.command?.timedOut) return `已超时 ${target}`;
-  if (activity.status === "failed") return `失败 ${target}`;
-  if (activity.status === "cancelled") return `已取消 ${target}`;
-  if (activity.tool?.toolName === "run_command") return `${activity.status === "running" ? "正在运行" : "已运行"} ${target}`;
-  if (activity.tool?.toolName === "read_file") return `${activity.status === "running" ? "正在读取" : "已读取"} ${target}`;
-  if (activity.tool?.toolName === "list_files") return `${activity.status === "running" ? "正在列出" : "已列出"} ${target}`;
-  if (activity.tool?.toolName === "grep") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
-  if (activity.tool?.toolName === "glob") return `${activity.status === "running" ? "正在匹配" : "已匹配"} ${target}`;
-  if (activity.tool?.action === "search") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
-  if (activity.tool?.action === "modify") return `${activity.status === "running" ? "正在修改" : "已修改"} ${target}`;
-  return `${activity.status === "running" ? "正在执行" : "已完成"} ${target}`;
+  const active = activity.status === "running";
+  let action = active ? "正在执行" : "已完成";
+  if (activity.tool?.toolName === "run_command") action = active ? "正在运行" : "已运行";
+  else if (activity.tool?.toolName === "read_file") action = active ? "正在读取" : "已读取";
+  else if (activity.tool?.toolName === "list_files") action = active ? "正在列出" : "已列出";
+  else if (activity.tool?.toolName === "grep") action = active ? "正在搜索" : "已搜索";
+  else if (activity.tool?.toolName === "glob") action = active ? "正在匹配" : "已匹配";
+  else if (activity.tool?.action === "search") action = active ? "正在搜索" : "已搜索";
+  else if (activity.tool?.action === "modify") action = active ? "正在修改" : "已修改";
+  const outcome = activity.command?.timedOut
+    ? "超时"
+    : activity.status === "failed" ? "失败" : activity.status === "cancelled" ? "已取消" : "";
+  return [action, target, outcome].filter(Boolean).join(" ");
 }
 
 function FailureAwareLabel({ label }: { label: string }) {
@@ -87,14 +89,19 @@ function FailureAwareLabel({ label }: { label: string }) {
 }
 
 function fileActionLabel(activity: Activity): string {
-  if (activity.status === "failed") return "失败";
-  if (activity.status === "cancelled") return "已取消";
   if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
   if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "已搜索";
   if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "已匹配";
   if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
   if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
   return activity.status === "running" ? "正在处理" : "已处理";
+}
+
+function memberOutcomeLabel(activity: Activity): string {
+  if (activity.command?.timedOut) return "超时";
+  if (activity.status === "failed") return "失败";
+  if (activity.status === "cancelled") return "已取消";
+  return "";
 }
 
 function directActionLabel(activity: Activity): string {
@@ -193,7 +200,7 @@ function OperationMemberRow({
         <span>{memberIcon(activity)}</span>
         {isFileReference ? (
           <span className="operation-file-reference">
-            <span><FailureAwareLabel label={fileActionLabel(activity)} /></span>
+            <span>{fileActionLabel(activity)}</span>
             <button
               onClick={(event) => {
                 event.stopPropagation();
@@ -204,6 +211,11 @@ function OperationMemberRow({
             >
               {fileDisplayName(target)}
             </button>
+            {memberOutcomeLabel(activity) && (
+              <span className={activity.status === "failed" ? "operation-failure-word" : "operation-member-outcome"}>
+                {memberOutcomeLabel(activity)}
+              </span>
+            )}
           </span>
         ) : (
           <span className={activity.status === "running" ? "working-glow" : ""} title={memberLabel(activity)}>

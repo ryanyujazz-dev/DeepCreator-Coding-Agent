@@ -124,6 +124,7 @@ Rules:
   - `[Modify project files | Matched 1 file · Searched 2 items · Read 4 files · Edited 1 file]`
 - Only successfully completed objects use `completed` wording. Failed and cancelled calls are reported separately.
 - When command failures are present, make successful and failed counts unambiguous, for example `Successfully ran 2 commands · 1 failed`.
+- A legacy failed tool whose persisted snapshot lacks detailed ToolState still belongs to the aggregate. Keep its raw error available in expanded details; never promote that error body to a first-level timeline row.
 
 The aggregate header must update immediately when a tool finishes.
 

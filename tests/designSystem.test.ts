@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -48,6 +48,8 @@ test("renders third-level tool details as one shared window", () => {
 
 test("anchors the scroll-to-bottom control to the responsive composer center", () => {
   assert.match(styles, /\.scroll-to-bottom-button\s*\{[^}]*bottom:\s*calc\(100% \+ 12px\);[^}]*left:\s*50%/s);
+  assert.match(styles, /\.scroll-to-bottom-button\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--color-surface-elevated\) 94%, transparent\);[^}]*color:\s*var\(--color-text-muted\)/s);
+  assert.doesNotMatch(styles, /\.scroll-to-bottom-button\s*\{[^}]*background:\s*#fff(?:fff)?/s);
   assert.doesNotMatch(styles, /\.inspector-layout-reserved \.scroll-to-bottom-button/);
 
   const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
@@ -102,11 +104,33 @@ test("uses semantic aggregate icons and keeps the current aggregate active throu
 
 test("colors only the failure word in expanded activity rows", () => {
   assert.match(styles, /\.operation-call-row\.is-failed\s*\{[^}]*color:\s*var\(--process-detail-color\)/s);
-  assert.match(styles, /\.operation-failure-word\s*\{[^}]*color:\s*#b74b3f/s);
+  assert.match(styles, /\.operation-failure-word\s*\{[^}]*color:\s*var\(--color-danger\)/s);
 
   const renderer = readFileSync(path.join(root, "src/components/ActivityGroupRenderer.tsx"), "utf8");
   assert.match(renderer, /function FailureAwareLabel/);
   assert.match(renderer, /className="operation-failure-word">失败/);
+  assert.match(renderer, /<button[\s\S]*?\{fileDisplayName\(target\)\}[\s\S]*?memberOutcomeLabel\(activity\)/);
+});
+
+test("uses semantic dark-mode surfaces and unified expanded-row hover colors", () => {
+  assert.match(styles, /\.activity-output\s*\{[^}]*background:\s*var\(--color-surface-subtle\);[^}]*color:\s*var\(--color-text-muted\);[^}]*font-family:\s*var\(--font-family-code\)/s);
+  assert.match(styles, /\.composer-hud-primary\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--color-surface-elevated\) 94%, transparent\)/s);
+  assert.doesNotMatch(styles, /\.composer-hud-primary\s*\{[^}]*background:\s*rgba\(255, 255, 255/s);
+  assert.match(styles, /\.operation-call-row:hover \.operation-file-reference,[\s\S]*color:\s*var\(--color-text\)/);
+  assert.match(styles, /\.work-process \.operation-call-row:hover > span:first-child,[\s\S]*color:\s*var\(--color-text\)/);
+  assert.match(styles, /\.work-process \.operation-file-summary:hover \.operation-file-summary-icon,[\s\S]*color:\s*var\(--color-text\)/);
+  assert.match(styles, /\.operation-call-row,[\s\S]*\.operation-call-row\.is-expandable\s*\{[^}]*grid-template-columns:\s*var\(--execution-icon-column\) minmax\(0, auto\) 14px/s);
+  assert.doesNotMatch(styles, /button\.operation-call-row:hover/);
+});
+
+test("themes sidebar overlays and runtime environment descendants", () => {
+  assert.match(styles, /Dark counterparts for audited legacy light baselines/);
+  assert.match(styles, /\.sidebar-hover-card header strong,[\s\S]*color:\s*var\(--color-text\)/);
+  assert.match(styles, /\.sidebar-hover-card > div,[\s\S]*color:\s*var\(--color-text-secondary\)/);
+  assert.match(styles, /\.sidebar-hover-card header > svg:last-child,[\s\S]*color:\s*var\(--color-text-muted\)/);
+  assert.match(styles, /\.environment-section > header,[\s\S]*\.environment-plan-document small\s*\{[^}]*color:\s*var\(--color-text-muted\)/s);
+  assert.match(styles, /\.environment-row:hover\s*\{[^}]*background:\s*var\(--color-hover\);[^}]*color:\s*var\(--color-text\)/s);
+  assert.doesNotMatch(styles, /(?<!data-color-scheme="dark"\] )\.sidebar-hover-card header strong,[\s\S]{0,500}color:\s*var\(--color-text\)/);
 });
 
 test("keeps the sidebar project list compact", () => {
@@ -167,6 +191,8 @@ test("routes the renderer, code views, and settings workspace through the shared
   assert.match(provider, /"--shadow-faint-color"/);
   assert.match(provider, /"--shadow-strong-color"/);
   assert.match(provider, /"--shadow-canvas-soft-color"/);
+  assert.match(provider, /"--color-execution-muted": executionMutedColor\(variant\)/);
+  assert.match(provider, /"--color-on-accent": contrastingThemeText\(colors\.accent, variant\)/);
   assert.match(styles, /--shadow-canvas:\s*0 0 34px var\(--shadow-canvas-soft-color\)/);
   assert.doesNotMatch(styles, /--shadow-canvas-edge|box-shadow:\s*inset[^;]*var\(--shadow-canvas/);
   assert.doesNotMatch(styles, /box-shadow:\s*-1px -1px 0 var\(--app-border\)/);
@@ -187,6 +213,14 @@ test("routes the renderer, code views, and settings workspace through the shared
   assert.match(mermaid, /themeVariables:\s*\{/);
 });
 
+test("keeps the final theme-aware interface mapping free of light-only text colors", () => {
+  const marker = "/* Theme-aware overrides for legacy light-only declarations. */";
+  const themeAwareOverrides = styles.slice(styles.indexOf(marker));
+  assert.ok(themeAwareOverrides.startsWith(marker));
+  assert.doesNotMatch(themeAwareOverrides, /(?:^|[;{])\s*color:\s*(?:#[0-9a-fA-F]|rgba?\()/m);
+  assert.doesNotMatch(themeAwareOverrides, /background-color:\s*(?:#[0-9a-fA-F]|rgba?\()/);
+});
+
 test("captures settings input values before updating the theme draft", () => {
   const appearance = readFileSync(path.join(root, "src/components/settings/AppearanceSettings.tsx"), "utf8");
   assert.match(appearance, /const name = event\.currentTarget\.value;[\s\S]*next\.name = name;/);
@@ -194,25 +228,69 @@ test("captures settings input values before updating the theme draft", () => {
   assert.doesNotMatch(appearance, /mutateDraft\(\(next\) => \{[^}]*event\.(?:currentTarget|target)\.value/s);
 });
 
-test("does not grow the legacy raw-color surface outside the theme catalog", () => {
-  const componentFiles = [
-    path.join(root, "src/styles.css"),
-    ...[
-      "ActivityView.tsx",
-      "ActivityGroupRenderer.tsx",
-      "AppTopbar.tsx",
-      "ChangePanel.tsx",
-      "Composer.tsx",
-      "Conversation.tsx",
-      "Inspector.tsx",
-      "SurfacePane.tsx"
-    ].map((file) => path.join(root, "src/components", file))
-  ];
-  const rawColorCount = componentFiles.reduce((total, file) => {
-    const source = readFileSync(file, "utf8");
-    return total + (source.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g)?.length ?? 0);
-  }, 0);
+test("keeps raw colors out of business UI components", () => {
+  const componentRoot = path.join(root, "src/components");
+  const collect = (directory: string): string[] => readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => entry.isDirectory()
+      ? collect(path.join(directory, entry.name))
+      : entry.name.endsWith(".tsx") ? [path.join(directory, entry.name)] : []);
+  const intentionalPreview = path.join(componentRoot, "settings/AppearanceSettings.tsx");
+  const rawColor = /#[0-9a-fA-F]{3,8}\b|rgba?\(/g;
 
-  // This is a migration ceiling for the legacy stylesheet, not a target.
-  assert.ok(rawColorCount <= 712, `raw color ceiling exceeded: ${rawColorCount}`);
+  for (const file of [
+    ...collect(componentRoot),
+    ...collect(path.join(root, "src/shared-ui"))
+  ]) {
+    if (file === intentionalPreview) continue;
+    const matches = readFileSync(file, "utf8").match(rawColor) ?? [];
+    assert.deepEqual(matches, [], `${path.relative(root, file)} contains raw UI colors: ${matches.join(", ")}`);
+  }
+
+  const appearance = readFileSync(intentionalPreview, "utf8");
+  assert.deepEqual(
+    appearance.match(rawColor),
+    ["#2563eb", "#0ea5e9", "#000000", "#20272A", "#FFFFFF"],
+    "AppearanceSettings may only keep its documented theme-data previews and dynamic contrast pair"
+  );
+});
+
+test("keeps the audited dark UI counterpart layer semantic", () => {
+  const marker = "/* Dark counterparts for audited legacy light baselines. */";
+  const endMarker = "html[data-color-scheme=\"dark\"] .account-strip::before";
+  const start = styles.indexOf(marker);
+  const end = styles.indexOf(endMarker, start);
+  assert.ok(start >= 0 && end > start);
+  const auditLayer = styles.slice(start, end);
+  assert.doesNotMatch(auditLayer, /(?:^|[;{])\s*(?:color|background(?:-color)?|border(?:-color)?):\s*(?:#[0-9a-fA-F]|rgba?\()/m);
+  assert.match(auditLayer, /\.permission-menu/);
+  assert.match(auditLayer, /\.context-inspector-popover/);
+  assert.match(auditLayer, /\.settings-dialog/);
+  assert.match(auditLayer, /\.approval-dialog/);
+  assert.match(auditLayer, /\.inline-plan-card/);
+  assert.match(auditLayer, /\.plan-surface/);
+});
+
+test("does not expand the quarantined legacy light-color baseline", () => {
+  const legacyMarker = "/* Theme-aware overrides for legacy light-only declarations. */";
+  const legacySection = styles.slice(0, styles.indexOf(legacyMarker));
+  const rawColors = legacySection.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g) ?? [];
+  assert.ok(rawColors.length <= 628, `legacy light-color baseline grew to ${rawColors.length}`);
+});
+
+test("keeps dark hover, focus, selected, and context-meter states semantic", () => {
+  const marker = "/* Audited dark interaction states.";
+  const interactionStates = styles.slice(styles.indexOf(marker));
+  assert.ok(interactionStates.startsWith(marker));
+  assert.doesNotMatch(
+    interactionStates,
+    /(?:^|[;{])\s*(?:color|background(?:-color)?|border(?:-color)?|outline-color|box-shadow):\s*(?:#[0-9a-fA-F]|rgba?\()/m
+  );
+  assert.match(interactionStates, /:is\(:hover, :focus-visible\) :is\(svg, span, strong, small\)\s*\{[^}]*color:\s*inherit/s);
+  assert.match(interactionStates, /\.run-stream :is\(button, \.patch-row\):is\(:hover, :focus-visible, \[aria-expanded="true"\]\)\s*\{[^}]*background:\s*transparent/s);
+  assert.match(interactionStates, /\.context-meter-ring\s*\{[^}]*conic-gradient\([^}]*var\(--color-text-muted\)[^}]*var\(--color-surface-subtle\)/s);
+  assert.match(interactionStates, /\.context-meter-ring::after\s*\{[^}]*background:\s*var\(--color-surface-elevated\)/s);
+  assert.match(interactionStates, /\.context-meter:is\(:hover, :focus-visible, :focus-within\) \.context-meter-ring\s*\{[^}]*var\(--theme-blue\)/s);
+  assert.match(interactionStates, /\.project-title-shell:is\(:hover, :has\(:focus-visible\)\)[\s\S]*\.project-title span,[\s\S]*color:\s*var\(--color-text\)/);
+  assert.match(interactionStates, /\.thread-row-shell:is\(:hover, :has\(:focus-visible\)\)[\s\S]*\.thread-row time,[\s\S]*color:\s*var\(--color-text\)/);
+  assert.match(interactionStates, /\.project-context-trigger:hover,[\s\S]*\.ui-pill-button\[aria-expanded="true"\],[\s\S]*:is\(svg, span, strong, small\)\s*\{[^}]*color:\s*inherit/s);
 });

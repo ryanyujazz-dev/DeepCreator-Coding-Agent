@@ -50,7 +50,11 @@ export type DisplayProjectionOptions = {
 
 function toolCategory(activity: Activity): ActionKind | undefined {
   const tool = activity.tool;
-  if (!tool || tool.action === "task" || tool.action === "plan") return undefined;
+  // Older failed Activity snapshots may have lost their ToolState when the
+  // finishing event omitted it. Keep those tool facts inside the execution
+  // aggregate instead of exposing raw errors as first-level timeline entries.
+  if (!tool) return activity.kind === "tool" ? "inspect" : undefined;
+  if (tool.action === "task" || tool.action === "plan") return undefined;
   if (tool.action === "inspect" || tool.action === "search") return "inspect";
   return tool.action;
 }
@@ -243,7 +247,9 @@ function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
     : failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
   const summary = [...buckets].map(([bucket, activities]) => bucketLabel(bucket, activities, failureCount > 0)).join(" · ");
   const headlineKind = draft.tools.reduce<ReturnType<typeof headlineKindForTool> | undefined>((dominant, activity) => {
-    const candidate = activity.tool?.stepHeadline ?? headlineKindForTool(activity.tool!);
+    const candidate = activity.tool
+      ? activity.tool.stepHeadline ?? headlineKindForTool(activity.tool)
+      : undefined;
     if (!candidate) return dominant;
     if (!dominant || headlinePriority(candidate) > headlinePriority(dominant)) return candidate;
     return dominant;
