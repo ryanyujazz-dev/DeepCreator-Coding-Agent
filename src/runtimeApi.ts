@@ -1,5 +1,28 @@
-import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, Session, WorkspaceKind } from "../shared/contracts/runtime";
-import { ModelOption } from "../shared/contracts/provider";
+import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, WorkspaceKind } from "../shared/contracts/runtime";
+import {
+  decodeArchiveSessionsResponse,
+  decodeContextObserverResponse,
+  decodeEventStream,
+  decodeInteractionResponse,
+  decodeOkResponse,
+  decodeRuntimeBalance,
+  decodeRuntimeConfig,
+  decodeRuntimeFilePreview,
+  decodeSessionResponse,
+  decodeSessionsResponse,
+  decodeWorkspaceResponse,
+  RuntimeDecoder
+} from "../shared/schemas/api";
+import { browserPlatform } from "./platform/browser";
+
+export type {
+  RuntimeBalance,
+  RuntimeConfig,
+  RuntimeContextObserver,
+  RuntimeContextTelemetry,
+  RuntimeFilePreview,
+  RuntimeWorkspace
+} from "../shared/contracts/api";
 
 export class RuntimeRequestError extends Error {
   status: number;
@@ -11,103 +34,24 @@ export class RuntimeRequestError extends Error {
   }
 }
 
-async function json<T>(response: Response): Promise<T> {
+async function json<T>(response: Response, decode: RuntimeDecoder<T>): Promise<T> {
   if (!response.ok) {
     const body = await response.text();
     let message = body || `Request failed: ${response.status}`;
     try {
-      const parsed = JSON.parse(body) as { error?: string; message?: string };
-      message = parsed.message || parsed.error || message;
+      const parsed: unknown = JSON.parse(body);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>;
+        if (typeof record.message === "string") message = record.message;
+        else if (typeof record.error === "string") message = record.error;
+      }
     } catch {
       // Preserve a plain-text response.
     }
     throw new RuntimeRequestError(message, response.status);
   }
-  return response.json() as Promise<T>;
+  return decode(await response.json());
 }
-
-export type RuntimeConfig = {
-  compactThresholdTokens: number;
-  contextWindowTokens: number;
-  effectiveInputBudgetTokens: number;
-  requestedMaxOutputTokens: number;
-  contextPreview?: RuntimeContextTelemetry;
-  defaultModel: string;
-  hasApiKey: boolean;
-  eventContract: string;
-  models: ModelOption[];
-  planEntry: PlanEntry;
-  workspaceRoot: string;
-};
-
-// 账户余额查询结果(对应后端 GET /api/balance)。
-// 用于在 context-meter popover 显示 DeepSeek 账户剩余额度。
-export type RuntimeBalance = {
-  isAvailable: boolean;
-  balanceInfos: Array<{
-    currency: string;
-    totalBalance: number;
-    grantedBalance: number;
-    toppedUpBalance: number;
-  }>;
-};
-
-export type RuntimeContextSection = {
-  section: string;
-  source: string;
-  estimatedTokens: number;
-  cacheClass: string;
-  role?: string;
-  survivesCompaction?: boolean;
-};
-
-export type RuntimeContextTelemetry = {
-  metricId: string;
-  estimatedInputTokens: number;
-  actualInputTokens?: number;
-  outputTokens?: number;
-  cacheHitTokens?: number;
-  cacheMissTokens?: number;
-  prefixHash: string;
-  compacted: boolean;
-  compactThresholdTokens?: number;
-  effectiveInputBudgetTokens?: number;
-  providerContextWindowTokens?: number;
-  requestedMaxOutputTokens?: number;
-  sections: RuntimeContextSection[];
-  truncationEvents?: Array<{ recordId: string; toolName?: string }>;
-  events?: Array<{ kind: string; label: string; source?: string }>;
-};
-
-export type RuntimeContextObserver = {
-  latest?: RuntimeContextTelemetry;
-  memoryFactCount: number;
-  recent: RuntimeContextTelemetry[];
-  sessionId: string;
-  updates: Array<{
-    createdAt: string;
-    kind: string;
-    label: string;
-    loadingReason?: string;
-    source?: string;
-  }>;
-};
-
-export type RuntimeFilePreview = {
-  content: string;
-  path: string;
-  projectRoot: string;
-  truncated: boolean;
-};
-
-export type RuntimeWorkspace = {
-  branch?: string;
-  dirtyFiles: number;
-  exists: boolean;
-  git: boolean;
-  name: string;
-  projectRoot: string;
-};
 
 export class SSEDecoder {
   private buffer = "";
@@ -139,46 +83,47 @@ export class RuntimeClient {
     this.token = input.token;
   }
 
-  config = () => this.request<RuntimeConfig>("/api/config");
-  getBalance = () => this.request<RuntimeBalance>("/api/balance");
-  listSessions = (query = "") => this.request<{ sessions: import("../shared/contracts/runtime").SessionSummary[] }>(
-    `/api/sessions${query.trim() ? `?query=${encodeURIComponent(query.trim())}` : ""}`
+  config = () => this.request("/api/config", decodeRuntimeConfig);
+  getBalance = () => this.request("/api/balance", decodeRuntimeBalance);
+  listSessions = (query = "") => this.request(
+    `/api/sessions${query.trim() ? `?query=${encodeURIComponent(query.trim())}` : ""}`,
+    decodeSessionsResponse
   );
-  getSession = (sessionId: string) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}`);
-  getWorkspace = (sessionId: string) => this.request<{ workspace: RuntimeWorkspace }>(`/api/sessions/${encodeURIComponent(sessionId)}/workspace`);
-  getContextObserver = (sessionId: string) => this.request<{ observer: RuntimeContextObserver }>(`/api/sessions/${encodeURIComponent(sessionId)}/context-observer`);
-  getFile = (sessionId: string, path: string) => this.request<RuntimeFilePreview>(`/api/sessions/${encodeURIComponent(sessionId)}/files?path=${encodeURIComponent(path)}`);
+  getSession = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, decodeSessionResponse);
+  getWorkspace = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/workspace`, decodeWorkspaceResponse);
+  getContextObserver = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/context-observer`, decodeContextObserverResponse);
+  getFile = (sessionId: string, path: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/files?path=${encodeURIComponent(path)}`, decodeRuntimeFilePreview);
   startRun = (input: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; projectRoot?: string; prompt: string; sessionId?: string; workspaceKind?: WorkspaceKind }) => {
-    const sessionId = input.sessionId ?? `session_${crypto.randomUUID()}`;
-    return this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, { body: JSON.stringify(input), method: "POST" });
+    const sessionId = input.sessionId ?? browserPlatform.createId("session");
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, decodeSessionResponse, { body: JSON.stringify(input), method: "POST" });
   };
-  cancelRun = (runId: string) => this.request<{ ok: boolean }>(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
-  stopCommand = (commandId: string) => this.request<{ ok: boolean }>(`/api/commands/${encodeURIComponent(commandId)}/stop`, { method: "POST" });
-  setSessionSidebar = (sessionId: string, input: { archived?: boolean; pinned?: boolean }) => this.request<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(sessionId)}/sidebar`, {
+  cancelRun = (runId: string) => this.request(`/api/runs/${encodeURIComponent(runId)}/cancel`, decodeOkResponse, { method: "POST" });
+  stopCommand = (commandId: string) => this.request(`/api/commands/${encodeURIComponent(commandId)}/stop`, decodeOkResponse, { method: "POST" });
+  setSessionSidebar = (sessionId: string, input: { archived?: boolean; pinned?: boolean }) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/sidebar`, decodeOkResponse, {
     body: JSON.stringify(input), method: "PUT"
   });
-  archiveProjectSessions = (projectRoot: string) => this.request<{ archived: number }>("/api/projects/archive-sessions", {
+  archiveProjectSessions = (projectRoot: string) => this.request("/api/projects/archive-sessions", decodeArchiveSessionsResponse, {
     body: JSON.stringify({ projectRoot }), method: "POST"
   });
-  setAccessMode = (sessionId: string, accessMode: AccessMode) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/access-mode`, {
+  setAccessMode = (sessionId: string, accessMode: AccessMode) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/access-mode`, decodeSessionResponse, {
     body: JSON.stringify({ accessMode }), method: "PUT"
   });
-  setMode = (sessionId: string, input: { mode?: Mode; planEntry?: PlanEntry }) => this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/mode`, {
+  setMode = (sessionId: string, input: { mode?: Mode; planEntry?: PlanEntry }) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/mode`, decodeSessionResponse, {
     body: JSON.stringify(input), method: "PUT"
   });
   resolvePlan = (sessionId: string, plan: Pick<Plan, "planId" | "revision">, input: { accessMode?: AccessMode; comments?: string; decision: PlanDecision }) =>
-    this.request<{ idempotent: boolean; session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}/resolve`, {
+    this.request(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}/resolve`, decodeInteractionResponse, {
       body: JSON.stringify(input), method: "POST"
     });
   revisePlan = (sessionId: string, plan: Pick<Plan, "planId" | "revision">, input: { markdown: string; title: string }) =>
-    this.request<{ session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}`, {
+    this.request(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}`, decodeSessionResponse, {
       body: JSON.stringify(input), method: "PUT"
     });
   answerQuestion = (sessionId: string, interactionId: string, answers: Record<string, string>) =>
-    this.request<{ idempotent: boolean; session: Session }>(`/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(interactionId)}/answer`, {
+    this.request(`/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(interactionId)}/answer`, decodeInteractionResponse, {
       body: JSON.stringify({ answers }), method: "POST"
     });
-  resolveApproval = (approvalId: string, decision: ApprovalChoice) => this.request<{ ok: boolean }>(`/api/approvals/${encodeURIComponent(approvalId)}/resolve`, {
+  resolveApproval = (approvalId: string, decision: ApprovalChoice) => this.request(`/api/approvals/${encodeURIComponent(approvalId)}/resolve`, decodeOkResponse, {
     body: JSON.stringify({ decision }), method: "POST"
   });
 
@@ -198,7 +143,7 @@ export class RuntimeClient {
           const response = await fetch(this.url(`/api/sessions/${encodeURIComponent(input.sessionId)}/stream?afterOffset=${offset}`), {
             headers: this.headers(), signal: controller.signal
           });
-          if (!response.ok) await json<never>(response);
+          if (!response.ok) await json(response, (value) => value);
           if (!response.body) throw new Error("Runtime stream is unavailable.");
           input.onOpen();
           retryMs = 400;
@@ -235,9 +180,9 @@ export class RuntimeClient {
     return headers;
   }
 
-  private request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private request<T>(path: string, decode: RuntimeDecoder<T>, init: RequestInit = {}): Promise<T> {
     const hasBody = init.body !== undefined && init.body !== null;
-    return fetch(this.url(path), { ...init, headers: this.headers(init.headers, hasBody) }).then((response) => json<T>(response));
+    return fetch(this.url(path), { ...init, headers: this.headers(init.headers, hasBody) }).then((response) => json(response, decode));
   }
 
   private url(path: string): string {
@@ -248,6 +193,6 @@ export class RuntimeClient {
 export const runtimeApi = new RuntimeClient();
 
 export function parseEventMessage(data: string): Event[] {
-  const message = JSON.parse(data) as EventStream;
+  const message: EventStream = decodeEventStream(JSON.parse(data));
   return message.kind === "events" ? message.events : [];
 }

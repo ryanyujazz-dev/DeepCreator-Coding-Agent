@@ -1,12 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADR-009: 用户配置统一为 ~/.deepseeker/config.json
+// ADR-009: 普通用户配置统一为 ~/.deepseeker/config.json
 //
-// 不再使用 .env.local / 环境变量。配置全部通过结构化 JSON 管理。
-// 对标 Claude Code 的 ~/.claude/settings.json。
+// 不再读取项目内的 .env.local。桌面端历史 DeepSeek 密钥仍可由
+// safeStorage 兼容解析，Runtime 环境变量只承担宿主到 worker 的进程传递。
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type UserConfig = {
@@ -41,23 +41,62 @@ const DEFAULT_CONFIG: UserConfig = {
   permissions: { allow: [], deny: [] }
 };
 
+function optionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${field} 必须是字符串。`);
+  return value;
+}
+
+export function parseUserConfig(raw: string): UserConfig {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("配置根节点必须是对象。");
+  const input = parsed as Record<string, unknown>;
+  const contextWindowTokens = input.contextWindowTokens ?? DEFAULT_CONFIG.contextWindowTokens;
+  if (!Number.isSafeInteger(contextWindowTokens) || Number(contextWindowTokens) <= 0) {
+    throw new Error("contextWindowTokens 必须是正整数。");
+  }
+  let permissions = DEFAULT_CONFIG.permissions;
+  if (input.permissions !== undefined) {
+    if (!input.permissions || typeof input.permissions !== "object" || Array.isArray(input.permissions)) {
+      throw new Error("permissions 必须是对象。");
+    }
+    const candidate = input.permissions as Record<string, unknown>;
+    for (const field of ["allow", "deny"] as const) {
+      if (candidate[field] !== undefined && (!Array.isArray(candidate[field]) || !candidate[field].every((item) => typeof item === "string"))) {
+        throw new Error(`permissions.${field} 必须是字符串数组。`);
+      }
+    }
+    permissions = {
+      allow: candidate.allow as string[] | undefined,
+      deny: candidate.deny as string[] | undefined
+    };
+  }
+  return {
+    apiKey: optionalString(input.apiKey, "apiKey") ?? DEFAULT_CONFIG.apiKey,
+    contextWindowTokens: Number(contextWindowTokens),
+    locale: optionalString(input.locale, "locale") ?? DEFAULT_CONFIG.locale,
+    model: optionalString(input.model, "model") ?? DEFAULT_CONFIG.model,
+    permissions,
+    zhipuApiKey: optionalString(input.zhipuApiKey, "zhipuApiKey") ?? DEFAULT_CONFIG.zhipuApiKey
+  };
+}
+
 function configPath(): string {
   return path.join(homedir(), ".deepseeker", "config.json");
 }
 
 /**
- * 加载用户配置。如果 config.json 不存在,返回默认值。
- * 不会抛异常——解析失败时回退到默认值。
+ * 加载用户配置。如果 config.json 不存在，返回默认值。
+ * 已存在但损坏的配置必须显式报错，避免后续保存用默认值覆盖原文件。
  */
 export function loadUserConfig(): UserConfig {
   const file = configPath();
   if (!existsSync(file)) return { ...DEFAULT_CONFIG };
   try {
-    const raw = readFileSync(file, "utf8");
-    const parsed = JSON.parse(raw) as Partial<UserConfig>;
-    return { ...DEFAULT_CONFIG, ...parsed };
-  } catch {
-    return { ...DEFAULT_CONFIG };
+    return parseUserConfig(readFileSync(file, "utf8"));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`无法读取用户配置 ${file}：${detail}`, { cause: error });
   }
 }
 
@@ -132,5 +171,11 @@ export function saveUserConfig(config: UserConfig): void {
   const file = configPath();
   const dir = path.dirname(file);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(file, JSON.stringify(config, null, 2) + "\n", "utf8");
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify(config, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+    renameSync(temporary, file);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }

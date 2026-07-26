@@ -2,8 +2,11 @@ import { X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { DesktopSettings } from "../../shared/contracts/desktop";
 import { IconButton } from "../shared-ui/ControlPrimitives";
+import { browserPlatform } from "../platform/browser";
+import { desktopBridge } from "../platform/desktop";
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
+  const desktop = desktopBridge();
   const [settings, setSettings] = useState<DesktopSettings | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [zhipuApiKey, setZhipuApiKey] = useState("");
@@ -11,23 +14,23 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    void window.deepseeker?.settings.read().then((value) => {
+    void desktop?.settings.read().then((value) => {
       setSettings(value);
     });
-  }, []);
+  }, [desktop]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!window.deepseeker) return;
+    if (!desktop) return;
     setSaving(true);
     setError(null);
     try {
-      await window.deepseeker.settings.save({
+      await desktop.settings.save({
         apiKey: apiKey || undefined,
         defaultModel: settings?.defaultModel ?? "deepseek-v4-flash",
         zhipuApiKey: zhipuApiKey || undefined
       });
-      window.location.reload();
+      browserPlatform.reload();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       setSaving(false);

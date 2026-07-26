@@ -1,7 +1,16 @@
 import { AccessMode, PlanDecision, Session } from "../../shared/contracts/runtime";
 import { ContextPort, EventInput, EventPort, SessionPort } from "./runtimeRepo";
+import { AppError, AppErrorCode } from "./appError";
+import { SystemPort } from "./systemPort";
 
 type PlanReviewPorts = ContextPort & EventPort & SessionPort;
+
+export class PlanReviewError extends AppError {
+  constructor(message: string, code: AppErrorCode) {
+    super(message, code);
+    this.name = "PlanReviewError";
+  }
+}
 
 export type ResumeRun = {
   model: string;
@@ -35,7 +44,7 @@ function resultText(input: {
 
 function resumeFor(session: Session, runId: string): ResumeRun {
   const run = session.runs.find((item) => item.runId === runId);
-  if (!run) throw new Error("Plan Run not found.");
+  if (!run) throw new PlanReviewError("Plan Run not found.", "not_found");
   return { model: run.model, projectRoot: session.projectRoot, prompt: run.prompt, runId, sessionId: session.sessionId };
 }
 
@@ -47,11 +56,12 @@ export function resolvePlan(input: {
   revision: number;
   sessionId: string;
   store: PlanReviewPorts;
+  system: SystemPort;
 }): ReviewResult {
   const session = input.store.getSession(input.sessionId);
-  if (!session) throw new Error("Session not found.");
+  if (!session) throw new PlanReviewError("Session not found.", "not_found");
   const plan = session.plans.find((item) => item.planId === input.planId && item.revision === input.revision);
-  if (!plan) throw new Error("Plan revision not found.");
+  if (!plan) throw new PlanReviewError("Plan revision not found.", "not_found");
   if (plan.status !== "proposed") {
     const decisionEvent = [...input.store.readEvents(input.sessionId)].reverse().find((event) => {
       if (event.type !== "plan.approved" && event.type !== "plan.rejected") return false;
@@ -61,12 +71,12 @@ export function resolvePlan(input: {
     const sameDecision = decisionEvent?.type === "plan.approved"
       ? input.decision === "start_work"
       : decisionEvent?.type === "plan.rejected" && (decisionEvent.data as { decision?: PlanDecision }).decision === input.decision;
-    if (!sameDecision) throw new Error("Plan revision is stale.");
+    if (!sameDecision) throw new PlanReviewError("Plan revision is stale.", "stale_revision");
     return { idempotent: true, session };
   }
   const run = session.runs.find((item) => item.runId === plan.runId);
-  if (!run || run.status !== "waiting") throw new Error("Plan Run is not waiting for review.");
-  const resolvedAt = new Date().toISOString();
+  if (!run || run.status !== "waiting") throw new PlanReviewError("Plan Run is not waiting for review.", "not_waiting");
+  const resolvedAt = input.system.now();
   const events: EventInput[] = [];
   if (input.decision === "start_work") {
     if (input.accessMode && input.accessMode !== session.accessMode) {
@@ -131,22 +141,23 @@ export function answerQuestion(input: {
   interactionId: string;
   sessionId: string;
   store: PlanReviewPorts;
+  system: SystemPort;
 }): ReviewResult {
   const session = input.store.getSession(input.sessionId);
-  if (!session) throw new Error("Session not found.");
+  if (!session) throw new PlanReviewError("Session not found.", "not_found");
   const question = session.questions.find((item) => item.interactionId === input.interactionId);
-  if (!question) throw new Error("Question interaction not found.");
+  if (!question) throw new PlanReviewError("Question interaction not found.", "not_found");
   const answers = Object.fromEntries(question.prompts.map((prompt) => {
     const answer = String(input.answers[prompt.questionId] ?? "").trim();
-    if (!answer) throw new Error(`Question ${prompt.questionId} requires an answer.`);
+    if (!answer) throw new PlanReviewError(`Question ${prompt.questionId} requires an answer.`, "invalid_input");
     return [prompt.questionId, answer];
   }));
   if (question.status === "answered") {
-    if (JSON.stringify(question.answers ?? {}) !== JSON.stringify(answers)) throw new Error("Question interaction is stale.");
+    if (JSON.stringify(question.answers ?? {}) !== JSON.stringify(answers)) throw new PlanReviewError("Question interaction is stale.", "stale_revision");
     return { idempotent: true, session };
   }
-  if (question.status !== "pending") throw new Error("Question interaction is stale.");
-  const resolvedAt = new Date().toISOString();
+  if (question.status !== "pending") throw new PlanReviewError("Question interaction is stale.", "stale_revision");
+  const resolvedAt = input.system.now();
   const enterPlan = question.purpose === "plan_entry" && answers.plan_entry === "进入计划模式";
   const events: EventInput[] = [{
     data: { answers, interactionId: question.interactionId, resolvedAt, status: "answered" },
@@ -183,18 +194,19 @@ export function revisePlan(input: {
   revision: number;
   sessionId: string;
   store: PlanReviewPorts;
+  system: SystemPort;
   title: string;
 }): Session {
   const session = input.store.getSession(input.sessionId);
-  if (!session) throw new Error("Session not found.");
+  if (!session) throw new PlanReviewError("Session not found.", "not_found");
   const plan = session.plans.find((item) => item.planId === input.planId && item.revision === input.revision);
-  if (!plan) throw new Error("Plan revision not found.");
-  if (plan.status !== "proposed") throw new Error("Plan revision is stale.");
+  if (!plan) throw new PlanReviewError("Plan revision not found.", "not_found");
+  if (plan.status !== "proposed") throw new PlanReviewError("Plan revision is stale.", "stale_revision");
   const title = input.title.trim();
   const markdown = input.markdown.trim();
-  if (!title || !markdown) throw new Error("Plan title and Markdown are required.");
+  if (!title || !markdown) throw new PlanReviewError("Plan title and Markdown are required.", "invalid_input");
   if (title === plan.title && markdown === plan.markdown) return session;
-  const updatedAt = new Date().toISOString();
+  const updatedAt = input.system.now();
   input.store.append({
     data: {
       plan: {

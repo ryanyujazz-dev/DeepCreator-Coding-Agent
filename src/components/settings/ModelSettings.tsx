@@ -1,7 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { DesktopSettings } from "../../../shared/contracts/desktop";
+import { runtimeApi } from "../../runtimeApi";
+import { desktopBridge } from "../../platform/desktop";
 
 export function ModelSettings() {
+  const desktop = desktopBridge();
   const [settings, setSettings] = useState<DesktopSettings | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [zhipuApiKey, setZhipuApiKey] = useState("");
@@ -10,14 +13,14 @@ export function ModelSettings() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    void window.deepseeker?.settings.read().then(setSettings).catch((nextError) => {
+    void desktop?.settings.read().then(setSettings).catch((nextError) => {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     });
-  }, []);
+  }, [desktop]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!window.deepseeker) {
+    if (!desktop) {
       setNotice("浏览器开发模式从 Runtime 环境读取模型配置。");
       return;
     }
@@ -25,12 +28,13 @@ export function ModelSettings() {
     setError(null);
     setNotice(null);
     try {
-      const saved = await window.deepseeker.settings.save({
+      const result = await desktop.settings.save({
         apiKey: apiKey || undefined,
         defaultModel: settings?.defaultModel ?? "deepseek-v4-flash",
         zhipuApiKey: zhipuApiKey || undefined
       });
-      setSettings(saved);
+      runtimeApi.configure(result.connection);
+      setSettings(result.settings);
       setApiKey("");
       setZhipuApiKey("");
       setNotice("设置已保存，Runtime 已重新连接。");

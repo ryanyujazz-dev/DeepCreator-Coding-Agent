@@ -1,13 +1,12 @@
 import {
   EVENT_VERSION,
   Event,
-  EventPayloadMap,
   EventScope,
   EventType
 } from "../contracts/runtime";
 
 type RecordValue = Record<string, unknown>;
-type PayloadValidator<K extends EventType> = (value: unknown) => boolean;
+type PayloadValidator = (value: unknown) => boolean;
 
 export type EventSchemaIssue = {
   path: string;
@@ -100,8 +99,30 @@ function toolState(value: unknown, partial = false): boolean {
     && required("effect", (item) => oneOf(item, ["read_only", "workspace_write", "process_side_effect", "external_side_effect", "control_only"] as const))
     && required("normalizedTarget", string)
     && required("argumentsPreview", string)
+    && optional(value.callIndex, number)
     && optional(value.resultSummary, string)
     && optional(value.resultMetrics, record)
+    && optional(value.stepHeadline, (item) => oneOf(item, [
+      "browse",
+      "locate",
+      "read",
+      "review",
+      "inspect_environment",
+      "modify",
+      "modify_and_verify",
+      "configure_environment",
+      "execute",
+      "verify",
+      "verify_runtime",
+      "build",
+      "install_dependencies",
+      "prepare_environment",
+      "start_service",
+      "start_database",
+      "initialize_database",
+      "external",
+      "deploy"
+    ] as const))
     && optional(value.displayTarget, string)
     && optional(value.groupMode, (item) => oneOf(item, ["consecutive", "same_model_step", "standalone", "workspace_delta"] as const))
     && optional(value.importance, (item) => oneOf(item, ["routine", "notable", "critical"] as const))
@@ -158,6 +179,13 @@ const payloadSchemas = {
     && string(value.prompt)
     && string(value.startedAt)
     && optional(value.mode, (item) => oneOf(item, ["work", "plan"] as const)),
+  "reasoning.updated": (value) => record(value)
+    && optional(value.modelStepId, string)
+    && string(value.textDelta),
+  "reasoning.title.updated": (value) => record(value)
+    && string(value.title)
+    && value.title.trim().length > 0
+    && value.title.length <= 60,
   "tasks.changed": (value) => record(value) && Array.isArray(value.items) && value.items.every(task),
   "plan.proposed": (value) => record(value) && plan(value.plan),
   "plan.revised": (value) => record(value) && plan(value.plan),
@@ -226,7 +254,7 @@ const payloadSchemas = {
     && oneOf(value.status, ["completed", "failed", "cancelled"] as const)
     && optional(value.answer, string)
     && optional(value.error, string)
-} satisfies { [K in EventType]: PayloadValidator<K> };
+} satisfies { [K in EventType]: PayloadValidator };
 
 const eventTypes = new Set<EventType>(Object.keys(payloadSchemas) as EventType[]);
 

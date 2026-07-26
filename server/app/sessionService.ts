@@ -1,9 +1,10 @@
 import { AccessMode, Mode, PlanEntry, Run, Session, SessionSummary } from "../../shared/contracts/runtime";
 import { EventPort, SessionPort } from "./runtimeRepo";
+import { AppError } from "./appError";
 
-export class SessionServiceError extends Error {
+export class SessionServiceError extends AppError {
   constructor(message: string, readonly kind: "invalid_input" | "not_found" | "conflict") {
-    super(message);
+    super(message, kind);
     this.name = "SessionServiceError";
   }
 }

@@ -23,6 +23,19 @@ export class MockProvider implements Provider {
   };
 
   async stream(request: ModelRequest): Promise<ModelResponse> {
+    if (request.thinkingMode === "disabled") {
+      await wait(20, request.signal);
+      const answer = JSON.stringify({ title: "梳理当前思路" });
+      request.onFragment?.({ kind: "answer", text: answer });
+      return {
+        answer,
+        continuationMessage: { role: "assistant", text: answer },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: [],
+        usage: { inputTokens: 64, outputTokens: 12 }
+      };
+    }
     const transcript = request.messages.map((message) => message.text ?? "").join("\n");
     const approved = transcript.includes('"decision":"start_work"');
     const planning = !approved && (transcript.includes('<mode_context mode="plan"') || transcript.includes('"decision":"continue_planning"'));

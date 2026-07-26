@@ -1,0 +1,5 @@
+/*
+ * Feature styles added under src/styles/ consume semantic ThemeProvider tokens.
+ * Stylelint rejects new hexadecimal color literals in this directory so light
+ * and dark variants preserve the same contrast hierarchy.
+ */

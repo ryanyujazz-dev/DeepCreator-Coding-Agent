@@ -38,6 +38,8 @@ transport ───────► application ports ◄────── infra
 | `src/features/<feature>` | 按业务能力组织的状态、API、组件 | 跨 feature 的无约束深层导入 |
 | `src/shared-ui` | 无业务知识的可复用 UI 原语 | Runtime API、Event 业务判断 |
 
+宿主配置只允许在 `server/bootstrap/main.ts` 或桌面主进程解析一次。`startRuntime` 等可复用组装函数只接收已经解析的值；不得读取用户配置、项目 `.env.local` 或 `process.env`。
+
 ## 3. 新代码放哪里
 
 按以下顺序判断：
@@ -75,6 +77,7 @@ transport ───────► application ports ◄────── infra
 - 用例优先使用动词名：`StartRun`、`CancelRun`；能力边界使用名词 + `Port`。
 - `Manager/Helper/Utils` 只有在职责确实无法更准确表达时才允许。
 - 一个文件应有一个主要变化原因。超过约 400 行或包含三个独立 I/O 能力时，评审必须说明不拆分的理由。
+- 大型声明式目录（例如工具 JSON Schema）可独立成 registry，但 executor、presentation 和具体 I/O 实现必须分离。
 - 兼容代码必须位于 `legacy`/migration 边界，并带删除条件。
 
 ## 7. 测试规范
@@ -101,10 +104,9 @@ transport ───────► application ports ◄────── infra
 合并前必须通过：
 
 ```bash
-npm run typecheck
-npm run test:architecture
-npm test
-npm run build
+npm run check
 ```
 
-评审者还需确认：依赖方向正确、没有第二事实来源、协议兼容策略明确、日志不含秘密/推理、错误与取消路径已测试。
+`check` 依次执行代码与样式 lint、分层 TypeScript 工程检查、架构门禁、全量测试、生产构建和生产依赖安全审计。评审者还需确认：依赖方向正确、没有第二事实来源、协议兼容策略明确、日志不含秘密/推理、错误与取消路径已测试。
+
+架构测试同时限制应用层平台全局、Runtime 配置读取、工具 facade、前端编排 hook 和 legacy CSS 的增长；调整阈值必须伴随真实拆分，不得仅放宽上限。

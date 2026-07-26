@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { createServer, type AddressInfo } from "node:http";
+import { createServer } from "node:http";
+import { type AddressInfo } from "node:net";
 import test from "node:test";
 import { DeepSeekProvider } from "../server/infra/deepseek";
 

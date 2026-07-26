@@ -4,6 +4,7 @@ import { RunLaunchPort } from "./runLauncher";
 import { EventPort, SessionPort } from "./runtimeRepo";
 import { SystemPort } from "./systemPort";
 import { WorkspacePort } from "./workspacePort";
+import { AppError } from "./appError";
 
 export type StartRunInput = {
   accessMode?: AccessMode;
@@ -18,12 +19,12 @@ export type StartRunInput = {
 
 export type StartRunResult = { run: Run; session: Session };
 
-export class StartRunError extends Error {
+export class StartRunError extends AppError {
   constructor(
     message: string,
     readonly kind: "invalid_input" | "conflict"
   ) {
-    super(message);
+    super(message, kind);
     this.name = "StartRunError";
   }
 }

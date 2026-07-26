@@ -25,8 +25,12 @@ import {
   themeById,
   validateThemePack
 } from "../../shared/themeCatalog";
+import { browserPlatform } from "../platform/browser";
+import { desktopBridge } from "../platform/desktop";
 
 const CACHE_KEY = "deepseeker.themeCache.v1";
+const EXECUTION_MUTED_LIGHT_REFERENCE = "#8e969b";
+const EXECUTION_MUTED_LIGHT_CANVAS = "#fbfbfa";
 
 type ThemeCache = {
   preference: ThemePreference;
@@ -56,7 +60,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function readCache(): ThemeCache {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(CACHE_KEY) ?? "{}") as Partial<ThemeCache>;
+    const parsed = JSON.parse(browserPlatform.storage.get(CACHE_KEY) ?? "{}") as Partial<ThemeCache>;
     const custom = Array.isArray(parsed.themes)
       ? parsed.themes.map((theme) => {
           try {
@@ -80,7 +84,7 @@ function readCache(): ThemeCache {
 }
 
 function saveCache(preference: ThemePreference, themes: ThemePack[]): void {
-  window.localStorage.setItem(CACHE_KEY, JSON.stringify({
+  browserPlatform.storage.set(CACHE_KEY, JSON.stringify({
     preference,
     themes: themes.filter((theme) => !theme.readonly)
   }));
@@ -94,6 +98,52 @@ function colorLuminance(color: string): number {
     return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
   });
   return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(left: string, right: string): number {
+  const leftLuminance = colorLuminance(left);
+  const rightLuminance = colorLuminance(right);
+  return (Math.max(leftLuminance, rightLuminance) + 0.05)
+    / (Math.min(leftLuminance, rightLuminance) + 0.05);
+}
+
+function mixHexColors(background: string, foreground: string, foregroundWeight: number): string {
+  const channels = (color: string) => [0, 2, 4].map((offset) =>
+    Number.parseInt(color.slice(1, 7).slice(offset, offset + 2), 16)
+  );
+  const backgroundChannels = channels(background);
+  const foregroundChannels = channels(foreground);
+  return `#${backgroundChannels.map((channel, index) =>
+    Math.round(channel + (foregroundChannels[index] - channel) * foregroundWeight)
+      .toString(16)
+      .padStart(2, "0")
+  ).join("")}`;
+}
+
+export function executionMutedColor(variant: ThemeVariant): string {
+  if (colorLuminance(variant.colors.background) >= 0.25) return EXECUTION_MUTED_LIGHT_REFERENCE;
+  const targetContrast = contrastRatio(EXECUTION_MUTED_LIGHT_REFERENCE, EXECUTION_MUTED_LIGHT_CANVAS);
+  let lower = 0;
+  let upper = 1;
+  let matched = variant.colors.foreground;
+  for (let index = 0; index < 24; index += 1) {
+    const weight = (lower + upper) / 2;
+    const candidate = mixHexColors(variant.colors.background, variant.colors.foreground, weight);
+    if (contrastRatio(candidate, variant.colors.background) < targetContrast) {
+      lower = weight;
+    } else {
+      upper = weight;
+      matched = candidate;
+    }
+  }
+  return matched;
+}
+
+function contrastingThemeText(background: string, variant: ThemeVariant): string {
+  const { foreground, background: canvas } = variant.colors;
+  return contrastRatio(background, foreground) >= contrastRatio(background, canvas)
+    ? foreground
+    : canvas;
 }
 
 function shadowColor(dark: boolean, opacity: number): string {
@@ -144,7 +194,9 @@ function cssVariables(variant: ThemeVariant, codeVariant: ThemeVariant): Record<
     "--color-control-idle": colors.subtle,
     "--color-danger": colors.danger,
     "--color-danger-surface": colors.dangerSurface,
+    "--color-execution-muted": executionMutedColor(variant),
     "--color-hover": colors.hover,
+    "--color-on-accent": contrastingThemeText(colors.accent, variant),
     "--color-success": colors.success,
     "--color-surface": colors.surface,
     "--color-surface-elevated": colors.surfaceElevated,
@@ -206,6 +258,7 @@ async function browserImport(file: File, baseTheme: ThemePack): Promise<ThemePac
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const desktop = desktopBridge();
   const initial = useMemo(readCache, []);
   const [preference, setPreferenceState] = useState(initial.preference);
   const [themes, setThemes] = useState(initial.themes);
@@ -225,12 +278,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!window.deepseeker) return;
+    if (!desktop) return;
     void Promise.all([
-      window.deepseeker.appearance.read(),
-      window.deepseeker.themes.list()
+      desktop.appearance.read(),
+      desktop.themes.list()
     ]).then(async ([storedPreference, summaries]) => {
-      const loaded = await Promise.all(summaries.map((summary) => window.deepseeker!.themes.get(summary.id)));
+      const loaded = await Promise.all(summaries.map((summary) => desktop.themes.get(summary.id)));
       const available = loaded.filter((theme): theme is ThemePack => Boolean(theme));
       setThemes(available.length > 0 ? available : structuredClone(BUILTIN_THEMES));
       setPreferenceState(storedPreference);
@@ -239,7 +292,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         storedPreference.themeId
       )));
     }).catch(() => undefined);
-  }, []);
+  }, [desktop]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -250,13 +303,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.dataset.translucentSidebar = String(activeVariant.translucentSidebar);
     root.style.colorScheme = resolvedScheme;
     saveCache(preference, themes);
-    void window.deepseeker?.appearance.applyChrome({
+    void desktop?.appearance.applyChrome({
       backgroundColor: activeVariant.colors.sidebar,
       mode: preference.mode,
       symbolColor: activeVariant.colors.muted,
       translucentSidebar: activeVariant.translucentSidebar
     }).catch(() => undefined);
-  }, [activeTheme.id, activeVariant, codeVariant, preference, resolvedScheme, themes]);
+  }, [activeTheme.id, activeVariant, codeVariant, desktop, preference, resolvedScheme, themes]);
 
   const setPreference = useCallback(async (next: ThemePreference) => {
     const normalized = {
@@ -265,25 +318,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
     setPreferenceState(normalized);
     saveCache(normalized, themes);
-    if (window.deepseeker) await window.deepseeker.appearance.save(normalized);
-  }, [themes]);
+    if (desktop) await desktop.appearance.save(normalized);
+  }, [desktop, themes]);
 
   const saveTheme = useCallback(async (input: ThemePack, apply = false) => {
     const theme = validateThemePack(input);
-    const saved = window.deepseeker ? await window.deepseeker.themes.save(theme) : theme;
+    const saved = desktop ? await desktop.themes.save(theme) : theme;
     const nextThemes = [...themes.filter((candidate) => candidate.id !== saved.id), saved];
     setThemes(nextThemes);
     saveCache(preference, nextThemes);
     if (apply) {
       const nextPreference = { ...preference, themeId: saved.id };
       setPreferenceState(nextPreference);
-      if (window.deepseeker) await window.deepseeker.appearance.save(nextPreference);
+      if (desktop) await desktop.appearance.save(nextPreference);
     }
     return saved;
-  }, [preference, themes]);
+  }, [desktop, preference, themes]);
 
   const removeTheme = useCallback(async (themeId: string) => {
-    if (window.deepseeker) await window.deepseeker.themes.remove(themeId);
+    if (desktop) await desktop.themes.remove(themeId);
     const nextThemes = themes.filter((theme) => theme.id !== themeId);
     const nextPreference = {
       ...preference,
@@ -293,20 +346,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemes(nextThemes);
     setPreferenceState(nextPreference);
     saveCache(nextPreference, nextThemes);
-    if (window.deepseeker) await window.deepseeker.appearance.save(nextPreference);
-  }, [preference, themes]);
+    if (desktop) await desktop.appearance.save(nextPreference);
+  }, [desktop, preference, themes]);
 
   const importTheme = useCallback(async (target: ColorScheme, file?: File) => {
-    if (window.deepseeker) {
-      return window.deepseeker.themes.importFile({ baseThemeId: activeTheme.id, target });
+    if (desktop) {
+      return desktop.themes.importFile({ baseThemeId: activeTheme.id, target });
     }
     if (!file) return null;
     return browserImport(file, activeTheme);
-  }, [activeTheme]);
+  }, [activeTheme, desktop]);
 
   const exportTheme = useCallback(async (themeId: string) => {
-    if (window.deepseeker) {
-      await window.deepseeker.themes.exportFile(themeId);
+    if (desktop) {
+      await desktop.themes.exportFile(themeId);
       return;
     }
     const theme = themeById(themes, themeId);
@@ -316,7 +369,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     anchor.download = `${theme.name}.deepseeker-theme.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-  }, [themes]);
+  }, [desktop, themes]);
 
   const value = useMemo<ThemeContextValue>(() => ({
     activeTheme,

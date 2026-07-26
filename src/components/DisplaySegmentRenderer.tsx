@@ -1,5 +1,4 @@
 import {
-  CircleDot,
   ChevronDown,
   FolderSearch,
   PencilLine,
@@ -17,10 +16,8 @@ import { runningCommandElapsed } from "../../shared/projections/activityTiming";
 import { useStreamText } from "../stream/useStreamText";
 import { ActivityAggregateRenderer, ModificationFileRow } from "./ActivityGroupRenderer";
 import { MarkdownContent } from "./MarkdownContent";
-import { ThinkingLoader } from "./ThinkingLoader";
 
-function indicatorIcon(indicator: ActivityIndicator) {
-  if (indicator.mode === "thinking") return <CircleDot size={13} />;
+function indicatorIcon(indicator: Extract<ActivityIndicator, { mode: "tool" }>) {
   if (indicator.category === "modify") return <PencilLine size={13} />;
   if (indicator.category === "verify") return <TestTube2 size={13} />;
   if (indicator.category === "execute") return <TerminalSquare size={13} />;
@@ -31,11 +28,13 @@ function indicatorIcon(indicator: ActivityIndicator) {
 function ActivitySlotView({
   slot,
   activity,
+  continuationActive,
   onOpenFile,
   onStopCommand
 }: {
   slot: ActivitySlot;
   activity?: Activity;
+  continuationActive: boolean;
   onOpenFile: (path: string) => void;
   onStopCommand: (commandId: string) => void;
 }) {
@@ -58,9 +57,10 @@ function ActivitySlotView({
       ?? activity.liveFiles?.[0])
     : undefined;
   const isThinking = slot.visual.mode === "thinking";
+  const slotActive = slot.logicalState === "active" || continuationActive;
   return (
     <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${isThinking ? " is-thinking" : ""}`}>
-      <div className="work-dot">{isThinking ? <ThinkingLoader size={14} /> : indicatorIcon(slot.visual)}</div>
+      {slot.visual.mode === "tool" && <div className="work-dot">{indicatorIcon(slot.visual)}</div>}
       <div className="work-body">
         {liveFile
           ? <ModificationFileRow active file={liveFile} onOpenFile={onOpenFile} showIcon={false} />
@@ -92,7 +92,7 @@ function ActivitySlotView({
                 </div>
               )
           : (
-              <strong className={`activity-slot-label ${slot.logicalState === "active" ? "working-glow" : ""}`}>
+              <strong className={`activity-slot-label ${slotActive ? "working-glow" : ""}`}>
                 <span className="activity-slot-label-text">{slot.visual.label}</span>
                 {commandElapsed && <span className="activity-slot-elapsed">{commandElapsed}</span>}
               </strong>
@@ -129,7 +129,8 @@ export function DisplaySegmentRenderer({
   onOpenFile,
   onStopCommand,
   onTextFrame,
-  runActive
+  runActive,
+  continuationActive = false
 }: {
   segment: DisplaySegment;
   activities: Parameters<typeof ActivityAggregateRenderer>[0]["activities"];
@@ -138,6 +139,7 @@ export function DisplaySegmentRenderer({
   onStopCommand: (commandId: string) => void;
   onTextFrame?: () => void;
   runActive: boolean;
+  continuationActive?: boolean;
 }) {
   const activityUsesSeedSlot = !segment.mainActivity && !segment.aggregate && segment.activitySlots.length > 0;
   const seedSlot = activityUsesSeedSlot ? segment.activitySlots[0] : undefined;
@@ -153,6 +155,7 @@ export function DisplaySegmentRenderer({
         <div className="display-segment-primary" key={seedSlot.slotId}>
           <ActivitySlotView
             activity={activities.find((activity) => activity.activityId === seedSlot.visual.sourceActivityId)}
+            continuationActive={continuationActive}
             onOpenFile={onOpenFile}
             onStopCommand={onStopCommand}
             slot={seedSlot}
@@ -161,6 +164,7 @@ export function DisplaySegmentRenderer({
       )}
       {segment.aggregate && (
         <ActivityAggregateRenderer
+          active={continuationActive}
           activities={activities}
           aggregate={segment.aggregate}
           changes={changes}
@@ -172,6 +176,7 @@ export function DisplaySegmentRenderer({
         <div className="display-segment-activity" key={slot.slotId}>
           <ActivitySlotView
             activity={activities.find((activity) => activity.activityId === slot.visual.sourceActivityId)}
+            continuationActive={continuationActive}
             onOpenFile={onOpenFile}
             onStopCommand={onStopCommand}
             slot={slot}

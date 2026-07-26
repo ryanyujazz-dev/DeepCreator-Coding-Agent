@@ -11,7 +11,20 @@ import {
   resolveColorScheme,
   validateThemePack
 } from "../shared/themeCatalog";
-import { shadowCssVariables } from "../src/theme/ThemeProvider";
+import { executionMutedColor, shadowCssVariables } from "../src/theme/ThemeProvider";
+
+function relativeLuminance(color: string): number {
+  const channels = [0, 2, 4].map((offset) => {
+    const value = Number.parseInt(color.slice(1, 7).slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(left: string, right: string): number {
+  const values = [relativeLuminance(left), relativeLuminance(right)];
+  return (Math.max(...values) + 0.05) / (Math.min(...values) + 0.05);
+}
 
 test("validates and clones complete light and dark theme variants", () => {
   const source = BUILTIN_THEMES[0];
@@ -27,6 +40,21 @@ test("keeps built-in themes on one shared elevation baseline", () => {
   const [deepseeker, github] = BUILTIN_THEMES;
   assert.equal(github.variants.light.contrast, deepseeker.variants.light.contrast);
   assert.equal(github.variants.dark.contrast, deepseeker.variants.dark.contrast);
+});
+
+test("keeps dark semantic grays perceptually paired with the light baseline", () => {
+  for (const theme of BUILTIN_THEMES) {
+    const light = theme.variants.light;
+    const dark = theme.variants.dark;
+    for (const role of ["muted", "subtle"] as const) {
+      const lightContrast = contrastRatio(light.colors[role], light.colors.background);
+      const darkContrast = contrastRatio(dark.colors[role], dark.colors.background);
+      assert.ok(Math.abs(lightContrast - darkContrast) < 0.5, `${theme.id}.${role} contrast drifted across modes`);
+    }
+    const lightExecutionContrast = contrastRatio(executionMutedColor(light), light.colors.background);
+    const darkExecutionContrast = contrastRatio(executionMutedColor(dark), dark.colors.background);
+    assert.ok(Math.abs(lightExecutionContrast - darkExecutionContrast) < 0.15, `${theme.id}.execution contrast drifted across modes`);
+  }
 });
 
 test("compensates shadow strength when the canvas and chrome are visually close", () => {

@@ -1,7 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { ContextInput } from "../../shared/contracts/context";
 import { ModelMessage, ToolCall } from "../../shared/contracts/provider";
-import { EventPayloadMap, Plan, Question, QuestionPrompt, Task, ToolState } from "../../shared/contracts/runtime";
+import { AggregateHeadlineKind, EventPayloadMap, ToolState } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
 import { approvalFor } from "../domain/accessPolicy";
@@ -12,6 +11,9 @@ import { RunRegistry } from "./runRegistry";
 import { ContextPort, EventPort, EvidencePort, MemoryPort, SessionPort } from "./runtimeRepo";
 import { ToolHost } from "./toolHost";
 import { durableToolState } from "./toolFacts";
+import { finishActivity as finishActivityOnce, updateActivity } from "./activityLifecycle";
+import { ControlToolHandlers } from "./controlToolHandlers";
+import { SystemPort } from "./systemPort";
 
 export type ToolContext = {
   baseline: Baseline;
@@ -41,18 +43,7 @@ function parseArgs(text: string): Record<string, unknown> {
   }
 }
 
-function tasksFrom(value: unknown): Task[] {
-  if (!Array.isArray(value) || value.length === 0) throw new Error("执行任务至少需要一项。");
-  return value.map((raw) => {
-    if (!raw || typeof raw !== "object") throw new Error("执行任务格式无效。");
-    const item = raw as Record<string, unknown>;
-    const status = String(item.status ?? "pending") as Task["status"];
-    if (!["pending", "running", "completed", "blocked"].includes(status)) throw new Error("执行任务状态无效。");
-    return { label: String(item.label ?? item.taskId ?? "未命名任务"), status, taskId: String(item.taskId ?? randomUUID()) };
-  });
-}
-
-function openActivity(input: ToolContext, data: EventPayloadMap["activity.started"], activityId = `activity_${randomUUID()}`): string {
+function openActivity(input: ToolContext, data: EventPayloadMap["activity.started"], activityId = input.registry.system.createId("activity")): string {
   input.store.append({
     activityId,
     data: { ...data, tool: durableToolState(data.tool) },
@@ -67,14 +58,17 @@ function finishActivity(
   input: ToolContext,
   activityId: string,
   data: Omit<EventPayloadMap["activity.finished"], "finishedAt">
-): void {
-  input.store.append({
+): boolean {
+  const durableData = data.tool === undefined
+    ? data
+    : { ...data, tool: durableToolState(data.tool) };
+  return finishActivityOnce({
     activityId,
-    data: { liveFiles: [], ...data, tool: durableToolState(data.tool), finishedAt: new Date().toISOString() },
     runId: input.runId,
     sessionId: input.sessionId,
-    type: "activity.finished"
-  });
+    store: input.store,
+    system: input.registry.system
+  }, durableData);
 }
 
 export type SpawnAgentHandler = (args: {
@@ -84,11 +78,22 @@ export type SpawnAgentHandler = (args: {
 }) => Promise<string>;
 
 export class ToolPipeline {
+  private readonly controlTools: ControlToolHandlers;
+
   constructor(
     private readonly host: ToolHost,
     private readonly rules: RuleSource = emptyRuleSource,
+    private readonly system: SystemPort,
     private readonly spawnAgent?: SpawnAgentHandler
-  ) {}
+  ) {
+    this.controlTools = new ControlToolHandlers(this.host, {
+      createId: this.system.createId,
+      finishActivity,
+      now: this.system.now,
+      record: (input, call, modelStepId, text, metadata, isError) =>
+        this.record(input, call, modelStepId, text, metadata, isError)
+    }, this.spawnAgent);
+  }
 
   stepRejection(calls: ToolCall[], modelStepId: string, projectRoot: string): string | undefined {
     const tools = calls.flatMap((call): ToolState[] => {
@@ -107,8 +112,8 @@ export class ToolPipeline {
         return [];
       }
     });
-    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user") && tools.length > 1) {
-      return "模式控制或暂停工具必须是当前模型步骤中的唯一工具调用。";
+    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user" || tool.toolName === "update_tasks") && tools.length > 1) {
+      return "模式控制、暂停或任务维护工具必须是当前模型步骤中的唯一工具调用。";
     }
     return hasConflictingControlStep(tools)
       ? "模式控制工具不能与产生副作用的工具出现在同一个模型步骤中。"
@@ -121,7 +126,8 @@ export class ToolPipeline {
     modelStepId: string,
     knownRuleIds: Set<string>,
     existingActivityId?: string,
-    stepRejection?: string
+    stepRejection?: string,
+    stepHeadline?: AggregateHeadlineKind
   ): Promise<ToolOutcome> {
     let activityId = existingActivityId;
     let retainedCommandBaseline = false;
@@ -132,21 +138,25 @@ export class ToolPipeline {
 
       // validate
       if (!this.host.has(call.name)) throw new Error(`未知工具：${call.name}。可用工具：${this.host.names().join(", ")}`);
-      const prepared = this.host.prepare({
+      const prepared = {
+        ...this.host.prepare({
         args,
         argumentsPreview: argsSummary,
         callId: call.callId,
         modelStepId,
         name: call.name,
         projectRoot: input.projectRoot
-      });
+        }),
+        callIndex: call.index,
+        stepHeadline
+      };
       if (call.name === "wait_command" || call.name === "stop_command") {
         return await this.controlManagedCommand(input, call, modelStepId, args, prepared);
       }
       activityId ??= openActivity(input, {
         audience: "user",
         kind: this.host.kind(prepared),
-        startedAt: new Date().toISOString(),
+        startedAt: input.registry.system.now(),
         tool: prepared
       });
       if (existingActivityId) {
@@ -167,12 +177,16 @@ export class ToolPipeline {
       const policy = planPolicy({ args, mode: session.mode, planEntry: session.planEntry, tool: prepared });
       if (!policy.allowed) return this.reject(input, call, modelStepId, activityId, prepared, policy.reason ?? "当前模式不允许该操作。");
 
-      if (call.name === "enter_plan") return this.enterPlan(input, call, modelStepId, activityId, args, prepared);
-      if (call.name === "ask_user") return this.askUser(input, call, modelStepId, activityId, args, prepared);
-      if (call.name === "submit_plan") return this.submitPlan(input, call, modelStepId, activityId, args, prepared);
-      if (call.name === "update_tasks") return this.updateTasks(input, call, modelStepId, activityId, args, argsSummary);
-      if (call.name === "search_memory") return this.searchMemory(input, call, modelStepId, activityId, args, prepared);
-      if (call.name === "spawn_agent") return await this.spawnAgentTask(input, call, modelStepId, activityId!, args, prepared);
+      const controlOutcome = await this.controlTools.handle({
+        activityId,
+        args,
+        argsSummary,
+        call,
+        context: input,
+        modelStepId,
+        prepared
+      });
+      if (controlOutcome) return controlOutcome;
 
       const target = prepared.normalizedTarget;
       const preflight = ["write_file", "edit_file", "delete_file"].includes(call.name) && target
@@ -231,7 +245,7 @@ export class ToolPipeline {
           void this.settleManagedCommand(input, activityId!, settled, true);
         } : undefined,
         onOutput: call.name === "run_command" ? ({ text }) => {
-          input.store.append({ activityId, data: { bodyDelta: text }, runId: input.runId, sessionId: input.sessionId, type: "activity.updated" });
+          updateActivity({ activityId: activityId!, runId: input.runId, sessionId: input.sessionId, store: input.store }, { bodyDelta: text });
         } : undefined,
         projectRoot: input.projectRoot,
         runId: input.runId,
@@ -264,7 +278,8 @@ export class ToolPipeline {
       }
 
       // record
-      const completed = this.host.prepare({
+      const completed = {
+        ...this.host.prepare({
         args,
         argumentsPreview: argsSummary,
         callId: call.callId,
@@ -273,7 +288,10 @@ export class ToolPipeline {
         output: result.output,
         projectRoot: input.projectRoot,
         result
-      });
+        }),
+        callIndex: call.index,
+        stepHeadline
+      };
       const command = result.command ? {
         command: result.command,
         commandId: result.commandId,
@@ -302,7 +320,7 @@ export class ToolPipeline {
         });
       }
       const evidence = reduceToolEvidence(call.name, result);
-      const recordId = `context_${randomUUID()}`;
+      const recordId = input.registry.system.createId("context");
       const evidenceRecord: ContextInput = {
         artifactRef: input.store.storeEvidence(input.sessionId, recordId, evidence.fullText),
         isError: Boolean(result.exitCode && result.exitCode !== 0),
@@ -352,7 +370,7 @@ export class ToolPipeline {
         audience: "user",
         body: "",
         kind: "tool",
-        startedAt: new Date().toISOString()
+        startedAt: input.registry.system.now()
       });
       const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
       finishActivity(input, activityId, activity?.kind === "plan"
@@ -459,7 +477,7 @@ export class ToolPipeline {
       const status = result.commandState === "cancelled"
         ? "cancelled"
         : result.exitCode && result.exitCode !== 0 ? "failed" : "completed";
-      finishActivity({ ...input, runId: activity.runId, sessionId }, activityId, {
+      const settled = finishActivity({ ...input, runId: activity.runId, sessionId }, activityId, {
         body: result.output,
         command: {
           command: result.command ?? activity.command?.command ?? "",
@@ -472,6 +490,7 @@ export class ToolPipeline {
         status,
         tool: activity.tool ? { ...activity.tool, resultSummary: result.output.slice(0, 500) } : undefined
       });
+      if (!settled) return;
       const evidence = reduceToolEvidence("run_command", result);
       input.store.appendContextEntry({
         kind: "context_update",
@@ -526,227 +545,4 @@ export class ToolPipeline {
     return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: prepared.normalizedTarget };
   }
 
-  private enterPlan(
-    input: ToolContext,
-    call: ToolCall,
-    modelStepId: string,
-    activityId: string,
-    args: Record<string, unknown>,
-    prepared: ToolState
-  ): ToolOutcome {
-    const reason = String(args.reason ?? "").trim() || "当前工作需要先形成可审阅方案。";
-    const session = input.store.getSession(input.sessionId)!;
-    if (session.planEntry === "suggest") {
-      const question: Question = {
-        callId: call.callId,
-        createdAt: new Date().toISOString(),
-        interactionId: `question_${randomUUID()}`,
-        prompts: [{
-          label: "工作方式",
-          options: ["进入计划模式", "继续工作模式"],
-          prompt: reason,
-          questionId: "plan_entry"
-        }],
-        purpose: "plan_entry",
-        runId: input.runId,
-        sessionId: input.sessionId,
-        status: "pending"
-      };
-      input.store.append({ data: { question }, runId: input.runId, sessionId: input.sessionId, type: "question.asked" });
-      finishActivity(input, activityId, { body: "已建议进入计划模式，等待用户决定。", status: "completed", tool: { ...prepared, resultSummary: "等待用户决定是否进入计划模式" } });
-      return { contextRecords: [], mutatedWorkspace: false, protocolError: false, suspended: true, target: "计划模式" };
-    }
-    input.store.append({
-      data: { mode: "plan" as const, previousMode: "work" as const, reason, source: "model" as const },
-      runId: input.runId,
-      sessionId: input.sessionId,
-      type: "mode.changed"
-    });
-    const text = `已进入计划模式。原因：${reason}`;
-    finishActivity(input, activityId, { body: text, status: "completed", tool: { ...prepared, resultSummary: text } });
-    this.record(input, call, modelStepId, text, { action: "plan", mode: "plan", target: "计划模式" });
-    return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "计划模式" };
-  }
-
-  private askUser(
-    input: ToolContext,
-    call: ToolCall,
-    _modelStepId: string,
-    activityId: string,
-    args: Record<string, unknown>,
-    prepared: ToolState
-  ): ToolOutcome {
-    if (!Array.isArray(args.questions) || args.questions.length < 1 || args.questions.length > 3) {
-      throw new Error("ask_user 需要一至三个问题。");
-    }
-    const prompts = args.questions.map((raw, index): QuestionPrompt => {
-      if (!raw || typeof raw !== "object") throw new Error("问题格式无效。");
-      const item = raw as Record<string, unknown>;
-      const prompt = String(item.prompt ?? "").trim();
-      if (!prompt) throw new Error("问题内容不能为空。");
-      const options = Array.isArray(item.options) ? item.options.map(String).filter(Boolean).slice(0, 3) : undefined;
-      return {
-        label: String(item.label ?? `问题 ${index + 1}`).trim(),
-        options: options && options.length >= 2 ? options : undefined,
-        prompt,
-        questionId: String(item.questionId ?? `question_${index + 1}`)
-      };
-    });
-    const question: Question = {
-      callId: call.callId,
-      createdAt: new Date().toISOString(),
-      interactionId: `question_${randomUUID()}`,
-      prompts,
-      purpose: "clarification",
-      runId: input.runId,
-      sessionId: input.sessionId,
-      status: "pending"
-    };
-    input.store.append({ data: { question }, runId: input.runId, sessionId: input.sessionId, type: "question.asked" });
-    finishActivity(input, activityId, { body: "等待用户回答方案问题。", status: "completed", tool: { ...prepared, resultSummary: "等待用户回答" } });
-    return { contextRecords: [], mutatedWorkspace: false, protocolError: false, suspended: true, target: "方案问题" };
-  }
-
-  private submitPlan(
-    input: ToolContext,
-    call: ToolCall,
-    _modelStepId: string,
-    activityId: string,
-    args: Record<string, unknown>,
-    prepared: ToolState
-  ): ToolOutcome {
-    const title = String(args.title ?? "").trim();
-    const markdown = String(args.markdown ?? "").trim();
-    if (!title || !markdown) throw new Error("方案标题和 Markdown 内容不能为空。");
-    const existing = input.store.getSession(input.sessionId)?.plans
-      .filter((plan) => plan.runId === input.runId)
-      .sort((left, right) => right.revision - left.revision)[0];
-    const at = new Date().toISOString();
-    const plan: Plan = {
-      callId: call.callId,
-      createdAt: existing?.createdAt ?? at,
-      markdown,
-      planId: existing?.planId ?? `plan_${randomUUID()}`,
-      revision: (existing?.revision ?? 0) + 1,
-      runId: input.runId,
-      sessionId: input.sessionId,
-      status: "proposed",
-      title,
-      updatedAt: at
-    };
-    input.store.append({
-      data: { plan },
-      runId: input.runId,
-      sessionId: input.sessionId,
-      type: existing ? "plan.revised" : "plan.proposed"
-    });
-    finishActivity(input, activityId, {
-      body: markdown,
-      status: "completed",
-      tool: { ...prepared, resultSummary: "等待用户审阅" }
-    });
-    return { contextRecords: [], mutatedWorkspace: false, protocolError: false, suspended: true, target: "实施方案" };
-  }
-
-  private updateTasks(
-    input: ToolContext,
-    call: ToolCall,
-    modelStepId: string,
-    activityId: string,
-    args: Record<string, unknown>,
-    argsSummary: string
-  ): ToolOutcome {
-    const tasks = tasksFrom(args.tasks);
-    input.store.append({ data: { items: tasks }, runId: input.runId, sessionId: input.sessionId, type: "tasks.changed" });
-    const text = "执行任务已更新。";
-    finishActivity(input, activityId, {
-      body: text,
-      status: "completed",
-      tool: this.host.prepare({
-        args,
-        argumentsPreview: argsSummary,
-        callId: call.callId,
-        modelStepId,
-        name: call.name,
-        output: text,
-        projectRoot: input.projectRoot,
-        result: { mutatedWorkspace: false, output: text }
-      })
-    });
-    this.record(input, call, modelStepId, text, { action: "task", target: "执行任务" });
-    return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "执行任务" };
-  }
-
-  private searchMemory(
-    input: ToolContext,
-    call: ToolCall,
-    modelStepId: string,
-    activityId: string,
-    args: Record<string, unknown>,
-    prepared: ReturnType<ToolHost["prepare"]>
-  ): ToolOutcome {
-    const query = String(args.query ?? "").trim().toLowerCase();
-    const limit = Math.min(20, Math.max(1, Number(args.limit ?? 10)));
-    const facts = input.store.readMemories(input.projectRoot)
-      .filter((fact) => !query || `${fact.category} ${fact.statement} ${fact.provenance}`.toLowerCase().includes(query))
-      .slice(0, limit);
-    const text = JSON.stringify({ facts });
-    const summary = `已读取 ${facts.length} 条受控记忆。`;
-    finishActivity(input, activityId, { body: summary, status: "completed", tool: { ...prepared, resultSummary: summary } });
-    this.record(input, call, modelStepId, text, { action: "search", target: "Memory" });
-    return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "Memory" };
-  }
-
-  /**
-   * spawn_agent:启动隔离子 Agent 执行任务,返回最终摘要。
-   * 子 Agent 在独立 Session 上运行,中间过程不写入父 Session。
-   * 需要 spawnAgent handler 由 Runner 注入(携带 provider/registry/store 等依赖)。
-   */
-  private async spawnAgentTask(
-    input: ToolContext,
-    call: ToolCall,
-    modelStepId: string,
-    activityId: string,
-    args: Record<string, unknown>,
-    prepared: ReturnType<ToolHost["prepare"]>
-  ): Promise<ToolOutcome> {
-    if (!this.spawnAgent) {
-      const text = "spawn_agent 需要运行时注入处理函数,当前环境不支持子 Agent。";
-      finishActivity(input, activityId, { body: text, status: "failed", tool: { ...prepared, resultSummary: text } });
-      this.record(input, call, modelStepId, text, { action: "execute", target: "子 Agent" }, true);
-      return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
-    }
-    const description = String(args.description ?? "子 Agent 任务").trim();
-    const prompt = String(args.prompt ?? "").trim();
-    const subagentType = (args.subagentType === "Explore" || args.subagentType === "general-purpose")
-      ? args.subagentType
-      : "Explore";
-    if (!prompt) {
-      const text = "prompt 不能为空。";
-      finishActivity(input, activityId, { body: text, status: "failed", tool: { ...prepared, resultSummary: text } });
-      this.record(input, call, modelStepId, text, { action: "execute", target: description }, true);
-      return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
-    }
-    const summary = `正在执行子 Agent(${subagentType}):${description}`;
-    input.store.append({
-      activityId,
-      data: { kind: this.host.kind(prepared), title: description, tool: { ...prepared, resultSummary: summary } },
-      runId: input.runId,
-      sessionId: input.sessionId,
-      type: "activity.updated"
-    });
-    let output: string;
-    try {
-      output = await this.spawnAgent({ description, prompt, subagentType });
-    } catch (error) {
-      output = `子 Agent 执行失败:${error instanceof Error ? error.message : String(error)}`;
-      finishActivity(input, activityId, { body: output, status: "failed", tool: { ...prepared, resultSummary: output } });
-      this.record(input, call, modelStepId, output, { action: "execute", target: description }, true);
-      return { contextRecords: [], message: { role: "tool", text: output, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
-    }
-    const finishSummary = `子 Agent 完成:${description}`;
-    finishActivity(input, activityId, { body: finishSummary, status: "completed", tool: { ...prepared, resultSummary: finishSummary } });
-    this.record(input, call, modelStepId, output, { action: "execute", target: description });
-    return { contextRecords: [], message: { role: "tool", text: output, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
-  }
 }

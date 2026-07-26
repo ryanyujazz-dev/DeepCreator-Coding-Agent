@@ -25,6 +25,7 @@ function commandActivity(overrides: Partial<Activity> = {}): Activity {
       effect: "process_side_effect",
       groupMode: "standalone",
       importance: "notable",
+      modelStepId: "model_step_command",
       normalizedTarget: "npm test",
       targetKind: "process",
       toolName: "run_command"

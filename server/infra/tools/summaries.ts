@@ -1,6 +1,7 @@
 import { redactSensitiveText } from "./security";
 
 export function summarizeToolArguments(name: string, args: Record<string, unknown>): string {
+  if (name === "submit_plan") return "";
   const safe = { ...args };
   if (name === "write_file" && typeof safe.content === "string") {
     safe.content = `[文件内容已从事件日志省略，共 ${safe.content.length} 字符]`;

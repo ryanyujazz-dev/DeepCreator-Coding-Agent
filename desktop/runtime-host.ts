@@ -83,20 +83,20 @@ export class RuntimeHost {
     const migrations = app.isPackaged
       ? path.join(process.resourcesPath, "migrations")
       : path.join(app.getAppPath(), "server/infra/migrations");
-    // 每次 spawn 时重新读 config,确保前端刚保存的 key/locale 能被 worker 拿到。
-    const { loadUserConfig } = await import("../server/infra/userConfig");
-    const userConfig = loadUserConfig();
+    // 每次 spawn 时读取 Electron 当前系统语言，确保模型获得真实的桌面环境 locale。
+    const systemLocale = app.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
     const child = utilityProcess.fork(path.join(__dirname, "runtime-worker.js"), [], {
       env: {
         ...process.env,
         DEEPSEEK_API_KEY: this.store.apiKey(),
+        ZHIPU_API_KEY: this.store.zhipuApiKey(),
         DEEPSEEK_MODEL: this.store.settings().defaultModel,
         RUNTIME_AUTH_TOKEN: token,
         RUNTIME_DATA_DIR: this.prepareDataDirectory(),
         RUNTIME_FRONTEND_URL: this.frontendUrl,
         RUNTIME_MIGRATIONS_DIR: migrations,
         RUNTIME_WORKSPACE_ROOT: app.getPath("home"),
-        DEEPSEEK_LOCALE: userConfig.locale
+        DEEPSEEK_LOCALE: systemLocale
       },
       serviceName: "DeepSeeker Runtime",
       stdio: "pipe"
@@ -121,7 +121,7 @@ export class RuntimeHost {
           settled = true;
           clearTimeout(timeout);
           this.connectionValue = { baseUrl: `http://127.0.0.1:${message.port}`, phase: "ready", token };
-          this.setState({ phase: "ready" });
+          this.setState({ connection: this.connectionValue, phase: "ready" });
           resolve(this.connectionValue);
         } else if (message.type === "failed") {
           fail(new Error(message.error || "Runtime 启动失败。"));

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { projectGroups } from "../shared/projections/groups";
 import { createSession, rebuildSession, reduceEvent, reduceEvents } from "../shared/domain/reducer";
-import { Event, EVENT_VERSION } from "../shared/contracts/runtime";
+import { Event, EventPayloadMap, EventType, EVENT_VERSION } from "../shared/contracts/runtime";
 
 const registration = {
   compactThresholdTokens: 850_000,
@@ -14,7 +14,7 @@ const registration = {
   title: "测试会话"
 };
 
-function event(offset: number, type: Event["type"], data: unknown, activityId?: string): Event {
+function event<K extends EventType>(offset: number, type: K, data: EventPayloadMap[K], activityId?: string): Event<K> {
   return {
     version: EVENT_VERSION,
     at: `2026-07-17T10:00:0${offset}.000Z`,
@@ -23,7 +23,7 @@ function event(offset: number, type: Event["type"], data: unknown, activityId?: 
     scope: { runId: "run_test", sessionId: registration.sessionId, activityId },
     eventId: `session_test:${offset}`,
     type
-  };
+  } as Event<K>;
 }
 
 test("reduces lifecycle signals and treats settlement as authoritative", () => {
@@ -31,16 +31,46 @@ test("reduces lifecycle signals and treats settlement as authoritative", () => {
   assert.equal(initial.workspaceKind, "project");
   const events = [
     event(2, "run.started", { model: "deepseek-chat", prompt: "修复测试", startedAt: "2026-07-17T10:00:02.000Z" }),
-    event(4, "activity.started", { audience: "debug", kind: "thinking", startedAt: "2026-07-17T10:00:04.000Z", title: "" }, "activity_1"),
-    event(5, "activity.updated", { bodyDelta: "检查上下文" }, "activity_1"),
-    event(6, "activity.finished", { status: "completed", finishedAt: "2026-07-17T10:00:06.000Z" }, "activity_1"),
-    event(7, "run.finished", { answer: "已完成", status: "completed", finishedAt: "2026-07-17T10:00:07.000Z" })
+    event(3, "reasoning.updated", { modelStepId: "model_step_1", textDelta: "先理解问题。" }),
+    event(4, "reasoning.title.updated", { title: "核对问题实现范围" }),
+    event(5, "activity.started", { audience: "debug", kind: "thinking", startedAt: "2026-07-17T10:00:04.000Z", title: "" }, "activity_1"),
+    event(6, "activity.updated", { bodyDelta: "检查上下文" }, "activity_1"),
+    event(7, "activity.finished", { status: "completed", finishedAt: "2026-07-17T10:00:06.000Z" }, "activity_1"),
+    event(8, "run.finished", { answer: "已完成", status: "completed", finishedAt: "2026-07-17T10:00:07.000Z" })
   ];
   const result = reduceEvents(initial, events);
   assert.equal(result.runs[0].status, "completed");
   assert.equal(result.runs[0].answer, "已完成");
+  assert.equal(result.runs[0].reasoning, "先理解问题。");
+  assert.deepEqual(result.runs[0].reasoningSteps, [{ modelStepId: "model_step_1", text: "先理解问题。" }]);
+  assert.equal(result.runs[0].reasoningTitle, "核对问题实现范围");
   assert.equal(result.runs[0].activities[0].body, "检查上下文");
   assert.equal(result.runs[0].activities[0].status, "completed");
+});
+
+test("groups reasoning deltas by model step while preserving the aggregate", () => {
+  const result = reduceEvents(createSession(registration, 1), [
+    event(2, "run.started", { model: "deepseek-chat", prompt: "分析", startedAt: registration.createdAt }),
+    event(3, "reasoning.updated", { modelStepId: "model_step_a", textDelta: "先定位" }),
+    event(4, "reasoning.updated", { modelStepId: "model_step_a", textDelta: "文件。" }),
+    event(5, "reasoning.updated", { modelStepId: "model_step_b", textDelta: "再验证实现。" })
+  ]);
+
+  assert.deepEqual(result.runs[0].reasoningSteps, [
+    { modelStepId: "model_step_a", text: "先定位文件。" },
+    { modelStepId: "model_step_b", text: "再验证实现。" }
+  ]);
+  assert.equal(result.runs[0].reasoning, "先定位文件。\n\n再验证实现。");
+});
+
+test("keeps unkeyed legacy reasoning out of the visual step projection", () => {
+  const result = reduceEvents(createSession(registration, 1), [
+    event(2, "run.started", { model: "deepseek-chat", prompt: "分析", startedAt: registration.createdAt }),
+    event(3, "reasoning.updated", { textDelta: "无法恢复边界的历史思考" })
+  ]);
+
+  assert.equal(result.runs[0].reasoning, "无法恢复边界的历史思考");
+  assert.equal(result.runs[0].reasoningSteps, undefined);
 });
 
 test("ignores duplicate and stale offsets", () => {

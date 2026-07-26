@@ -1,0 +1,7 @@
+/*
+ * New style modules are imported here in cascade order. The existing stylesheet
+ * remains an explicit legacy layer while features migrate without visual churn.
+ */
+@import "../styles.css";
+@import "./features/application-surfaces.css";
+@import "./theme-guardrails.css";

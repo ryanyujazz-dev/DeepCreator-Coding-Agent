@@ -2,6 +2,11 @@ import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Changes, Session } from "../../shared/contracts/runtime";
+import {
+  SCROLL_FOLLOW_EDGE_THRESHOLD,
+  ScrollFollowMode,
+  resolveScrollFollowMode
+} from "../stream/followScroll";
 import { RunTimeline } from "./RunTimeline";
 
 // === 滚动跟随状态机 + 边缘渐变消隐(第一性设计)===
@@ -18,12 +23,7 @@ import { RunTimeline } from "./RunTimeline";
 //   - 顶部蒙层:紧贴 .conversation-main 顶部
 //   - 底部蒙层:紧贴对话框上边缘(bottom = composer-dock 实际高度,用 ResizeObserver 动态测)
 
-const RESUME_THRESHOLD = 8;
-const PAUSE_THRESHOLD = 60;
 const POLL_INTERVAL_MS = 200;
-const EDGE_THRESHOLD = 8;
-
-type FollowMode = "follow" | "paused";
 
 export function Conversation({
   notices,
@@ -41,7 +41,7 @@ export function Conversation({
   session: Session | null;
 }) {
   const scrollRef = useRef<HTMLElement>(null);
-  const modeRef = useRef<FollowMode>("follow");
+  const modeRef = useRef<ScrollFollowMode>("follow");
   const [notAtBottom, setNotAtBottom] = useState(false);
   const [notAtTop, setNotAtTop] = useState(false);
   // 底部蒙层的 bottom:从 main 底部到 composer 上沿的距离。
@@ -97,7 +97,7 @@ export function Conversation({
     el.scrollTop = el.scrollHeight;
   }, []);
 
-  const setMode = useCallback((next: FollowMode) => {
+  const setMode = useCallback((next: ScrollFollowMode) => {
     if (modeRef.current === next) return;
     modeRef.current = next;
     setNotAtBottom(next === "paused");
@@ -114,16 +114,17 @@ export function Conversation({
   const handleScroll = useCallback((event: React.BaseSyntheticEvent) => {
     const el = event.currentTarget as HTMLElement;
     const distance = distanceFromBottom(el);
+    const nextMode = resolveScrollFollowMode(modeRef.current, distance);
     if (modeRef.current === "follow") {
-      if (distance > PAUSE_THRESHOLD) setMode("paused");
+      if (nextMode === "paused") setMode("paused");
       // 跟随模式下强制认为在底部(蒙层/按钮都不显示),避免 distance 在阈值附近
       // 抖动导致 notAtBottom 在 true/false 之间反复切换 → 蒙层挂载/卸载 → 布局变化 → 抖动
       setNotAtBottom(false);
     } else {
-      if (distance < RESUME_THRESHOLD) setMode("follow");
-      setNotAtBottom(distance >= EDGE_THRESHOLD);
+      if (nextMode === "follow") setMode("follow");
+      setNotAtBottom(distance >= SCROLL_FOLLOW_EDGE_THRESHOLD);
     }
-    setNotAtTop(el.scrollTop >= EDGE_THRESHOLD);
+    setNotAtTop(el.scrollTop >= SCROLL_FOLLOW_EDGE_THRESHOLD);
   }, [distanceFromBottom, setMode]);
 
   useEffect(() => {

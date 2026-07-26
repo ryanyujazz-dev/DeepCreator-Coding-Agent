@@ -2,6 +2,8 @@ import { Run, ResumeState } from "../../shared/contracts/runtime";
 import { MissingToolResult, missingToolResults } from "../../shared/domain/toolProtocol";
 import { activityTitle, toolTarget } from "../../shared/projections/activityPresentation";
 import type { ContextPort, EventPort, SessionPort } from "./runtimeRepo";
+import { finishActivity } from "./activityLifecycle";
+import { SystemPort } from "./systemPort";
 
 type RunLifecyclePorts = ContextPort & EventPort & SessionPort;
 
@@ -14,7 +16,11 @@ function recoveryFor(input: {
   finishedAt: string;
 }): ResumeState {
   const completedOperations = input.run.activities
-    .filter((activity) => activity.status === "completed" && activity.kind !== "thinking")
+    .filter((activity) =>
+      activity.audience === "user"
+      && activity.status === "completed"
+      && activity.kind !== "thinking"
+    )
     .map((activity) => activity.tool?.resultSummary || activity.body || activityTitle(activity))
     .slice(-24);
   const interruptedOperations = input.run.activities
@@ -46,9 +52,10 @@ export function appendInterruptedToolResults(input: {
   runId: string;
   sessionId: string;
   store: RunLifecyclePorts;
+  system: SystemPort;
   terminalPhase: "completed" | "failed" | "cancelled";
 }): number {
-  const createdAt = input.createdAt ?? new Date().toISOString();
+  const createdAt = input.createdAt ?? input.system.now();
   for (const { assistant, call } of input.missingResults) {
     input.store.appendContextEntry({
       createdAt,
@@ -80,8 +87,9 @@ export function finishRun(input: {
   projectRoot: string;
   sessionId: string;
   store: RunLifecyclePorts;
+  system: SystemPort;
 }): void {
-  const finishedAt = new Date().toISOString();
+  const finishedAt = input.system.now();
   let run = input.store.getRun(input.runId);
   if (!run || ["completed", "failed", "cancelled"].includes(run.status)) return;
 
@@ -105,21 +113,21 @@ export function finishRun(input: {
     runId: input.runId,
     sessionId: input.sessionId,
     store: input.store,
+    system: input.system,
     terminalPhase: status
   });
 
   for (const activity of run.activities.filter((item) => item.status === "running" || item.status === "suspended")) {
-    input.store.append({
+    finishActivity({
+      activityId: activity.activityId,
       runId: input.runId,
-      data: {
+      sessionId: input.sessionId,
+      store: input.store,
+      system: input.system
+    }, {
         body: error || activity.body,
         error,
-        status: status === "cancelled" ? "cancelled" as const : status === "failed" ? "failed" as const : "completed" as const,
-        finishedAt: finishedAt
-      },
-      sessionId: input.sessionId,
-      type: "activity.finished",
-      activityId: activity.activityId
+        status: status === "cancelled" ? "cancelled" : status === "failed" ? "failed" : "completed"
     });
   }
 

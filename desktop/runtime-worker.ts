@@ -15,7 +15,8 @@ async function main(): Promise<void> {
     migrationDirectory: process.env.RUNTIME_MIGRATIONS_DIR,
     port: 0,
     runtimeMode: process.env.RUNTIME_MODE,
-    workspaceRoot: process.env.RUNTIME_WORKSPACE_ROOT ?? process.cwd()
+    workspaceRoot: process.env.RUNTIME_WORKSPACE_ROOT ?? process.cwd(),
+    zhipuApiKey: process.env.ZHIPU_API_KEY
   });
   parentPort.postMessage({ port: runtime.port, type: "ready" });
   parentPort.on("message", (message) => {

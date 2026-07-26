@@ -5,6 +5,7 @@ import { EnvironmentPanel } from "./EnvironmentPanel";
 import { RuntimeWorkspace } from "../runtimeApi";
 import { ConnectionPhase } from "./ConnectionStatus";
 import { IconButton } from "../shared-ui/ControlPrimitives";
+import { ReasoningTrace } from "./ReasoningTrace";
 
 export function Inspector({
   compact,
@@ -101,6 +102,7 @@ export function Inspector({
           )}
         </section>
         <EnvironmentPanel onOpenReview={onOpenReview} session={session} workspace={workspace} />
+        <ReasoningTrace run={run} />
       </div>
       {compact && overlayOpen && (
         <IconButton

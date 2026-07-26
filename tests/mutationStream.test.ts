@@ -28,6 +28,6 @@ test("streams an edit with accurate changed-line metrics", () => {
     final && { additions: final.additions, deletions: final.deletions, operation: final.operation, path: final.path },
     { additions: 2, deletions: 1, operation: "edited", path: "src/value.ts" }
   );
-  assert.match(final?.patch ?? "", /-  return 1;/);
-  assert.match(final?.patch ?? "", /\+  return 3;/);
+  assert.match(final?.patch ?? "", /-{1} {2}return 1;/);
+  assert.match(final?.patch ?? "", /\+ {2}return 3;/);
 });

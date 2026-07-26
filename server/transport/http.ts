@@ -7,21 +7,31 @@ import {
   approvalInputSchema,
   commandParamsSchema,
   eventQuerySchema,
+  fileQuerySchema,
+  memoryInputSchema,
+  memoryParamsSchema,
   modeInputSchema,
+  planResolveInputSchema,
+  planRevisionInputSchema,
+  projectArchiveInputSchema,
+  questionAnswerInputSchema,
   runInputSchema,
   runParamsSchema,
-  sessionParamsSchema
+  sessionListQuerySchema,
+  sessionParamsSchema,
+  sidebarInputSchema
 } from "../../shared/schemas/http";
 import { ContextConfig, getCompactThresholdTokens, getContextWindowTokens, getEffectiveInputBudgetTokens, getRequestedMaxOutputTokens } from "../app/contextBuilder";
+import { AppError, AppErrorCode } from "../app/appError";
 import { CancelRun } from "../app/cancelRun";
 import { ContextQueries } from "../app/contextQueries";
 import { RunRegistry } from "../app/runRegistry";
 import { answerQuestion, resolvePlan, ResumeRun, revisePlan } from "../app/planReview";
 import { RunLaunchPort } from "../app/runLauncher";
 import { ContextPort, EventPort, MemoryPort, SessionPort } from "../app/runtimeRepo";
-import { SessionService, SessionServiceError } from "../app/sessionService";
-import { StartRun, StartRunError } from "../app/startRun";
-import { WorkspaceQueries, WorkspaceQueryError } from "../app/workspaceQueries";
+import { SessionService } from "../app/sessionService";
+import { StartRun } from "../app/startRun";
+import { WorkspaceQueries } from "../app/workspaceQueries";
 
 export type HttpConfig = {
   authToken?: string;
@@ -47,11 +57,24 @@ export type HttpDeps = {
   workspace: WorkspaceQueries;
 };
 
+function statusFor(code: AppErrorCode): 400 | 404 | 409 {
+  if (code === "not_found") return 404;
+  if (code === "conflict" || code === "not_waiting" || code === "stale_revision") return 409;
+  return 400;
+}
+
 export function createHttp(deps: HttpDeps): FastifyInstance {
   const { cancelRun, config, contextQueries, launcher, providerFor, registry, sessions, startRun, store, workspace } = deps;
   const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, models, workspaceRoot } = config;
   const app = Fastify({ logger: false });
   const frontendOrigin = new URL(frontendUrl).origin;
+
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof AppError) {
+      return reply.code(statusFor(error.code)).send({ code: error.code, error: error.message });
+    }
+    return reply.send(error);
+  });
 
   app.addHook("onRequest", async (request, reply) => {
     const origin = request.headers.origin;
@@ -139,36 +162,22 @@ app.get("/api/balance", async (_request, reply) => {
   }
 });
 
-app.get<{ Querystring: { query?: string } }>("/api/sessions", async (request) => ({
+app.get<{ Querystring: { query?: string } }>("/api/sessions", { schema: sessionListQuerySchema }, async (request) => ({
   sessions: sessions.list(request.query.query ?? "")
 }));
 
 app.put<{
   Params: { sessionId: string };
   Body: { archived?: boolean; pinned?: boolean };
-}>("/api/sessions/:sessionId/sidebar", { schema: sessionParamsSchema }, async (request, reply) => {
-  try {
-    sessions.updateSidebar(request.params.sessionId, request.body);
-    return { ok: true };
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return reply.code(error.kind === "not_found" ? 404 : 409).send({ error: error.message });
-    }
-    throw error;
-  }
+}>("/api/sessions/:sessionId/sidebar", { schema: sidebarInputSchema }, async (request) => {
+  sessions.updateSidebar(request.params.sessionId, request.body);
+  return { ok: true };
 });
 
 app.post<{
   Body: { projectRoot?: string };
-}>("/api/projects/archive-sessions", async (request, reply) => {
-  try {
-    return { archived: sessions.archiveProject(request.body.projectRoot ?? "") };
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return reply.code(error.kind === "invalid_input" ? 400 : 409).send({ error: error.message });
-    }
-    throw error;
-  }
+}>("/api/projects/archive-sessions", { schema: projectArchiveInputSchema }, async (request) => {
+  return { archived: sessions.archiveProject(request.body.projectRoot ?? "") };
 });
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId", { schema: sessionParamsSchema }, async (request, reply) => {
@@ -177,29 +186,16 @@ app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId", { schema:
   return { session };
 });
 
-app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/workspace", { schema: sessionParamsSchema }, async (request, reply) => {
-  try {
-    return { workspace: await workspace.describe(request.params.sessionId) };
-  } catch (error) {
-    if (error instanceof WorkspaceQueryError) return reply.code(404).send({ error: error.message });
-    throw error;
-  }
+app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/workspace", { schema: sessionParamsSchema }, async (request) => {
+  return { workspace: await workspace.describe(request.params.sessionId) };
 });
 
-app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-telemetry", { schema: sessionParamsSchema }, async (request, reply) => {
-  try {
-    return { telemetry: contextQueries.telemetry(request.params.sessionId) };
-  } catch (error) {
-    return reply.code(404).send({ error: error instanceof Error ? error.message : "session not found" });
-  }
+app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-telemetry", { schema: sessionParamsSchema }, async (request) => {
+  return { telemetry: contextQueries.telemetry(request.params.sessionId) };
 });
 
-app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-observer", { schema: sessionParamsSchema }, async (request, reply) => {
-  try {
-    return { observer: contextQueries.observer(request.params.sessionId) };
-  } catch (error) {
-    return reply.code(404).send({ error: error instanceof Error ? error.message : "session not found" });
-  }
+app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-observer", { schema: sessionParamsSchema }, async (request) => {
+  return { observer: contextQueries.observer(request.params.sessionId) };
 });
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/memory", { schema: sessionParamsSchema }, async (request, reply) => {
@@ -210,7 +206,7 @@ app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/memory", { 
 
 app.post<{
   Body: Partial<MemoryFact> & Pick<MemoryFact, "category" | "confidence" | "provenance" | "statement" | "visibility">;
-}>("/api/memory", async (request, reply) => {
+}>("/api/memory", { schema: memoryInputSchema }, async (request, reply) => {
   try {
     return { fact: store.saveMemory(request.body) };
   } catch (error) {
@@ -221,39 +217,28 @@ app.post<{
 app.put<{
   Params: { sessionId: string; planId: string; revision: string };
   Body: { markdown?: string; title?: string };
-}>("/api/sessions/:sessionId/plans/:planId/revisions/:revision", async (request, reply) => {
-  try {
-    const session = revisePlan({
-      markdown: request.body.markdown ?? "",
-      planId: request.params.planId,
-      revision: Number(request.params.revision),
-      sessionId: request.params.sessionId,
-      store,
-      title: request.body.title ?? ""
-    });
-    return { session };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return reply.code(/not found/i.test(message) ? 404 : /stale/i.test(message) ? 409 : 400).send({ error: message });
-  }
+}>("/api/sessions/:sessionId/plans/:planId/revisions/:revision", { schema: planRevisionInputSchema }, async (request) => {
+  const session = revisePlan({
+    markdown: request.body.markdown ?? "",
+    planId: request.params.planId,
+    revision: Number(request.params.revision),
+    sessionId: request.params.sessionId,
+    store,
+    system: registry.system,
+    title: request.body.title ?? ""
+  });
+  return { session };
 });
 
-app.delete<{ Params: { memoryId: string } }>("/api/memory/:memoryId", async (request, reply) => {
+app.delete<{ Params: { memoryId: string } }>("/api/memory/:memoryId", { schema: memoryParamsSchema }, async (request, reply) => {
   return reply.code(store.deleteMemory(request.params.memoryId) ? 200 : 404).send({ ok: true });
 });
 
 app.get<{
   Params: { sessionId: string };
   Querystring: { path?: string };
-}>("/api/sessions/:sessionId/files", { schema: sessionParamsSchema }, async (request, reply) => {
-  try {
-    return await workspace.readFile(request.params.sessionId, request.query.path);
-  } catch (error) {
-    if (error instanceof WorkspaceQueryError) {
-      return reply.code(error.kind === "invalid_input" ? 400 : 404).send({ error: error.message });
-    }
-    throw error;
-  }
+}>("/api/sessions/:sessionId/files", { schema: fileQuerySchema }, async (request) => {
+  return workspace.readFile(request.params.sessionId, request.query.path);
 });
 
 app.get<{ Params: { runId: string } }>("/api/runs/:runId", { schema: runParamsSchema }, async (request, reply) => {
@@ -265,24 +250,17 @@ app.get<{ Params: { runId: string } }>("/api/runs/:runId", { schema: runParamsSc
 app.post<{
   Params: { sessionId: string };
   Body: { model?: string; accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry; projectRoot?: string; prompt?: string; sessionId?: string; workspaceKind?: WorkspaceKind };
-}>("/api/sessions/:sessionId/runs", { schema: runInputSchema }, async (request, reply) => {
-  try {
-    return reply.send(await startRun.execute({
-      accessMode: request.body.accessMode,
-      mode: request.body.mode,
-      model: request.body.model,
-      planEntry: request.body.planEntry,
-      projectRoot: request.body.projectRoot,
-      prompt: request.body.prompt ?? "",
-      sessionId: request.params.sessionId,
-      workspaceKind: request.body.workspaceKind
-    }));
-  } catch (error) {
-    if (error instanceof StartRunError) {
-      return reply.code(error.kind === "conflict" ? 409 : 400).send({ error: error.message });
-    }
-    throw error;
-  }
+}>("/api/sessions/:sessionId/runs", { schema: runInputSchema }, async (request) => {
+  return startRun.execute({
+    accessMode: request.body.accessMode,
+    mode: request.body.mode,
+    model: request.body.model,
+    planEntry: request.body.planEntry,
+    projectRoot: request.body.projectRoot,
+    prompt: request.body.prompt ?? "",
+    sessionId: request.params.sessionId,
+    workspaceKind: request.body.workspaceKind
+  });
 });
 
 app.get<{
@@ -297,7 +275,7 @@ app.get<{
 app.get<{
   Params: { sessionId: string };
   Querystring: { afterOffset?: string };
-}>("/api/sessions/:sessionId/stream", async (request, reply) => {
+}>("/api/sessions/:sessionId/stream", { schema: eventQuerySchema }, async (request, reply) => {
   const session = store.getSession(request.params.sessionId);
   if (!session) return reply.code(404).send({ error: "session not found" });
   let lastOffset = Math.max(0, Number(request.query.afterOffset ?? 0));
@@ -341,74 +319,52 @@ app.post<{ Params: { commandId: string } }>("/api/commands/:commandId/stop", { s
 app.put<{
   Params: { sessionId: string };
   Body: { accessMode?: AccessMode };
-}>("/api/sessions/:sessionId/access-mode", { schema: accessInputSchema }, async (request, reply) => {
-  try {
-    return { session: sessions.changeAccessMode(request.params.sessionId, request.body.accessMode) };
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return reply.code(error.kind === "not_found" ? 404 : 400).send({ error: error.message });
-    }
-    throw error;
-  }
+}>("/api/sessions/:sessionId/access-mode", { schema: accessInputSchema }, async (request) => {
+  return { session: sessions.changeAccessMode(request.params.sessionId, request.body.accessMode) };
 });
 
 app.put<{
   Params: { sessionId: string };
   Body: { mode?: Mode; planEntry?: PlanEntry };
-}>("/api/sessions/:sessionId/mode", { schema: modeInputSchema }, async (request, reply) => {
-  try {
-    return { session: sessions.changeMode(request.params.sessionId, request.body) };
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return reply.code(error.kind === "not_found" ? 404 : error.kind === "conflict" ? 409 : 400).send({ error: error.message });
-    }
-    throw error;
-  }
+}>("/api/sessions/:sessionId/mode", { schema: modeInputSchema }, async (request) => {
+  return { session: sessions.changeMode(request.params.sessionId, request.body) };
 });
 
 app.post<{
   Params: { sessionId: string; planId: string; revision: string };
   Body: { accessMode?: AccessMode; comments?: string; decision?: PlanDecision };
-}>("/api/sessions/:sessionId/plans/:planId/revisions/:revision/resolve", async (request, reply) => {
+}>("/api/sessions/:sessionId/plans/:planId/revisions/:revision/resolve", { schema: planResolveInputSchema }, async (request, reply) => {
   const decision = request.body.decision;
   if (!decision || !["continue_planning", "start_work", "cancel"].includes(decision)) {
     return reply.code(400).send({ error: "invalid plan decision" });
   }
-  try {
-    const result = resolvePlan({
-      accessMode: request.body.accessMode,
-      comments: request.body.comments,
-      decision,
-      planId: request.params.planId,
-      revision: Number(request.params.revision),
-      sessionId: request.params.sessionId,
-      store
-    });
-    if (result.resume) resumeRun(result.resume);
-    return { idempotent: result.idempotent, session: result.session };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return reply.code(/not found/i.test(message) ? 404 : /stale|not waiting/i.test(message) ? 409 : 400).send({ error: message });
-  }
+  const result = resolvePlan({
+    accessMode: request.body.accessMode,
+    comments: request.body.comments,
+    decision,
+    planId: request.params.planId,
+    revision: Number(request.params.revision),
+    sessionId: request.params.sessionId,
+    store,
+    system: registry.system
+  });
+  if (result.resume) resumeRun(result.resume);
+  return { idempotent: result.idempotent, session: result.session };
 });
 
 app.post<{
   Params: { sessionId: string; interactionId: string };
   Body: { answers?: Record<string, string> };
-}>("/api/sessions/:sessionId/questions/:interactionId/answer", async (request, reply) => {
-  try {
-    const result = answerQuestion({
-      answers: request.body.answers ?? {},
-      interactionId: request.params.interactionId,
-      sessionId: request.params.sessionId,
-      store
-    });
-    if (result.resume) resumeRun(result.resume);
-    return { idempotent: result.idempotent, session: result.session };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return reply.code(/not found/i.test(message) ? 404 : /stale/i.test(message) ? 409 : 400).send({ error: message });
-  }
+}>("/api/sessions/:sessionId/questions/:interactionId/answer", { schema: questionAnswerInputSchema }, async (request) => {
+  const result = answerQuestion({
+    answers: request.body.answers ?? {},
+    interactionId: request.params.interactionId,
+    sessionId: request.params.sessionId,
+    store,
+    system: registry.system
+  });
+  if (result.resume) resumeRun(result.resume);
+  return { idempotent: result.idempotent, session: result.session };
 });
 
 app.post<{

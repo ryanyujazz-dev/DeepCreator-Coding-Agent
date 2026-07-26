@@ -103,11 +103,11 @@ export function Composer({
     const sections = latest?.sections ?? [];
     const sum = (names: string[]) => sections.filter((section) => names.includes(section.section)).reduce((total, section) => total + section.estimatedTokens, 0);
     const protocolRows = [
-      { color: "#1976f3", label: "工具定义", tokens: sum(["tools"]) },
-      { color: "#5d8ff4", label: "系统提示", tokens: sum(["prompt_kernel"]) },
-      { color: "#7ba7f7", label: "项目规范与环境", tokens: sum(["stable_session"]) },
-      { color: "#9abcf8", label: "记忆与能力索引", tokens: sum(["memory_index", "capability_index"]) },
-      { color: "#b7cdf7", label: "会话与工具结果", tokens: sum(["recent_history", "context_update", "recovery_capsule", "latest_user", "checkpoint"]) }
+      { color: "var(--context-segment-tools)", label: "工具定义", tokens: sum(["tools"]) },
+      { color: "var(--context-segment-system)", label: "系统提示", tokens: sum(["prompt_kernel"]) },
+      { color: "var(--context-segment-project)", label: "项目规范与环境", tokens: sum(["stable_session"]) },
+      { color: "var(--context-segment-memory)", label: "记忆与能力索引", tokens: sum(["memory_index", "capability_index"]) },
+      { color: "var(--context-segment-history)", label: "会话与工具结果", tokens: sum(["recent_history", "context_update", "recovery_capsule", "latest_user", "checkpoint"]) }
     ];
     const categorized = protocolRows.reduce((total, row) => total + row.tokens, 0);
     const rows = contextSort === "tokens" ? [...protocolRows].sort((left, right) => right.tokens - left.tokens) : protocolRows;

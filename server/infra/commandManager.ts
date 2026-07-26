@@ -170,12 +170,10 @@ export class CommandManager {
 
     const snapshot = await this.wait(entry.commandId, checkpointMs);
     if (snapshot.state === "running") {
-      entry.backgrounded = true;
       if (entry.state !== "running") {
-        const settled = this.snapshot(entry, true);
-        entry.onSettled?.(settled);
-        return settled;
+        return this.snapshot(entry, true);
       }
+      entry.backgrounded = true;
     }
     return snapshot;
   }

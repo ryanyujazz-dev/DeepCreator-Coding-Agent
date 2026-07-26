@@ -15,6 +15,7 @@ export type RuntimeConnection = {
 };
 
 export type RuntimeState = {
+  connection?: RuntimeConnection;
   detail?: string;
   phase: RuntimePhase;
 };
@@ -36,6 +37,11 @@ export type DesktopSettingsInput = {
   apiKey?: string;
   defaultModel: string;
   zhipuApiKey?: string;
+};
+
+export type DesktopSettingsSaveResult = {
+  connection: RuntimeConnection;
+  settings: DesktopSettings;
 };
 
 export type DesktopBridge = {
@@ -64,7 +70,7 @@ export type DesktopBridge = {
   };
   settings: {
     read: () => Promise<DesktopSettings>;
-    save: (input: DesktopSettingsInput) => Promise<DesktopSettings>;
+    save: (input: DesktopSettingsInput) => Promise<DesktopSettingsSaveResult>;
   };
   themes: {
     exportFile: (themeId: string) => Promise<boolean>;

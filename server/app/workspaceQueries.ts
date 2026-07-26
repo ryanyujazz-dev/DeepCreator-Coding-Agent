@@ -1,4 +1,5 @@
 import { SessionPort } from "./runtimeRepo";
+import { AppError } from "./appError";
 
 export type WorkspaceInfo = {
   branch?: string;
@@ -21,9 +22,9 @@ export interface WorkspaceQueryPort {
   readText(projectRoot: string, relativePath: string, maxChars: number): Promise<WorkspaceFile>;
 }
 
-export class WorkspaceQueryError extends Error {
+export class WorkspaceQueryError extends AppError {
   constructor(message: string, readonly kind: "invalid_input" | "not_found") {
-    super(message);
+    super(message, kind);
     this.name = "WorkspaceQueryError";
   }
 }

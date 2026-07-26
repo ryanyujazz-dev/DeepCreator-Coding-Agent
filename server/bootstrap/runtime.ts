@@ -1,5 +1,4 @@
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { RunRegistry } from "../app/runRegistry";
 import { RunLauncher } from "../app/runLauncher";
 import { Runner } from "../app/runner";
@@ -17,10 +16,10 @@ import { resolveProjectRoot } from "../infra/projectRoot";
 import { ruleSource } from "../infra/rules";
 import { RuntimeStore } from "../infra/runtimeStore";
 import { toolHost } from "../infra/tools";
-import { loadUserConfig } from "../infra/userConfig";
 import { commandManager } from "../infra/commandManager";
 import { workspaceQueryPort } from "../infra/workspace";
 import { ensureScratchWorkspace } from "../infra/sessionWorkspace";
+import { nodeSystem } from "../infra/system";
 import { createHttp } from "../transport/http";
 import { ModelOption, ProviderFamily } from "../../shared/contracts/provider";
 
@@ -35,6 +34,7 @@ export type RuntimeOptions = {
   port?: number;
   runtimeMode?: string;
   workspaceRoot: string;
+  zhipuApiKey?: string;
 };
 
 export type RunningRuntime = {
@@ -83,6 +83,12 @@ export const MODEL_REGISTRY: ModelOption[] = [
   }
 ];
 
+export const SUMMARY_MODEL_BY_PROVIDER: Record<ProviderFamily, string> = {
+  deepseek: "deepseek-v4-flash",
+  mock: "mock-agent",
+  zhipu: "glm-5-turbo"
+};
+
 function familyOf(modelId: string): ProviderFamily {
   const entry = MODEL_REGISTRY.find((item) => item.id === modelId);
   if (entry) return entry.provider;
@@ -97,57 +103,32 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   const defaultModel = options.defaultModel ?? "deepseek-v4-flash";
   const apiKey = options.apiKey ?? "";
   const context = contextConfig();
-  const store = new RuntimeStore(path.resolve(options.dataDirectory), options.migrationDirectory);
-  for (const summary of store.listSessions()) {
-    const session = store.getSession(summary.sessionId);
-    for (const run of session?.runs ?? []) {
-      for (const activity of run.activities.filter((item) => item.status === "running" && item.command?.commandId)) {
-        store.append({
-          activityId: activity.activityId,
-          data: {
-            body: activity.body || "Runtime 已重启，无法恢复此前托管的命令。",
-            command: { command: activity.command?.command ?? "", ...activity.command, state: "cancelled" as const },
-            error: "Runtime 已重启，命令状态不可恢复。",
-            finishedAt: new Date().toISOString(),
-            status: "cancelled" as const
-          },
-          runId: run.runId,
-          sessionId: session!.sessionId,
-          type: "activity.finished"
-        });
-      }
-    }
-  }
-  const registry = new RunRegistry();
+  const system = nodeSystem;
+  const store = new RuntimeStore(path.resolve(options.dataDirectory), options.migrationDirectory, system);
+  const registry = new RunRegistry(system);
   const runner = new Runner(toolHost, ruleSource, capabilitySource, context);
   // Provider 单例化:DeepSeekProvider/ZhipuProvider 无状态,缓存后避免每次 providerFor 都 new,
   // 未来也可在单例上加余额缓存/限流等有状态能力。MockProvider 同理。
   const deepseekProvider = new DeepSeekProvider(apiKey);
-  // ADR-009: zhipuApiKey 直接从 ~/.deepseeker/config.json 读取,不走 env 链路。
-  // DeepSeek 的 key 因为有 safeStorage 降级历史才走 env,zhipu 没有历史包袱。
-  const zhipuApiKey = loadUserConfig().zhipuApiKey ?? "";
+  const zhipuApiKey = options.zhipuApiKey ?? "";
   const zhipuProvider = new ZhipuProvider(zhipuApiKey);
   const mockProvider = new MockProvider();
   // 模型路由:基于模型注册表的 provider 家族路由。
   const providerFor = (model: string) => {
     const family = familyOf(model);
     const isMock = family === "mock" || options.runtimeMode === "mock" || (!apiKey && !zhipuApiKey);
-    if (isMock) return { model: "mock-agent", provider: mockProvider };
+    if (isMock) return { model: "mock-agent", provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
     if (family === "zhipu") {
       if (!zhipuApiKey) throw new Error(`模型 ${model} 需要智谱 API Key，但未配置。请在 ~/.deepseeker/config.json 设置 zhipuApiKey。`);
-      return { model, provider: zhipuProvider };
+      return { model, provider: zhipuProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.zhipu };
     }
     if (family === "deepseek") {
       if (!apiKey) throw new Error(`模型 ${model} 需要 DeepSeek API Key，但未配置。`);
-      return { model, provider: deepseekProvider };
+      return { model, provider: deepseekProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.deepseek };
     }
-    return { model: "mock-agent", provider: mockProvider };
+    return { model: "mock-agent", provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
   };
   const launcher = new RunLauncher(providerFor, registry, (input) => runner.run(input), store);
-  const system = {
-    createId: (prefix: string) => `${prefix}_${randomUUID()}`,
-    now: () => new Date().toISOString()
-  };
   const startRun = new StartRun({
     context,
     defaultModel,

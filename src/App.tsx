@@ -1,4 +1,4 @@
-import { Component, CSSProperties, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { Component, CSSProperties, lazy, ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Folder, MoreHorizontal, PanelRight, SlidersHorizontal } from "lucide-react";
 import { AppTopbar } from "./components/AppTopbar";
 import { ApprovalDialog } from "./components/ApprovalDialog";
@@ -9,27 +9,22 @@ import { Conversation } from "./components/Conversation";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { Inspector } from "./components/Inspector";
 import { TaskProgress } from "./components/TaskProgress";
-import { Surface, SurfacePane } from "./components/SurfacePane";
-import { RuntimeFilePreview, runtimeApi } from "./runtimeApi";
 import { useWorkspace } from "./useWorkspace";
-import { Changes } from "../shared/contracts/runtime";
 import { ProjectRef } from "../shared/contracts/desktop";
 import { SettingsWorkspace } from "./components/settings/SettingsWorkspace";
 import { IconButton } from "./shared-ui/ControlPrimitives";
 import { defaultDraftWorkspace, DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
 import { resolveCompactSidebar, useInspectorLayout } from "./inspectorLayout";
-
-type SurfaceFileState = {
-  error: string | null;
-  file: RuntimeFilePreview | null;
-  loading: boolean;
-};
+import { browserPlatform } from "./platform/browser";
+import { desktopBridge } from "./platform/desktop";
+import { useSurfaceWorkspace } from "./features/surfaces/useSurfaceWorkspace";
 
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const DEFAULT_SURFACE_WIDTH = 640;
+const SurfacePane = lazy(() => import("./components/SurfacePane").then((module) => ({ default: module.SurfacePane })));
 
 function storedPanelWidth(key: string, fallback: number): number {
-  const stored = Number(window.localStorage.getItem(key));
+  const stored = Number(browserPlatform.storage.get(key));
   return Number.isFinite(stored) && stored > 0 ? stored : fallback;
 }
 
@@ -40,27 +35,23 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { message: str
   }
   render() {
     if (!this.state.message) return this.props.children;
-    return <main className="workspace app-error-state"><h1>界面渲染遇到问题</h1><p>{this.state.message}</p><button onClick={() => window.location.reload()} type="button">重新加载</button></main>;
+    return <main className="workspace app-error-state"><h1>界面渲染遇到问题</h1><p>{this.state.message}</p><button onClick={browserPlatform.reload} type="button">重新加载</button></main>;
   }
 }
 
 export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepseeker.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
-  const [compactSidebar, setCompactSidebar] = useState(() => resolveCompactSidebar(window.innerWidth, DEFAULT_SIDEBAR_WIDTH));
+  const [compactSidebar, setCompactSidebar] = useState(() => resolveCompactSidebar(browserPlatform.viewportWidth(), DEFAULT_SIDEBAR_WIDTH));
   const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false);
   const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepseeker.surfaceWidth", DEFAULT_SURFACE_WIDTH));
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  const [surfaces, setSurfaces] = useState<Surface[]>([]);
-  const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
-  const [surfaceFiles, setSurfaceFiles] = useState<Record<string, SurfaceFileState>>({});
-  const [surfaceClosing, setSurfaceClosing] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(browserPlatform.viewportWidth);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
-  const [projectsReady, setProjectsReady] = useState(!window.deepseeker);
+  const [projectsReady, setProjectsReady] = useState(!desktopBridge());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelNotices, setModelNotices] = useState<string[]>([]);
   const { layout: inspectorLayout, targetRef: conversationMainRef } = useInspectorLayout();
-  const desktop = window.deepseeker;
+  const desktop = desktopBridge();
   const {
     activeRun,
     archiveProjectSessions,
@@ -125,11 +116,18 @@ export function App() {
       : currentRun?.status === "cancelled"
         ? "工作已取消"
         : "工作已结束";
-  const activeSurface = useMemo(
-    () => surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0] ?? null,
-    [activeSurfaceId, surfaces]
-  );
-  const activeFileState = activeSurface?.kind === "file" ? surfaceFiles[activeSurface.path] : undefined;
+  const {
+    activeFileState,
+    activeSurface,
+    closeActiveSurface,
+    closeSurfaceTab,
+    openFileSurface,
+    openPlanSurface,
+    openReviewSurface,
+    setActiveSurfaceId,
+    surfaceClosing,
+    surfaces
+  } = useSurfaceWorkspace(session);
   const compactWorkspace = viewportWidth <= 760;
   const visibleSidebarWidth = compactSidebar || !sidebarOpen ? 0 : sidebarWidth;
   const conversationMinimum = compactWorkspace ? 280 : 420;
@@ -142,109 +140,10 @@ export function App() {
     const name = config.workspaceRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? config.workspaceRoot;
     return [{ lastOpenedAt: "", name, path: config.workspaceRoot }, ...projects.filter((project) => project.path !== config.workspaceRoot)];
   }, [config?.workspaceRoot, desktop, projects]);
-  const openFileSurface = useCallback((filePath: string) => {
-    if (!session?.sessionId) return;
-    const surfaceId = `file:${filePath}`;
-    setSurfaceClosing(false);
-    setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
-      ? current
-      : [...current, { id: surfaceId, kind: "file", path: filePath }]);
-    setActiveSurfaceId(surfaceId);
-    setSurfaceFiles((current) => ({
-      ...current,
-      [filePath]: { error: null, file: current[filePath]?.file ?? null, loading: true }
-    }));
-    void runtimeApi.getFile(session.sessionId, filePath)
-      .then((file) => {
-        setSurfaceFiles((current) => ({
-          ...current,
-          [filePath]: { error: null, file, loading: false }
-        }));
-      })
-      .catch((nextError) => {
-        const message = nextError instanceof Error ? nextError.message : String(nextError);
-        setSurfaceFiles((current) => ({
-          ...current,
-          [filePath]: {
-            error: /Route GET:\/api\/sessions\/.+\/files|not found/i.test(message)
-              ? "文件读取接口未生效，请重启 Runtime。"
-              : message,
-            file: current[filePath]?.file ?? null,
-            loading: false
-          }
-        }));
-      })
-  }, [session]);
-  const openReviewSurface = useCallback((delta?: Changes) => {
-    const reviewDelta = delta ?? [...(session?.runs ?? [])]
-      .reverse()
-      .map((run) => run.changes)
-      .find((candidate) => candidate.comparisonBase === "run_start" && candidate.fileCount > 0);
-    if (!reviewDelta || reviewDelta.comparisonBase !== "run_start" || reviewDelta.fileCount === 0) return;
-    const surfaceId = `review:${reviewDelta.files.map((file) => file.path).join("|")}:${reviewDelta.additions}:${reviewDelta.deletions}`;
-    const reviewSurface: Surface = { files: reviewDelta.files, id: surfaceId, kind: "review", title: "审阅" };
-    setSurfaceClosing(false);
-    setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
-      ? current.map((candidate) => candidate.id === surfaceId ? reviewSurface : candidate)
-      : [...current, reviewSurface]);
-    setActiveSurfaceId(surfaceId);
-  }, [session?.runs]);
-  const openPlanSurface = useCallback((runId: string, callId: string) => {
-    const plan = [...(session?.plans ?? [])].reverse().find((candidate) => candidate.runId === runId && candidate.callId === callId);
-    const surface: Surface = {
-      callId,
-      id: `plan:${runId}:${callId}`,
-      kind: "plan",
-      runId,
-      title: plan?.title ?? "计划"
-    };
-    setSurfaceClosing(false);
-    setSurfaces((current) => current.some((candidate) => candidate.id === surface.id)
-      ? current.map((candidate) => candidate.id === surface.id ? { ...candidate, title: surface.title } : candidate)
-      : [...current, surface]);
-    setActiveSurfaceId(surface.id);
-  }, [session?.plans]);
+  useEffect(() => browserPlatform.storage.set("deepseeker.sidebarWidth", String(Math.round(sidebarWidth))), [sidebarWidth]);
+  useEffect(() => browserPlatform.storage.set("deepseeker.surfaceWidth", String(Math.round(surfaceWidth))), [surfaceWidth]);
   useEffect(() => {
-    const plans = session?.plans ?? [];
-    setSurfaces((current) => {
-      let changed = false;
-      const next = current.map((surface) => {
-        if (surface.kind !== "plan") return surface;
-        const plan = [...plans].reverse().find((candidate) => candidate.runId === surface.runId && candidate.callId === surface.callId);
-        if (!plan || plan.title === surface.title) return surface;
-        changed = true;
-        return { ...surface, title: plan.title };
-      });
-      return changed ? next : current;
-    });
-  }, [session?.plans]);
-  const closeSurfaceTab = useCallback((surfaceId: string) => {
-    setSurfaces((current) => {
-      const closingIndex = current.findIndex((candidate) => candidate.id === surfaceId);
-      if (closingIndex === -1) return current;
-      const next = current.filter((candidate) => candidate.id !== surfaceId);
-      if (next.length === 0) {
-        setSurfaceClosing(true);
-        window.setTimeout(() => {
-          setActiveSurfaceId(null);
-          setSurfaceClosing(false);
-        }, 190);
-        return next;
-      }
-      if (activeSurfaceId === surfaceId) {
-        setActiveSurfaceId(next[Math.min(closingIndex, next.length - 1)]?.id ?? next[0].id);
-      }
-      return next;
-    });
-  }, [activeSurfaceId]);
-  const closeActiveSurface = useCallback(() => {
-    if (activeSurfaceId) closeSurfaceTab(activeSurfaceId);
-  }, [activeSurfaceId, closeSurfaceTab]);
-
-  useEffect(() => window.localStorage.setItem("deepseeker.sidebarWidth", String(Math.round(sidebarWidth))), [sidebarWidth]);
-  useEffect(() => window.localStorage.setItem("deepseeker.surfaceWidth", String(Math.round(surfaceWidth))), [surfaceWidth]);
-  useEffect(() => {
-    const handleResize = () => setViewportWidth(window.innerWidth);
+    const handleResize = () => setViewportWidth(browserPlatform.viewportWidth());
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -282,7 +181,7 @@ export function App() {
     } catch (nextError) {
       reportError(nextError);
     }
-  }, [activateDraftWorkspace, config?.workspaceRoot, desktop, newSession, reportError, selectableProjects, session, workspace?.exists]);
+  }, [activateDraftWorkspace, config?.workspaceRoot, desktop, newSession, projects, reportError, selectableProjects, session, workspace?.exists]);
   const pickProject = useCallback(async () => {
     if (!desktop) return null;
     const selected = await desktop.projects.pick();
@@ -357,7 +256,7 @@ export function App() {
           <div className={`conversation-main inspector-layout-${inspectorLayout}`} ref={conversationMainRef}>
             <header className="thread-header">
               <div className="thread-title"><Folder size={16} /><span>{session?.title ?? "DeepSeeker CodeAgent"}</span><MoreHorizontal size={14} /></div>
-              <ConnectionStatus onRetry={window.deepseeker ? () => void retryRuntime() : undefined} phase={connection} />
+              <ConnectionStatus onRetry={desktop ? () => void retryRuntime() : undefined} phase={connection} />
             </header>
             <div className="window-actions"><IconButton className="icon-button" label="视图设置"><SlidersHorizontal size={14} /></IconButton><IconButton className="icon-button" label="工作区面板"><PanelRight size={14} /></IconButton></div>
             <Inspector
@@ -416,24 +315,26 @@ export function App() {
               />
             </div>
           </div>
-          <SurfacePane
-            activeSurfaceId={activeSurface?.id ?? null}
-            file={activeFileState?.file ?? null}
-            fileError={activeFileState?.error ?? null}
-            fileLoading={activeFileState?.loading ?? false}
-            isClosing={surfaceClosing}
-            onClose={closeActiveSurface}
-            onCloseSurface={closeSurfaceTab}
-            onRevisePlan={revisePlan}
-            onSelectSurface={setActiveSurfaceId}
-            onWidthChange={setSurfaceWidth}
-            onWidthReset={() => setSurfaceWidth(DEFAULT_SURFACE_WIDTH)}
-            panelMaxWidth={() => surfaceMaxWidth}
-            panelWidth={effectiveSurfaceWidth}
-            surfaces={surfaces}
-            plans={session?.plans ?? []}
-            runs={session?.runs ?? []}
-          />
+          <Suspense fallback={<aside className="workspace-surface-panel surface-state is-loading">正在加载工作区面板...</aside>}>
+            <SurfacePane
+              activeSurfaceId={activeSurface?.id ?? null}
+              file={activeFileState?.file ?? null}
+              fileError={activeFileState?.error ?? null}
+              fileLoading={activeFileState?.loading ?? false}
+              isClosing={surfaceClosing}
+              onClose={closeActiveSurface}
+              onCloseSurface={closeSurfaceTab}
+              onRevisePlan={revisePlan}
+              onSelectSurface={setActiveSurfaceId}
+              onWidthChange={setSurfaceWidth}
+              onWidthReset={() => setSurfaceWidth(DEFAULT_SURFACE_WIDTH)}
+              panelMaxWidth={() => surfaceMaxWidth}
+              panelWidth={effectiveSurfaceWidth}
+              surfaces={surfaces}
+              plans={session?.plans ?? []}
+              runs={session?.runs ?? []}
+            />
+          </Suspense>
         </main>
         </div>
         <div

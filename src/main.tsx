@@ -3,20 +3,25 @@ import ReactDOM from "react-dom/client";
 import { App } from "./app/index";
 import { runtimeApi } from "./runtimeApi";
 import { ThemeProvider } from "./theme/ThemeProvider";
-import "./styles.css";
+import { installWorkingGlowMotion } from "./workingGlowMotion";
+import "./styles/index.css";
+import { desktopBridge } from "./platform/desktop";
 
 async function bootstrap(): Promise<void> {
-  if (window.deepseeker) {
-    const connection = await window.deepseeker.runtime.connection();
+  const desktop = desktopBridge();
+  if (desktop) {
+    const connection = await desktop.runtime.connection();
     runtimeApi.configure(connection);
   }
-  ReactDOM.createRoot(document.getElementById("root")!).render(
+  const rootElement = document.getElementById("root")!;
+  ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <ThemeProvider>
         <App />
       </ThemeProvider>
     </React.StrictMode>
   );
+  installWorkingGlowMotion(rootElement);
 }
 
 void bootstrap().catch((error) => {

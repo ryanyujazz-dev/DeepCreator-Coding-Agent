@@ -3,13 +3,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
+export type MigrationReport = {
+  applied: Array<{ name: string; version: number }>;
+};
+
 export class Database {
   readonly raw: DatabaseSync;
+  readonly migrationReport: MigrationReport;
 
   constructor(filePath: string, private readonly migrationDirectory?: string) {
     this.raw = new DatabaseSync(filePath);
     this.raw.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;");
-    this.migrate();
+    this.migrationReport = this.migrate();
   }
 
   close(): void {
@@ -28,7 +33,8 @@ export class Database {
     }
   }
 
-  private migrate(): void {
+  migrate(): MigrationReport {
+    const appliedMigrations: MigrationReport["applied"] = [];
     this.raw.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
@@ -48,8 +54,10 @@ export class Database {
         this.raw.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)")
           .run(version, name, new Date().toISOString());
       });
+      appliedMigrations.push({ name, version });
     }
     this.importLegacyTables();
+    return { applied: appliedMigrations };
   }
 
   private importLegacyTables(): void {

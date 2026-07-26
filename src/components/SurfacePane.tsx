@@ -7,6 +7,7 @@ import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { PlanSurface } from "./PlanSurface";
 import { IconButton, RowAction } from "../shared-ui/ControlPrimitives";
+import { desktopBridge } from "../platform/desktop";
 
 export type Surface =
   | { id: string; kind: "file"; path: string }
@@ -27,6 +28,7 @@ function FileSurface({
   file: RuntimeFilePreview | null;
   loading: boolean;
 }) {
+  const desktop = desktopBridge();
   const parts = file ? fileBreadcrumbs(file) : [];
   if (loading) return <div className="surface-state is-loading working-glow">正在读取文件...</div>;
   if (error) return <div className="surface-state is-error">{error}</div>;
@@ -40,7 +42,7 @@ function FileSurface({
       </nav>
       <div className="surface-toolbar">
         <span>{file.truncated ? "内容已截断" : "只读预览"}</span>
-        {window.deepseeker && <IconButton label="在 Finder 中显示" onClick={() => void window.deepseeker?.files.reveal(`${file.projectRoot}/${file.path}`)}><FolderOpen size={13} /></IconButton>}
+        {desktop && <IconButton label="在 Finder 中显示" onClick={() => void desktop.files.reveal(`${file.projectRoot}/${file.path}`)}><FolderOpen size={13} /></IconButton>}
         <IconButton
           label="复制文件内容"
           onClick={() => void navigator.clipboard?.writeText(file.content)}
@@ -109,11 +111,12 @@ function ReviewSurface({
 }
 
 function BrowserSurface({ surface }: { surface: Extract<Surface, { kind: "browser" }> }) {
+  const desktop = desktopBridge();
   return (
     <div className="surface-state">
       <Globe2 size={15} />
       <span>{surface.url}</span>
-      {window.deepseeker && <IconButton label="在默认浏览器中打开" onClick={() => void window.deepseeker?.files.openExternal(surface.url)}><ExternalLink size={14} /></IconButton>}
+      {desktop && <IconButton label="在默认浏览器中打开" onClick={() => void desktop.files.openExternal(surface.url)}><ExternalLink size={14} /></IconButton>}
     </div>
   );
 }

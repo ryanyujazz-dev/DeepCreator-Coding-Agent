@@ -2,17 +2,31 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
+  Database,
   Files,
+  FolderTree,
   FolderSearch,
+  Gauge,
+  GitCompare,
+  Globe2,
+  Hammer,
   ListTree,
+  ListChecks,
+  MonitorCog,
+  PackagePlus,
   PencilLine,
+  Play,
+  Rocket,
   Search,
+  Settings2,
   TestTube2,
-  TerminalSquare
+  TerminalSquare,
+  Wrench
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import {
   Activity,
+  AggregateHeadlineKind,
   FileChange,
   Changes
 } from "../../shared/contracts/runtime";
@@ -23,9 +37,10 @@ import {
   toolDisplayTarget,
   toolTarget
 } from "../../shared/projections/activityPresentation";
-import { CodeDiffViewer } from "./CodeEditorSurface";
 import { DetailPanel } from "./DetailPanel";
 import { DisclosureRow } from "../shared-ui/ControlPrimitives";
+
+const CodeDiffViewer = lazy(() => import("./CodeEditorSurface").then((module) => ({ default: module.CodeDiffViewer })));
 
 function groupIcon(group: ActivityGroup) {
   if (group.status === "failed") return <CircleAlert size={13} />;
@@ -47,17 +62,19 @@ function memberIcon(activity: Activity) {
 
 function memberLabel(activity: Activity): string {
   const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
-  if (activity.command?.timedOut) return `已超时 ${target}`;
-  if (activity.status === "failed") return `失败 ${target}`;
-  if (activity.status === "cancelled") return `已取消 ${target}`;
-  if (activity.tool?.toolName === "run_command") return `${activity.status === "running" ? "正在运行" : "已运行"} ${target}`;
-  if (activity.tool?.toolName === "read_file") return `${activity.status === "running" ? "正在读取" : "已读取"} ${target}`;
-  if (activity.tool?.toolName === "list_files") return `${activity.status === "running" ? "正在列出" : "已列出"} ${target}`;
-  if (activity.tool?.toolName === "grep") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
-  if (activity.tool?.toolName === "glob") return `${activity.status === "running" ? "正在匹配" : "已匹配"} ${target}`;
-  if (activity.tool?.action === "search") return `${activity.status === "running" ? "正在搜索" : "已搜索"} ${target}`;
-  if (activity.tool?.action === "modify") return `${activity.status === "running" ? "正在修改" : "已修改"} ${target}`;
-  return `${activity.status === "running" ? "正在执行" : "已完成"} ${target}`;
+  const active = activity.status === "running";
+  let action = active ? "正在执行" : "已完成";
+  if (activity.tool?.toolName === "run_command") action = active ? "正在运行" : "已运行";
+  else if (activity.tool?.toolName === "read_file") action = active ? "正在读取" : "已读取";
+  else if (activity.tool?.toolName === "list_files") action = active ? "正在列出" : "已列出";
+  else if (activity.tool?.toolName === "grep") action = active ? "正在搜索" : "已搜索";
+  else if (activity.tool?.toolName === "glob") action = active ? "正在匹配" : "已匹配";
+  else if (activity.tool?.action === "search") action = active ? "正在搜索" : "已搜索";
+  else if (activity.tool?.action === "modify") action = active ? "正在修改" : "已修改";
+  const outcome = activity.command?.timedOut
+    ? "超时"
+    : activity.status === "failed" ? "失败" : activity.status === "cancelled" ? "已取消" : "";
+  return [action, target, outcome].filter(Boolean).join(" ");
 }
 
 function FailureAwareLabel({ label }: { label: string }) {
@@ -73,14 +90,19 @@ function FailureAwareLabel({ label }: { label: string }) {
 }
 
 function fileActionLabel(activity: Activity): string {
-  if (activity.status === "failed") return "失败";
-  if (activity.status === "cancelled") return "已取消";
   if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
   if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "已搜索";
   if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "已匹配";
   if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
   if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
   return activity.status === "running" ? "正在处理" : "已处理";
+}
+
+function memberOutcomeLabel(activity: Activity): string {
+  if (activity.command?.timedOut) return "超时";
+  if (activity.status === "failed") return "失败";
+  if (activity.status === "cancelled") return "已取消";
+  return "";
 }
 
 function directActionLabel(activity: Activity): string {
@@ -179,7 +201,7 @@ function OperationMemberRow({
         <span>{memberIcon(activity)}</span>
         {isFileReference ? (
           <span className="operation-file-reference">
-            <span><FailureAwareLabel label={fileActionLabel(activity)} /></span>
+            <span>{fileActionLabel(activity)}</span>
             <button
               onClick={(event) => {
                 event.stopPropagation();
@@ -190,6 +212,11 @@ function OperationMemberRow({
             >
               {fileDisplayName(target)}
             </button>
+            {memberOutcomeLabel(activity) && (
+              <span className={activity.status === "failed" ? "operation-failure-word" : "operation-member-outcome"}>
+                {memberOutcomeLabel(activity)}
+              </span>
+            )}
           </span>
         ) : (
           <span className={activity.status === "running" ? "working-glow" : ""} title={memberLabel(activity)}>
@@ -253,7 +280,7 @@ export function ModificationFileRow({
         <div>{expanded && (
           <DetailPanel copyValue={file.patch ?? ""} title={fileDisplayName(file.path)}>
             {hasPatch
-              ? <CodeDiffViewer compact patch={file.patch!} path={file.path} />
+              ? <Suspense fallback={<div className="operation-detail-empty">正在加载差异视图...</div>}><CodeDiffViewer compact patch={file.patch!} path={file.path} /></Suspense>
               : <div className="operation-detail-empty">暂无可展示的变更内容。</div>}
           </DetailPanel>
         )}</div>
@@ -363,19 +390,46 @@ export function ActivityGroupRenderer({
   );
 }
 
+const aggregateIconByHeadline: Record<AggregateHeadlineKind, typeof Search> = {
+  browse: FolderTree,
+  locate: Search,
+  read: Files,
+  review: GitCompare,
+  inspect_environment: MonitorCog,
+  modify: PencilLine,
+  modify_and_verify: ListChecks,
+  configure_environment: Settings2,
+  execute: TerminalSquare,
+  verify: TestTube2,
+  verify_runtime: Gauge,
+  build: Hammer,
+  install_dependencies: PackagePlus,
+  prepare_environment: Wrench,
+  start_service: Play,
+  start_database: Database,
+  initialize_database: Database,
+  external: Globe2,
+  deploy: Rocket
+};
+
 function aggregateIcon(aggregate: ToolAggregate) {
-  return aggregate.status === "failed" ? <CircleAlert size={13} /> : <CheckCircle2 size={13} />;
+  const Icon = aggregateIconByHeadline[aggregate.headlineKind];
+  return <Icon size={13} />;
 }
 
-function AggregateSummary({ aggregate }: { aggregate: ToolAggregate }) {
-  const failureLabel = aggregate.failureCount > 0 ? ` · ${aggregate.failureCount} 项失败` : "";
-  const cancelledLabel = aggregate.cancelledCount > 0 ? ` · ${aggregate.cancelledCount} 项已取消` : "";
+function AggregateSummary({ aggregate, active }: { aggregate: ToolAggregate; active: boolean }) {
+  const failureText = aggregate.failureCount > 0 ? `${aggregate.failureCount} 项失败` : "";
+  const cancelledText = aggregate.cancelledCount > 0 ? `${aggregate.cancelledCount} 项已取消` : "";
+  const failureLabel = failureText ? ` · ${failureText}` : "";
+  const cancelledLabel = cancelledText ? ` · ${cancelledText}` : "";
   const baseLabel = aggregate.summaryLabel
-    .replace(failureLabel, "")
-    .replace(cancelledLabel, "");
+    .split(" · ")
+    .filter((part) => part !== failureText && part !== cancelledText)
+    .join(" · ");
   return (
     <>
-      <span>{baseLabel}</span>
+      <span className={`activity-aggregate-headline ${active ? "working-glow" : ""}`}>{aggregate.headlineLabel}</span>
+      {baseLabel && <><span className="activity-aggregate-divider"> | </span><span>{baseLabel}</span></>}
       {failureLabel && <span className="operation-group-failure">{failureLabel}</span>}
       {cancelledLabel && <span className="operation-group-cancelled">{cancelledLabel}</span>}
     </>
@@ -384,11 +438,13 @@ function AggregateSummary({ aggregate }: { aggregate: ToolAggregate }) {
 
 export function ActivityAggregateRenderer({
   aggregate,
+  active = false,
   onOpenFile,
   activities,
   changes
 }: {
   aggregate: ToolAggregate;
+  active?: boolean;
   onOpenFile: (path: string) => void;
   activities: Activity[];
   changes: Changes;
@@ -407,6 +463,7 @@ export function ActivityAggregateRenderer({
     setHasOpened(true);
     setExpanded((value) => !value);
   };
+  const headlineActive = active || aggregate.status === "running";
 
   return (
     <article className={`operation-group activity-aggregate is-${aggregate.status} ${expanded ? "is-expanded" : ""}`}>
@@ -417,7 +474,7 @@ export function ActivityAggregateRenderer({
         onToggle={toggleExpanded}
       >
         <span className="operation-group-icon">{aggregateIcon(aggregate)}</span>
-        <span className="operation-group-action"><AggregateSummary aggregate={aggregate} /></span>
+        <span className="operation-group-action"><AggregateSummary active={headlineActive} aggregate={aggregate} /></span>
         <ChevronRight className="operation-summary-chevron" size={13} />
       </DisclosureRow>
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>

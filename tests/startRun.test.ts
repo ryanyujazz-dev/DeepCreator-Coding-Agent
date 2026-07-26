@@ -7,6 +7,7 @@ import { defaultContextConfig } from "../server/app/contextBuilder";
 import { LaunchRunInput, RunLaunchPort } from "../server/app/runLauncher";
 import { StartRun, StartRunError } from "../server/app/startRun";
 import { RuntimeStore } from "../server/infra/runtimeStore";
+import { testSystem } from "./support/system";
 
 test("starts a Run through an application use case without transport concerns", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-start-run-"));
@@ -18,7 +19,7 @@ test("starts a Run through an application use case without transport concerns", 
     defaultModel: "mock-agent",
     launcher,
     store,
-    system: { createId: () => "run_use_case", now: () => "2026-07-22T00:00:00.000Z" },
+    system: { ...testSystem, createId: () => "run_use_case", now: () => "2026-07-22T00:00:00.000Z" },
     workspace: { canonicalize: path.resolve, ensureScratch: async () => directory, resolveProjectRoot: async () => directory },
     workspaceRoot: directory
   });
@@ -48,7 +49,7 @@ test("enforces workspace identity before launching an existing Session", async (
     defaultModel: "mock-agent",
     launcher: { launch: () => undefined },
     store,
-    system: { createId: () => "run_locked", now: () => "2026-07-22T00:00:00.000Z" },
+    system: { ...testSystem, createId: () => "run_locked", now: () => "2026-07-22T00:00:00.000Z" },
     workspace: { canonicalize: path.resolve, ensureScratch: async () => directory, resolveProjectRoot: async () => directory },
     workspaceRoot: directory
   });

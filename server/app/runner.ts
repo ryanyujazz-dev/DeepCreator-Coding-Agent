@@ -1,18 +1,13 @@
-import { randomUUID } from "node:crypto";
 import {
-  contextUpdateRecord,
   estimateProviderRequestTokens,
-  findNewPathInstructions,
-  prepareSessionContext,
-  BuildInput,
   BuiltContext,
   ContextConfig,
   defaultContextConfig
 } from "./contextBuilder";
-import { ContextEntry, ContextInput } from "../../shared/contracts/context";
+import { ContextInput } from "../../shared/contracts/context";
 import { RunRegistry } from "./runRegistry";
 import { prompts } from "./prompts";
-import { Provider, ModelDelta, ModelMessage, ToolCall, ToolSpec } from "../../shared/contracts/provider";
+import { Provider, ToolCall } from "../../shared/contracts/provider";
 import { EventPayloadMap } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { CapabilitySource, emptyCapabilitySource } from "../../shared/contracts/capability";
@@ -29,9 +24,14 @@ import { finishRun } from "./runLifecycle";
 import { classifyInteraction } from "./interaction";
 import { ToolHost } from "./toolHost";
 import { ToolPipeline } from "./toolPipeline";
-import { PlanArgumentStream } from "./planStream";
-import { MutationArgumentStream } from "./mutationStream";
-import { durableToolState } from "./toolFacts";
+import { dominantHeadlineKind } from "../../shared/domain/toolActivitySemantics";
+import { finishActivity as finishActivityOnce, updateActivity } from "./activityLifecycle";
+import { ThinkingSummaryLoop } from "./thinkingSummary";
+import { evaluateCompletion } from "./completionGate";
+import { executeToolStep } from "./toolStepExecutor";
+import { ModelStepStream } from "./modelStepStream";
+import { streamProviderWithRecovery } from "./providerRecovery";
+import { persistAssistantRecord, persistPreparedContext, prepareRuntimeContext } from "./runtimeContext";
 
 export type RunnerPorts = ContextPort & EventPort & EvidencePort & MemoryPort & MetricPort & SessionPort;
 
@@ -51,9 +51,12 @@ type RuntimeInput = {
   rules: RuleSource;
   workspaceBaseline: Baseline;
   continuation?: boolean;
+  summaryModel?: string;
+  system: RunRegistry["system"];
+  thinkingSummary?: ThinkingSummaryLoop;
 };
 
-export type RunInput = Omit<RuntimeInput, "workspaceBaseline" | "capabilities" | "context" | "rules"> & Partial<Pick<RuntimeInput, "capabilities" | "context" | "rules">>;
+export type RunInput = Omit<RuntimeInput, "workspaceBaseline" | "capabilities" | "context" | "rules" | "system" | "thinkingSummary"> & Partial<Pick<RuntimeInput, "capabilities" | "context" | "rules">>;
 
 export class ModelProtocolError extends Error {
   constructor(message: string) {
@@ -70,7 +73,7 @@ function tryParseArguments(text: string): Record<string, unknown> | undefined {
   }
 }
 
-function openActivity(input: RuntimeInput, data: EventPayloadMap["activity.started"], activityId = `activity_${randomUUID()}`): string {
+function openActivity(input: RuntimeInput, data: EventPayloadMap["activity.started"], activityId = input.registry.system.createId("activity")): string {
   input.store.append({ runId: input.runId, data, sessionId: input.sessionId, type: "activity.started", activityId });
   return activityId;
 }
@@ -79,162 +82,18 @@ function finishActivity(
   input: RuntimeInput,
   activityId: string,
   data: Omit<EventPayloadMap["activity.finished"], "finishedAt">
-): void {
-  input.store.append({
+): boolean {
+  return finishActivityOnce({
+    activityId,
     runId: input.runId,
-    data: { liveFiles: [], ...data, finishedAt: new Date().toISOString() },
     sessionId: input.sessionId,
-    type: "activity.finished",
-    activityId
-  });
+    store: input.store,
+    system: input.system
+  }, data);
 }
 
 function suspendActivity(input: RuntimeInput, activityId: string): void {
-  input.store.append({
-    runId: input.runId,
-    data: { status: "suspended" as const },
-    sessionId: input.sessionId,
-    type: "activity.updated",
-    activityId
-  });
-}
-
-function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", abort);
-      resolve();
-    }, milliseconds);
-    const abort = () => {
-      clearTimeout(timer);
-      reject(new DOMException("运行已取消。", "AbortError"));
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-  });
-}
-
-async function streamWithRecovery(
-  input: RuntimeInput,
-  request: Parameters<Provider["stream"]>[0]
-) {
-  const maxAttempts = 3;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    let receivedFragment = false;
-    try {
-      return await input.provider.stream({
-        ...request,
-        onFragment: (fragment) => {
-          receivedFragment = true;
-          request.onFragment?.(fragment);
-        }
-      });
-    } catch (error) {
-      if (input.signal?.aborted) throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      const transient = /\b429\b|\b5\d\d\b|fetch failed|network|socket|timeout/i.test(message);
-      if (!transient || receivedFragment || attempt === maxAttempts) throw error;
-      const activityId = openActivity(input, {
-        audience: "user",
-        body: `Provider 暂时不可用，正在进行第 ${attempt + 1} 次连接。`,
-        kind: "error",
-        startedAt: new Date().toISOString()
-      });
-      finishActivity(input, activityId, { status: "completed" });
-      await waitForRetry(400 * 2 ** (attempt - 1), input.signal);
-    }
-  }
-  throw new Error("Provider 重试已耗尽。");
-}
-
-function persistAssistantRecord(input: RuntimeInput, message: ModelMessage): ContextEntry | undefined {
-  if (message.role !== "assistant" || (!message.text && !message.toolCalls?.length)) return undefined;
-  return input.store.appendContextEntry({
-    runId: input.runId,
-    kind: "agent_text",
-    reasoningContent: message.toolCalls?.length ? message.continuationThinking : undefined,
-    sessionId: input.sessionId,
-    source: "model",
-    text: message.text ?? undefined,
-    toolCalls: message.toolCalls
-  });
-}
-
-function persistPreparedContext(input: RuntimeInput, previousTokens: number, prepared: BuiltContext): void {
-  if (prepared.sessionEnvelopeRecord) input.store.appendContextEntry(prepared.sessionEnvelopeRecord);
-  if (prepared.recoveryRecord && !input.store.readContextEntries(input.sessionId).some((record) =>
-    record.kind === "recovery_capsule" && record.runId === input.runId
-  )) input.store.appendContextEntry(prepared.recoveryRecord);
-  if (prepared.compacted) {
-    const activityId = openActivity(input, { audience: "user", kind: "compaction", startedAt: new Date().toISOString() });
-    input.store.appendContextEntry({
-      checkpoint: prepared.checkpoint,
-      runId: input.runId,
-      kind: "checkpoint",
-      metadata: { compactedRecordCount: prepared.compactedRecordCount },
-      sessionId: input.sessionId,
-      source: "runtime",
-      text: prepared.checkpoint ? JSON.stringify(prepared.checkpoint) : undefined
-    });
-    input.store.append({
-      data: { compactSummary: prepared.checkpoint ? JSON.stringify(prepared.checkpoint) : undefined, contextTokens: prepared.contextTokens },
-      sessionId: input.sessionId,
-      type: "session.updated"
-    });
-    finishActivity(input, activityId, { body: `已压缩 ${prepared.compactedRecordCount} 条较早上下文记录。`, status: "completed" });
-  } else {
-    const session = input.store.getSession(input.sessionId);
-    input.store.append({ data: { compactSummary: session?.compactSummary, contextTokens: prepared.contextTokens }, sessionId: input.sessionId, type: "session.updated" });
-  }
-  input.store.recordMetric(prepared.telemetry);
-  input.store.writeDebugSnapshot(input.sessionId, input.runId, prepared.debugSnapshot);
-}
-
-function semanticTranscript(records: ContextEntry[], maxChars: number): string {
-  const text = records
-    .filter((record) => record.kind === "human_text" || record.kind === "agent_text")
-    .map((record) => `${record.kind === "human_text" ? "USER" : "ASSISTANT"}: ${record.text ?? ""}`)
-    .join("\n\n");
-  if (text.length <= maxChars) return text;
-  const head = Math.floor(maxChars * 0.65);
-  const tail = maxChars - head;
-  return `${text.slice(0, head)}\n\n[Runtime 已省略较早的对话]\n\n${text.slice(-tail)}`;
-}
-
-async function prepareRuntimeContext(
-  input: RuntimeInput,
-  session: NonNullable<ReturnType<SessionPort["getSession"]>>,
-  tools: ToolSpec[],
-  latestUserInRecords = false
-): Promise<BuiltContext> {
-  const contextInput: BuildInput = {
-    capabilityIndex: input.capabilities.digest(input.projectRoot),
-    context: input.context,
-    runId: input.runId,
-    latestUserInRecords,
-    memoryIndex: input.store.memoryDigest(input.projectRoot),
-    model: input.model,
-    projectRoot: input.projectRoot,
-    prompt: input.prompt,
-    providerContextWindowTokens: input.provider.capabilities.contextWindowTokens,
-    records: input.store.readContextEntries(input.sessionId),
-    rules: input.rules,
-    session,
-    tokenCalibrationFactor: input.store.readCalibration(input.model),
-    tools
-  };
-  const prepared = prepareSessionContext(contextInput);
-  if (!prepared.compacted || prepared.droppedRecords.length === 0 || !input.provider.summarizeContext) return prepared;
-  try {
-    const semanticSummary = await input.provider.summarizeContext({
-      model: input.model,
-      signal: input.signal,
-      transcript: semanticTranscript(prepared.droppedRecords, input.context.maxSummaryChars)
-    });
-    return prepareSessionContext({ ...contextInput, semanticSummary });
-  } catch {
-    // Deterministic checkpoint facts remain sufficient when semantic compression is unavailable.
-    return prepared;
-  }
+  updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, { status: "suspended" });
 }
 
 async function executeRun(input: RuntimeInput): Promise<void> {
@@ -260,14 +119,25 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       signal: input.signal
     });
   };
-  const pipeline = new ToolPipeline(input.tools, input.rules, spawnAgentHandler);
+  const pipeline = new ToolPipeline(input.tools, input.rules, input.registry.system, spawnAgentHandler);
   const session = input.store.getSession(input.sessionId);
   if (!session) throw new Error("Session 不存在。");
   const mode = session.mode === "plan" ? "agent" : classifyInteraction(input.prompt, session);
   const tools = mode === "direct" ? [] : input.tools.specs;
   let prepared = await prepareRuntimeContext(input, session, tools, Boolean(input.continuation));
 
-  persistPreparedContext(input, session.contextTokens, prepared);
+  const persistContext = (context: BuiltContext) => persistPreparedContext(input, context, {
+    onCompactionFinished: (handle, compacted) => finishActivity(input, String(handle), {
+      body: `已压缩 ${compacted.compactedRecordCount} 条较早上下文记录。`,
+      status: "completed"
+    }),
+    onCompactionStarted: () => openActivity(input, {
+      audience: "user",
+      kind: "compaction",
+      startedAt: input.registry.system.now()
+    })
+  });
+  persistContext(prepared);
   if (!input.continuation) {
     input.store.appendContextEntry({
       runId: input.runId,
@@ -286,8 +156,13 @@ async function executeRun(input: RuntimeInput): Promise<void> {
   ]);
   let answer = "";
   let protocolCorrectionCount = 0;
+  let taskMaintenanceCorrectionCount = 0;
   let consecutiveToolProtocolErrors = 0;
   let providerRequestCount = 0;
+  let initialThinkingCaptured = input.store.getRun(input.runId)?.activities
+    .some((activity) => activity.kind === "thinking") ?? false;
+  let visibleStageStarted = input.store.getRun(input.runId)?.activities
+    .some((activity) => activity.kind === "message" || Boolean(activity.tool)) ?? false;
 
   while (true) {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
@@ -297,143 +172,89 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       if (refreshed.compacted) {
         prepared = refreshed;
         messages = [...refreshed.messages];
-        persistPreparedContext(input, refreshedSession.contextTokens, refreshed);
+        persistContext(refreshed);
         for (const instruction of refreshed.instructions) knownInstructionKeys.add(instruction.instructionKey);
       }
     }
     providerRequestCount += 1;
     let thinkingActivity: string | undefined;
     let answerActivity: string | undefined;
-    const modelStepId = `model_step_${randomUUID()}`;
-    const toolActivities = new Map<string, string>();
-    const toolArgumentBuffers = new Map<string, string>();
-    const planArgumentStreams = new Map<string, PlanArgumentStream>();
-    const mutationArgumentStreams = new Map<string, MutationArgumentStream>();
-    const pendingBuffers = new Map<string, string>();
-
-    const appendBuffered = (activityId: string, text: string) => {
-      const next = (pendingBuffers.get(activityId) ?? "") + text;
-      if (next.length < 48 && !next.includes("\n")) {
-        pendingBuffers.set(activityId, next);
-        return;
-      }
-      pendingBuffers.delete(activityId);
-      input.store.append({ runId: input.runId, data: { bodyDelta: next }, sessionId: input.sessionId, type: "activity.updated", activityId });
+    const modelStepId = input.registry.system.createId("model_step");
+    let thinkingSummaryPhaseEnded = false;
+    const endThinkingSummaryPhase = () => {
+      if (thinkingSummaryPhaseEnded) return;
+      thinkingSummaryPhaseEnded = true;
+      input.thinkingSummary?.endModelStep();
     };
-    const onFragment = (fragment: ModelDelta) => {
-      if (fragment.kind === "thinking") {
-        thinkingActivity ??= openActivity(input, {
-          audience: "debug",
-          kind: "thinking",
-          modelStepId,
-          startedAt: new Date().toISOString()
-        });
-      } else if (fragment.kind === "answer") {
-        if (!answerActivity) {
+    const stepStream = new ModelStepStream({
+      appendAnswer: (text, firstFragment) => {
+        if (firstFragment) {
           answerActivity = openActivity(input, {
             audience: "user",
-            body: fragment.text,
+            body: text,
             kind: "message",
-            startedAt: new Date().toISOString()
+            startedAt: input.registry.system.now()
           });
-        } else {
-          appendBuffered(answerActivity, fragment.text);
-        }
-      } else if (fragment.kind === "tool_call" && fragment.name) {
-        if (fragment.name === "wait_command" || fragment.name === "stop_command") return;
-        const argumentsText = (toolArgumentBuffers.get(fragment.callId) ?? "") + (fragment.argumentsText ?? "");
-        toolArgumentBuffers.set(fragment.callId, argumentsText);
-        const streamedArgs = tryParseArguments(argumentsText);
-        const streamedTool = input.tools.has(fragment.name) ? input.tools.prepare({
-            args: streamedArgs ?? {},
-            argumentsPreview: streamedArgs ? input.tools.summarizeArgs(fragment.name, streamedArgs) : "",
-            callId: fragment.callId,
-            modelStepId,
-            name: fragment.name,
-            projectRoot: input.projectRoot
-          }) : undefined;
-        const activityId = toolActivities.get(fragment.callId) ?? openActivity(input, streamedTool ? {
-          audience: "user",
-          kind: input.tools.kind(streamedTool),
-          modelStepId,
-          startedAt: new Date().toISOString(),
-          tool: durableToolState(streamedTool)
-        } : {
-          audience: "user",
-          kind: "tool",
-          modelStepId,
-          startedAt: new Date().toISOString()
-        });
-        toolActivities.set(fragment.callId, activityId);
-        if (fragment.name === "write_file" || fragment.name === "edit_file") {
-          const mutationStream = mutationArgumentStreams.get(fragment.callId) ?? new MutationArgumentStream(fragment.name);
-          mutationArgumentStreams.set(fragment.callId, mutationStream);
-          const liveFile = mutationStream.push(fragment.argumentsText ?? "");
-          if (liveFile) {
-            input.store.append({
-              activityId,
-              data: { liveFiles: [liveFile] },
-              runId: input.runId,
-              sessionId: input.sessionId,
-              type: "activity.updated"
-            });
-          }
-        }
-        if (fragment.name === "submit_plan") {
-          const planStream = planArgumentStreams.get(fragment.callId) ?? new PlanArgumentStream();
-          planArgumentStreams.set(fragment.callId, planStream);
-          const update = planStream.push(fragment.argumentsText ?? "");
-          if (update.markdownDelta) appendBuffered(activityId, update.markdownDelta);
-        }
-        if (streamedArgs && streamedTool) {
-          input.store.append({
+        } else if (answerActivity) {
+          updateActivity({
+            activityId: answerActivity,
             runId: input.runId,
-            data: {
-              kind: input.tools.kind(streamedTool),
-              tool: durableToolState(streamedTool)
-            },
             sessionId: input.sessionId,
-            type: "activity.updated",
-            activityId
+            store: input.store
+          }, { bodyDelta: text });
+        }
+      },
+      appendReasoning: (textDelta) => input.store.append({
+        data: { modelStepId, textDelta },
+        runId: input.runId,
+        sessionId: input.sessionId,
+        type: "reasoning.updated"
+      }),
+      appendThinking: (text) => {
+        input.thinkingSummary?.append(text);
+        if (!initialThinkingCaptured && !visibleStageStarted) {
+          initialThinkingCaptured = true;
+          thinkingActivity ??= openActivity(input, {
+            audience: "debug",
+            kind: "thinking",
+            modelStepId,
+            startedAt: input.registry.system.now()
           });
         }
-      }
-    };
+      },
+      endThinking: endThinkingSummaryPhase,
+      startVisibleStage: () => { visibleStageStarted = true; }
+    });
 
     input.store.writeDebugSnapshot(input.sessionId, input.runId, {
       ...prepared.debugSnapshot,
       currentRequestEstimatedTokens: estimateProviderRequestTokens(messages, tools),
       finalMessageRoles: messages.map((message) => message.role),
       providerRequestCount,
-      updatedAt: new Date().toISOString()
+      updatedAt: input.registry.system.now()
     });
-    const response = await streamWithRecovery(input, {
-      maxOutputTokens: prepared.requestedMaxOutputTokens,
-      messages,
-      model: input.model,
-      onFragment,
-      signal: input.signal,
-      tools
+    const response = await streamProviderWithRecovery({
+      onRetry: ({ attempt, maxAttempts }) => input.store.appendContextEntry({
+        kind: "runtime_fact",
+        metadata: { attempt, transient: true },
+        runId: input.runId,
+        sessionId: input.sessionId,
+        source: "runtime",
+        text: `Provider 连接重试 ${attempt}/${maxAttempts}。`
+      }),
+      provider: input.provider,
+      request: {
+        maxOutputTokens: prepared.requestedMaxOutputTokens,
+        messages,
+        model: input.model,
+        onFragment: (fragment) => stepStream.push(fragment),
+        signal: input.signal,
+        tools
+      },
+      signal: input.signal
+    }).finally(() => {
+      stepStream.finish();
     });
-    for (const [callId, mutationStream] of mutationArgumentStreams) {
-      const liveFile = mutationStream.flush();
-      const activityId = toolActivities.get(callId);
-      if (activityId && liveFile) {
-        input.store.append({
-          activityId,
-          data: { liveFiles: [liveFile] },
-          runId: input.runId,
-          sessionId: input.sessionId,
-          type: "activity.updated"
-        });
-      }
-    }
-    for (const [activityId, text] of pendingBuffers) {
-      const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
-      if (activity?.kind !== "thinking") {
-        input.store.append({ runId: input.runId, data: { bodyDelta: text }, sessionId: input.sessionId, type: "activity.updated", activityId });
-      }
-    }
     if (response.usage) {
       input.store.append({
         runId: input.runId,
@@ -452,12 +273,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     if (response.protocolIssue) {
       if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "completed" });
       if (answerActivity) finishActivity(input, answerActivity, { audience: "internal", error: response.protocolIssue.message, status: "failed" });
-      for (const activityId of toolActivities.values()) {
-        const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
-        if (activity?.status === "running") finishActivity(input, activityId, activity.kind === "plan"
-          ? { error: response.protocolIssue.message, status: "failed" }
-          : { body: response.protocolIssue.message, error: response.protocolIssue.message, status: "failed" });
-      }
       messages.push(response.continuationMessage);
       if (response.protocolIssue.retryable && protocolCorrectionCount === 0) {
         protocolCorrectionCount += 1;
@@ -470,15 +285,27 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       throw new ModelProtocolError(response.protocolIssue.message);
     }
 
+    const runningCommandsAtFinal = response.toolCalls.length === 0
+      ? input.tools.runningCommands(input.runId)
+      : [];
+    const currentRun = response.toolCalls.length === 0
+      ? input.store.getRun(input.runId)
+      : undefined;
+    const completionBlock = response.toolCalls.length === 0
+      ? evaluateCompletion({ run: currentRun, runningCommandCount: runningCommandsAtFinal.length })
+      : undefined;
+    const hasTaskMaintenanceCall = response.toolCalls.some((call) => call.name === "update_tasks");
     if (thinkingActivity) {
       if (response.toolCalls.length > 0) suspendActivity(input, thinkingActivity);
       else finishActivity(input, thinkingActivity, { status: "completed" });
     }
-    if (answerActivity) finishActivity(input, answerActivity, { status: "completed" });
+    if (answerActivity) finishActivity(input, answerActivity, {
+      audience: completionBlock || hasTaskMaintenanceCall ? "internal" : "user",
+      status: "completed"
+    });
     if (response.answer.trim()) answer = response.answer.trim();
     messages.push(response.continuationMessage);
     persistAssistantRecord(input, response.continuationMessage);
-
     if (response.finishCause === "length" || response.finishCause === "content_filter" || response.finishCause === "insufficient_system_resource") {
       throw new Error(response.finishCause === "length"
         ? "模型输出达到长度限制，未形成完整回答。"
@@ -487,23 +314,34 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           : "DeepSeek 推理资源不足，本轮未完成。");
     }
     if (response.toolCalls.length === 0) {
-      // ADR-008: 信任模型——不调工具即视为完成。
-      // 对标 ZCode/Codex/Claude Code:三家都不在代码层检测"延迟工作"或强制重试。
-      // 纪律由提示词层保证(doing_tasks/final_response slot),不由代码层强制。
-      // 唯一例外:如果有托管命令仍在运行,runAgent 的 finally 块会统一停止它们。
+      if (completionBlock?.kind === "task_maintenance") {
+        taskMaintenanceCorrectionCount += 1;
+        if (taskMaintenanceCorrectionCount > 2) {
+          throw new ModelProtocolError(`模型未能在最终回答前维护任务计划：${completionBlock.issue}。`);
+        }
+      }
+      if (completionBlock) {
+        answer = "";
+        messages.push({ role: "user", text: completionBlock.retryMessage });
+        continue;
+      }
+      // ADR-008: 不根据正文措辞推断完成，只接受已通过 Runtime 事实门的最终响应。
+      // 托管命令与任务维护已在 evaluateCompletion 中检查；finally 仅负责异常路径兜底清理。
       input.store.append({
         runId: input.runId,
         data: await input.tools.changes(input.projectRoot, input.workspaceBaseline),
         sessionId: input.sessionId,
         type: "changes.changed"
       });
+      await input.thinkingSummary?.finish();
       finishRun({
         runId: input.runId,
         answer: answer || "已完成。",
         status: "completed",
         projectRoot: input.projectRoot,
         sessionId: input.sessionId,
-        store: input.store
+        store: input.store,
+        system: input.system
       });
       return;
     }
@@ -511,6 +349,23 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     const deferredContextRecords: ContextInput[] = [];
     const deferredEvidenceRecords: ContextInput[] = [];
     const stepRejection = pipeline.stepRejection(response.toolCalls, modelStepId, input.projectRoot);
+    const stepHeadline = dominantHeadlineKind(response.toolCalls.flatMap((call) => {
+      try {
+        if (!input.tools.has(call.name)) return [];
+        const args = tryParseArguments(call.argumentsText);
+        if (!args) return [];
+        return [input.tools.prepare({
+          args,
+          argumentsPreview: input.tools.summarizeArgs(call.name, args),
+          callId: call.callId,
+          modelStepId,
+          name: call.name,
+          projectRoot: input.projectRoot
+        })];
+      } catch {
+        return [];
+      }
+    }));
     let suspended = false;
     const runToolCall = (call: ToolCall) => pipeline.run({
         baseline: input.workspaceBaseline,
@@ -520,27 +375,13 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         sessionId: input.sessionId,
         signal: input.signal,
         store: input.store
-      }, call, modelStepId, knownInstructionKeys, toolActivities.get(call.callId), stepRejection);
-    const outcomes = new Map<string, Awaited<ReturnType<typeof runToolCall>>>();
-    let parallelBatch: ToolCall[] = [];
-    const flushParallel = async () => {
-      if (parallelBatch.length === 0) return;
-      const batch = parallelBatch;
-      parallelBatch = [];
-      const batchOutcomes = await Promise.all(batch.map(runToolCall));
-      batch.forEach((call, index) => outcomes.set(call.callId, batchOutcomes[index]));
-    };
-    for (const call of response.toolCalls) {
-      if (input.tools.parallel(call.name)) {
-        parallelBatch.push(call);
-        continue;
-      }
-      await flushParallel();
-      outcomes.set(call.callId, await runToolCall(call));
-    }
-    await flushParallel();
-    for (const call of [...response.toolCalls].sort((left, right) => left.index - right.index)) {
-      const outcome = outcomes.get(call.callId)!;
+      }, call, modelStepId, knownInstructionKeys, undefined, stepRejection, stepHeadline);
+    const toolStep = await executeToolStep({
+      calls: response.toolCalls,
+      execute: runToolCall,
+      parallel: (toolName) => input.tools.parallel(toolName)
+    });
+    for (const { outcome } of toolStep) {
       if (outcome.message) messages.push(outcome.message);
       deferredEvidenceRecords.push(...(outcome.evidenceRecords ?? []));
       deferredContextRecords.push(...outcome.contextRecords);
@@ -552,7 +393,10 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       const persisted = input.store.appendContextEntry(record);
       messages.push({ role: "user", text: persisted.text ?? "" });
     }
-    if (suspended) return;
+    if (suspended) {
+      await input.thinkingSummary?.finish();
+      return;
+    }
     consecutiveToolProtocolErrors = protocolErrors === response.toolCalls.length
       ? consecutiveToolProtocolErrors + 1
       : 0;
@@ -563,17 +407,40 @@ async function executeRun(input: RuntimeInput): Promise<void> {
 }
 
 export async function runAgent(input: RunInput): Promise<void> {
+  const thinkingSummary = input.summaryModel
+    ? new ThinkingSummaryLoop({
+        initialThinking: input.store.getRun(input.runId)?.reasoningSteps?.at(-1)?.text,
+        initialTitle: input.store.getRun(input.runId)?.reasoningTitle,
+        model: input.summaryModel,
+        onTitle: (title) => {
+          const run = input.store.getRun(input.runId);
+          if (!run || ["completed", "failed", "cancelled"].includes(run.status)) return;
+          input.store.append({
+            data: { title },
+            runId: input.runId,
+            sessionId: input.sessionId,
+            type: "reasoning.title.updated"
+          });
+        },
+        provider: input.provider,
+        signal: input.signal,
+        system: input.registry.system
+      })
+    : undefined;
   const normalized: RuntimeInput = {
     ...input,
     capabilities: input.capabilities ?? emptyCapabilitySource,
     context: input.context ?? defaultContextConfig,
     rules: input.rules ?? emptyRuleSource,
+    system: input.registry.system,
+    thinkingSummary,
     workspaceBaseline: await input.tools.capture(input.projectRoot)
   };
   const workspaceBaseline = normalized.workspaceBaseline;
   try {
     await executeRun(normalized);
   } catch (error) {
+    thinkingSummary?.cancel();
     const message = error instanceof Error ? error.message : String(error);
     const cancelled = input.signal?.aborted ?? false;
     const run = input.store.getRun(input.runId);
@@ -592,10 +459,12 @@ export async function runAgent(input: RunInput): Promise<void> {
         status: cancelled ? "cancelled" : "failed",
         projectRoot: input.projectRoot,
         sessionId: input.sessionId,
-        store: input.store
+        store: input.store,
+        system: normalized.system
       });
     }
   } finally {
+    thinkingSummary?.cancel();
     await input.tools.stopCommands(input.runId);
     await input.tools.close(workspaceBaseline);
   }

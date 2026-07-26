@@ -3,7 +3,7 @@ import { finishRun } from "./runLifecycle";
 import { RunRegistry } from "./runRegistry";
 import { RunInput, RunnerPorts } from "./runner";
 
-export type ProviderSelection = { model: string; provider: Provider };
+export type ProviderSelection = { model: string; provider: Provider; summaryModel?: string };
 
 export type LaunchRunInput = {
   continuation?: boolean;
@@ -39,6 +39,7 @@ export class RunLauncher implements RunLaunchPort {
       projectRoot: input.projectRoot,
       prompt: input.prompt,
       provider: selected.provider,
+      summaryModel: selected.summaryModel,
       registry: this.registry,
       runId: input.runId,
       sessionId: input.sessionId,
@@ -56,7 +57,8 @@ export class RunLauncher implements RunLaunchPort {
         runId: input.runId,
         sessionId: input.sessionId,
         status: cancelled ? "cancelled" : "failed",
-        store: this.store
+        store: this.store,
+        system: this.registry.system
       });
     }).finally(() => this.registry.finishRun(input.runId));
   }

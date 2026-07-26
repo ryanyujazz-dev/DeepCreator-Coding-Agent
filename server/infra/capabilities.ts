@@ -49,7 +49,7 @@ function parseSkill(source: string): LoadedCapability | undefined {
   }
   const directoryName = path.basename(path.dirname(source));
   const name = String(metadata.name ?? directoryName);
-  const description = String(metadata.description ?? body.split("\n").find((line) => line.trim() && !line.startsWith("#")) ?? "Project skill").slice(0, 240);
+  const description = String(metadata.description ?? body.split("\n").find((line) => line.trim() && !line.startsWith("#")) ?? "项目 Skill").slice(0, 240);
   const revisionHash = createHash("sha256").update(raw).digest("hex");
   return { body, capabilityId: `skill:${name}:${revisionHash.slice(0, 12)}`, description, kind: "skill", name, revisionHash, source };
 }
@@ -80,7 +80,7 @@ export function listDeferredCapabilities(projectRoot: string): LoadedCapability[
 
 export function capabilityDigest(projectRoot: string, limit = 30): string {
   const capabilities = listDeferredCapabilities(projectRoot).slice(0, limit);
-  if (capabilities.length === 0) return "No deferred skills or MCP capabilities are currently indexed.";
+  if (capabilities.length === 0) return "当前没有已建立索引的延迟 Skill 或 MCP 能力。";
   return capabilities.map(({ capabilityId, description, kind, name }) => `${capabilityId}\t${kind}\t${name}\t${description}`).join("\n");
 }
 
@@ -107,7 +107,7 @@ export async function invokeCapability(
     const result = await provider.invoke({ arguments: argumentsValue, capabilityId, projectRoot, signal });
     return {
       capability,
-      contextUpdate: systemReminder("guidance", `kind="capability_loaded" capability_id="${escapeXmlAttribute(capability.capabilityId)}" revision="${capability.revisionHash}"\nCapability ${capability.name} has been invoked on demand. The result is in the adjacent paired tool result; this record is only for capability activation auditing.`),
+      contextUpdate: systemReminder("guidance", `kind="capability_loaded" capability_id="${escapeXmlAttribute(capability.capabilityId)}" revision="${capability.revisionHash}"\n能力 ${capability.name} 已按需调用，结果位于相邻的配对工具结果中。本记录仅用于审计能力启用过程。`),
       output: result.output
     };
   }

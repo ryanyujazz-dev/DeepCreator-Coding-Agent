@@ -11,12 +11,13 @@ import {
 } from "./contextBuilder";
 import { ContextPort, MemoryPort, MetricPort, SessionPort } from "./runtimeRepo";
 import { SystemPort } from "./systemPort";
+import { AppError } from "./appError";
 
 type ContextQueryPorts = ContextPort & MemoryPort & MetricPort & SessionPort;
 
-export class ContextQueryError extends Error {
+export class ContextQueryError extends AppError {
   constructor(message: string) {
-    super(message);
+    super(message, "not_found");
     this.name = "ContextQueryError";
   }
 }
@@ -106,6 +107,7 @@ export class ContextQueries {
       rules: this.deps.rules,
       runId,
       session,
+      system: this.deps.system,
       tokenCalibrationFactor: this.deps.store.readCalibration(session.model),
       tools: this.deps.tools
     }).telemetry;

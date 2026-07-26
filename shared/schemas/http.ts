@@ -85,3 +85,116 @@ export const approvalInputSchema = {
     required: ["decision"]
   }
 } as const;
+
+export const sessionListQuerySchema = {
+  querystring: {
+    type: "object",
+    additionalProperties: false,
+    properties: { query: { type: "string" } }
+  }
+} as const;
+
+export const sidebarInputSchema = {
+  ...sessionParamsSchema,
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      archived: { type: "boolean" },
+      pinned: { type: "boolean" }
+    }
+  }
+} as const;
+
+export const projectArchiveInputSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: { projectRoot: id },
+    required: ["projectRoot"]
+  }
+} as const;
+
+export const memoryInputSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      category: { type: "string", enum: ["preference", "project_fact", "workflow", "known_issue"] },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+      provenance: id,
+      statement: id,
+      visibility: { type: "string", enum: ["personal", "project"] },
+      projectRoot: id,
+      expiresAt: id
+    },
+    required: ["category", "confidence", "provenance", "statement", "visibility"]
+  }
+} as const;
+
+export const memoryParamsSchema = {
+  params: {
+    type: "object",
+    additionalProperties: false,
+    properties: { memoryId: id },
+    required: ["memoryId"]
+  }
+} as const;
+
+export const fileQuerySchema = {
+  ...sessionParamsSchema,
+  querystring: {
+    type: "object",
+    additionalProperties: false,
+    properties: { path: id },
+    required: ["path"]
+  }
+} as const;
+
+const planParams = {
+  type: "object",
+  additionalProperties: false,
+  properties: { sessionId: id, planId: id, revision: { type: "string", pattern: "^\\d+$" } },
+  required: ["sessionId", "planId", "revision"]
+} as const;
+
+export const planRevisionInputSchema = {
+  params: planParams,
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: { markdown: id, title: id },
+    required: ["markdown", "title"]
+  }
+} as const;
+
+export const planResolveInputSchema = {
+  params: planParams,
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      accessMode: { type: "string", enum: ["request_approval", "smart_approval", "full_access"] },
+      comments: { type: "string" },
+      decision: { type: "string", enum: ["continue_planning", "start_work", "cancel"] }
+    },
+    required: ["decision"]
+  }
+} as const;
+
+export const questionAnswerInputSchema = {
+  params: {
+    type: "object",
+    additionalProperties: false,
+    properties: { sessionId: id, interactionId: id },
+    required: ["sessionId", "interactionId"]
+  },
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      answers: { type: "object", additionalProperties: { type: "string" } }
+    },
+    required: ["answers"]
+  }
+} as const;

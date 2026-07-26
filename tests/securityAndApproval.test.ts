@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { RunRegistry } from "../server/app/runRegistry";
+import { TestRunRegistry as RunRegistry } from "./support/system";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 import { executeTool, redactSensitiveText, summarizeToolArguments } from "../server/infra/tools";
 
@@ -37,7 +37,7 @@ test("cancelling during approval resolves the interaction without timeline activ
     const controller = registry.startRun("run_approval");
     const decision = registry.requestApproval({
       callId: "call_delete",
-      capability: "filesystem.write",
+      capability: "workspace_delete",
       detail: "delete a.ts",
       risk: "high",
       runId: "run_approval",
@@ -52,7 +52,7 @@ test("cancelling during approval resolves the interaction without timeline activ
     assert.equal(await decision, "deny");
     const run = store.getRun("run_approval")!;
     assert.equal(run.approvals[0].state, "dismissed");
-    assert.equal(run.activities.some((activity) => activity.kind === "approval"), false);
+    assert.equal(run.activities.length, 0);
     store.close();
   } finally {
     rmSync(directory, { force: true, recursive: true });

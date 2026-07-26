@@ -20,6 +20,7 @@ import {
   validateThemePack
 } from "../../../shared/themeCatalog";
 import { createThemeCopy, shadowCssVariables, useTheme } from "../../theme/ThemeProvider";
+import { desktopBridge } from "../../platform/desktop";
 
 const primaryColorRows: Array<{ key: keyof ThemeColors; label: string }> = [
   { key: "accent", label: "强调色" },
@@ -277,7 +278,7 @@ export function AppearanceSettings() {
         <header className="theme-editor-header">
           <strong>{editingScheme === "light" ? "浅色主题" : "深色主题"}</strong>
           <div className="theme-editor-actions">
-            <button disabled={busy} onClick={() => window.deepseeker ? void startImport() : browserImportRef.current?.click()} type="button"><FileUp size={14} />导入</button>
+            <button disabled={busy} onClick={() => desktopBridge() ? void startImport() : browserImportRef.current?.click()} type="button"><FileUp size={14} />导入</button>
             <button onClick={() => setDraft(createThemeCopy(draft))} type="button"><Copy size={14} />复制主题</button>
             <select aria-label="选择主题" onChange={(event) => void chooseTheme(event.target.value)} value={draft.readonly ? draft.id : themes.some((theme) => theme.id === draft.id) ? draft.id : ""}>
               {!themes.some((theme) => theme.id === draft.id) && <option value="">{draft.name}</option>}
@@ -296,7 +297,10 @@ export function AppearanceSettings() {
             <input
               className="theme-name-input"
               maxLength={80}
-              onChange={(event) => mutateDraft((next) => { next.name = event.target.value; })}
+              onChange={(event) => {
+                const name = event.currentTarget.value;
+                mutateDraft((next) => { next.name = name; });
+              }}
               value={draft.name}
             />
           </label>
@@ -304,13 +308,25 @@ export function AppearanceSettings() {
         {primaryColorRows.map((row) => <ColorControl key={row.key} label={row.label} onChange={(value) => setColor(row.key, value)} value={variant.colors[row.key]} />)}
         <label className="theme-field-row">
           <span>UI 字体</span>
-          <select onChange={(event) => mutateDraft((next) => { next.variants[editingScheme].typography.uiFont = event.target.value; })} value={variant.typography.uiFont}>
+          <select
+            onChange={(event) => {
+              const font = event.currentTarget.value;
+              mutateDraft((next) => { next.variants[editingScheme].typography.uiFont = font; });
+            }}
+            value={variant.typography.uiFont}
+          >
             {UI_FONT_STACKS.map((font) => <option key={font.id} value={font.value}>{font.label}</option>)}
           </select>
         </label>
         <label className="theme-field-row">
           <span>代码字体</span>
-          <select onChange={(event) => mutateDraft((next) => { next.variants[editingScheme].typography.codeFont = event.target.value; })} value={variant.typography.codeFont}>
+          <select
+            onChange={(event) => {
+              const font = event.currentTarget.value;
+              mutateDraft((next) => { next.variants[editingScheme].typography.codeFont = font; });
+            }}
+            value={variant.typography.codeFont}
+          >
             {CODE_FONT_STACKS.map((font) => <option key={font.id} value={font.value}>{font.label}</option>)}
           </select>
         </label>
@@ -321,9 +337,12 @@ export function AppearanceSettings() {
               aria-label="界面阴影与层级对比度"
               max={100}
               min={0}
-              onInput={(event) => mutateDraft((next) => {
-                next.variants[editingScheme].contrast = Number(event.currentTarget.value);
-              })}
+              onInput={(event) => {
+                const contrast = Number(event.currentTarget.value);
+                mutateDraft((next) => {
+                  next.variants[editingScheme].contrast = contrast;
+                });
+              }}
               type="range"
               value={variant.contrast}
             />

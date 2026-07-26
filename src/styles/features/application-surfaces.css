@@ -1,0 +1,459 @@
+/* Workspace canvases share one soft, elevated boundary. */
+
+.conversation-workspace,
+.settings-main {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  border-radius: 16px 16px 0 0;
+  background: var(--app-canvas);
+  box-shadow: var(--shadow-canvas);
+}
+
+.settings-shell {
+  background: var(--app-chrome);
+}
+
+.settings-sidebar {
+  border-right: 0;
+}
+
+.thread-header,
+.account-strip {
+  border: 0;
+}
+
+.thread-header {
+  background: color-mix(in srgb, var(--app-canvas) 96%, transparent);
+}
+
+/* Appearance editor follows the same quiet surface hierarchy as the app. */
+
+.theme-editor-panel {
+  --settings-divider: color-mix(in srgb, var(--app-border) 58%, transparent);
+  border-color: var(--settings-divider);
+  border-radius: 14px;
+  background: transparent;
+  box-shadow: var(--shadow-panel);
+}
+
+.theme-editor-header {
+  border-bottom-color: var(--settings-divider);
+}
+
+.theme-scheme-tabs {
+  border-bottom-color: var(--settings-divider);
+}
+
+.theme-field-row {
+  border-bottom-color: var(--settings-divider);
+}
+
+.theme-field-row:last-child {
+  border-bottom: 0;
+}
+
+.theme-editor-actions select,
+.theme-field-row select,
+.theme-name-input {
+  border-color: color-mix(in srgb, var(--app-border) 68%, transparent);
+  background: color-mix(in srgb, var(--color-surface-subtle) 72%, transparent);
+  box-shadow: none;
+}
+
+.theme-color-control {
+  overflow: hidden;
+  border-color: color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.theme-color-control > input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px 0 4px;
+  appearance: none;
+  border: 0 !important;
+  border-radius: 0;
+  outline: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  font-family: var(--font-family-code);
+  text-align: right;
+}
+
+.theme-diff-preview {
+  border-color: color-mix(in srgb, var(--preview-border) 72%, transparent);
+  box-shadow: var(--shadow-panel);
+}
+
+.composer,
+.composer-dock .composer,
+.environment-panel,
+.environment-panel.is-capsule,
+.context-inspector-popover,
+.context-sort-menu,
+.add-menu,
+.plan-access-menu,
+.project-context-popover,
+.task-progress-popover,
+.ui-floating-surface,
+.sidebar-rename-dialog,
+.sidebar-confirm-dialog {
+  box-shadow: var(--shadow-floating);
+}
+
+.composer:focus-within {
+  box-shadow: var(--shadow-floating), var(--focus-ring);
+}
+
+.environment-panel.is-overlay-open,
+.settings-dialog,
+.ui-confirmation-dialog {
+  box-shadow: var(--shadow-dialog);
+}
+
+.artifact-card,
+.patch-card,
+.inline-plan-card,
+.theme-editor-panel,
+.theme-diff-preview {
+  box-shadow: var(--shadow-panel);
+}
+
+.theme-diff-column + .theme-diff-column,
+.theme-diff-line > span {
+  border-color: color-mix(in srgb, var(--preview-border) 64%, transparent);
+}
+
+.theme-diff-line code .token-keyword {
+  color: var(--preview-keyword);
+}
+
+.theme-diff-line code .token-string {
+  color: var(--preview-string);
+}
+
+.theme-diff-line code .token-number {
+  color: var(--preview-number);
+}
+
+.theme-diff-line code .token-type {
+  color: var(--preview-type);
+}
+
+.theme-diff-line code .token-comment {
+  color: var(--preview-comment);
+}
+
+.theme-diff-line code .token-punctuation {
+  color: var(--preview-code-foreground);
+}
+
+/* Text-only activity animation for the initial thinking seed. */
+.purpose-sweep {
+  display: inline-block;
+  line-height: inherit;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.display-activity-slot.is-thinking {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.thinking-step {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.thinking-step .work-body {
+  padding-left: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .purpose-sweep {
+    color: inherit !important;
+    background: none;
+    animation: none;
+  }
+
+  .reasoning-title-transition {
+    animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-main {
+    border-top-left-radius: 0;
+    box-shadow: none;
+  }
+}
+
+/* Audited dark interaction states. Keep this last so legacy light hover values
+   cannot win the cascade after the semantic dark counterpart. */
+html[data-color-scheme="dark"] :is(
+  .icon-button,
+  .plain-icon,
+  .nav-row,
+  .thread-row,
+  .context-row button,
+  .model-button,
+  .window-actions .icon-button,
+  .project-row-actions button,
+  .thread-row-actions button,
+  .app-menubar button,
+  .app-menu-items span,
+  .environment-expand-button,
+  .environment-collapse-button,
+  .reasoning-scroll-to-bottom,
+  .settings-back-button,
+  .settings-navigation button,
+  .theme-editor-actions button,
+  .theme-reset-button,
+  .theme-advanced-toggle
+):hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .project-title,
+  .account-strip > button,
+  .surface-tab-close,
+  .surface-window-actions button,
+  .patch-card-review-trigger,
+  .patch-actions button,
+  .show-more-files,
+  .markdown-code-block > header button
+):is(:hover, :focus-visible) {
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .view-switcher button.active,
+  .thread-row.active-thread,
+  .surface-tab.is-active,
+  .workspace-surface-panel .surface-tab-strip .surface-tab.is-active,
+  .surface-review-file:hover,
+  .surface-review-file.is-active,
+  .settings-navigation button.is-active,
+  .appearance-mode-card.is-active,
+  .theme-scheme-tabs button.is-active
+) {
+  border-color: var(--app-border);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  box-shadow: var(--shadow-panel);
+}
+
+html[data-color-scheme="dark"] :is(
+  .project-title,
+  .thread-row,
+  .context-header-actions > button,
+  .context-sort-menu button,
+  .workspace-surface-panel > header button,
+  .surface-toolbar button,
+  .surface-review-actions button,
+  .surface-window-actions button,
+  .surface-tab-close,
+  .surface-review-file,
+  .add-menu > button,
+  .inline-plan-card > header > button,
+  .inline-plan-card > footer > button,
+  .interaction-header > button,
+  .question-pagination button,
+  .interaction-primary-row,
+  .interaction-option-row,
+  .interaction-feedback-row > button,
+  .interaction-footer > button,
+  .plan-surface-header > button,
+  .plan-review-actions > button,
+  .plan-editor-actions > button,
+  .plan-access-selector > button,
+  .plan-question-options button,
+  .plan-access-menu button,
+  .settings-back-button,
+  .settings-navigation button,
+  .theme-editor-actions button,
+  .theme-reset-button,
+  .theme-advanced-toggle
+):is(:hover, :focus-visible) :is(svg, span, strong, small) {
+  color: inherit;
+}
+
+html[data-color-scheme="dark"] :is(
+  .project-title,
+  .thread-row,
+  .ui-icon-button,
+  .ui-pill-button,
+  .ui-row-action,
+  .ui-disclosure-row,
+  .appearance-mode-card,
+  .theme-editor-actions select,
+  .theme-field-row select,
+  .settings-form-row select,
+  .settings-form-row input,
+  .theme-name-input
+):focus-visible,
+html[data-color-scheme="dark"] :is(
+  .composer,
+  .project-context-search,
+  .settings-search
+):focus-within {
+  border-color: color-mix(in srgb, var(--theme-blue) 36%, var(--app-border));
+  box-shadow: var(--focus-ring);
+}
+
+html[data-color-scheme="dark"] :is(
+  .command-stop-button,
+  .run-stream .command-stop-button
+):is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-danger) 46%, var(--app-border));
+  background: transparent;
+  color: var(--color-danger);
+}
+
+html[data-color-scheme="dark"] :is(
+  .operation-summary-file,
+  .operation-file-summary-name
+):is(:hover, :focus-visible) {
+  border-bottom-color: var(--color-text);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] :is(
+  .operation-group-summary,
+  .operation-file-summary,
+  .operation-call-row
+):is(:hover, :focus-visible, [aria-expanded="true"]) :is(svg, span, strong, button) {
+  color: inherit;
+}
+
+html[data-color-scheme="dark"] :is(
+  .operation-group-details,
+  .operation-detail-text,
+  .surface-editor-host .monaco-scrollable-element > .scrollbar,
+  .markdown-code-block pre
+)::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-text-muted) 48%, transparent);
+}
+
+html[data-color-scheme="dark"] :is(
+  .panel-resize-handle:hover,
+  .panel-resize-handle:focus-visible,
+  body.is-resizing-panel .panel-resize-handle
+)::after {
+  background: color-mix(in srgb, var(--theme-blue) 52%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-blue) 12%, transparent);
+}
+
+html[data-color-scheme="dark"] .mode-indicator:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .markdown-code-block > header button:is(:hover, :focus-visible, .is-active) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .markdown-code-block > header button:disabled:hover {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+html[data-color-scheme="dark"] .markdown-mermaid-render:focus-visible {
+  outline-color: color-mix(in srgb, var(--theme-blue) 48%, transparent);
+}
+
+html[data-color-scheme="dark"] .mermaid-lightbox-toolbar button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-execution-highlight) 12%, transparent);
+  color: var(--color-execution-highlight);
+}
+
+html[data-color-scheme="dark"] .run-stream :is(button, .patch-row):is(:hover, :focus-visible, [aria-expanded="true"]) {
+  background: transparent;
+}
+
+html[data-color-scheme="dark"] .context-meter-ring {
+  background: conic-gradient(
+    var(--color-text-muted) var(--context-progress),
+    var(--color-surface-subtle) 0
+  );
+  box-shadow: inset 0 0 0 1px var(--app-border);
+}
+
+html[data-color-scheme="dark"] .context-meter-ring::after {
+  background: var(--color-surface-elevated);
+}
+
+html[data-color-scheme="dark"] .context-meter:is(:hover, :focus-visible, :focus-within) .context-meter-ring {
+  background: conic-gradient(
+    var(--theme-blue) var(--context-progress),
+    var(--color-hover) 0
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-blue) 24%, var(--app-border));
+}
+
+html[data-color-scheme="dark"] .context-meter:is(:hover, :focus-visible, :focus-within) .context-meter-ring::after {
+  background: var(--color-surface-elevated);
+}
+
+html[data-color-scheme="dark"] .project-title-shell:is(:hover, :has(:focus-visible)) {
+  --sidebar-item-surface: var(--color-hover);
+  background: var(--color-hover);
+}
+
+html[data-color-scheme="dark"] .project-title-shell:is(:hover, :has(:focus-visible)) :is(
+  .project-title,
+  .project-title span,
+  .project-title svg,
+  .project-row-actions button
+) {
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .thread-row-shell:is(:hover, :has(:focus-visible)) {
+  --sidebar-item-surface: var(--color-hover);
+}
+
+html[data-color-scheme="dark"] .thread-row-shell:is(:hover, :has(:focus-visible)) :is(
+  .thread-row,
+  .thread-row span,
+  .thread-row svg,
+  .thread-row time,
+  .thread-row-actions button
+) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+html[data-color-scheme="dark"] .thread-row-shell.active-thread:is(:hover, :has(:focus-visible)) :is(
+  .thread-row,
+  .thread-row span,
+  .thread-row svg,
+  .thread-row time,
+  .thread-row-actions button
+) {
+  background: var(--theme-blue-light);
+  color: var(--theme-blue-dark);
+}
+
+html[data-color-scheme="dark"] :is(
+  .project-context-trigger:hover,
+  .project-context-trigger[aria-expanded="true"],
+  .project-context-option:hover,
+  .project-context-option:focus-visible,
+  .project-context-actions button:hover,
+  .project-context-actions button:focus-visible,
+  .ui-icon-button:hover:not(:disabled),
+  .ui-pill-button:hover:not(:disabled),
+  .ui-pill-button[aria-expanded="true"],
+  .ui-row-action:hover:not(:disabled),
+  .ui-disclosure-row:hover:not(:disabled)
+) :is(svg, span, strong, small) {
+  color: inherit;
+}
+

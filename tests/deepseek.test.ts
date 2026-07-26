@@ -57,6 +57,38 @@ test("normalizes thinking, answer, usage, and interleaved tool-call chunks", asy
     assert.equal(JSON.parse(requestBody).messages[0].content, "检查项目");
     assert.equal(JSON.parse(requestBody).messages[1].reasoning_content, "保留工具推理");
     assert.equal(JSON.parse(requestBody).messages[2].tool_call_id, "previous_call");
+    assert.equal(JSON.parse(requestBody).thinking, undefined);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("sends an explicit disabled thinking mode for summary requests", async () => {
+  let requestBody = "";
+  const server = createServer((request, response) => {
+    request.on("data", (chunk) => (requestBody += chunk.toString()));
+    request.on("end", () => {
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"title":"核对页面跳转参数"}' }, finish_reason: "stop" }] })}\n\n`);
+      response.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}`);
+    await provider.stream({
+      maxOutputTokens: 96,
+      messages: [{ role: "user", text: '{"thinking":"检查路由参数"}' }],
+      model: "deepseek-v4-flash",
+      thinkingMode: "disabled",
+      tools: []
+    });
+    const parsed = JSON.parse(requestBody) as Record<string, unknown>;
+    assert.deepEqual(parsed.thinking, { type: "disabled" });
+    assert.equal(parsed.model, "deepseek-v4-flash");
+    assert.equal(parsed.tools, undefined);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

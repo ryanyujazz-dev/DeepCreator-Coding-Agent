@@ -10,11 +10,11 @@ The model below is the authority for future timeline redesign work unless supers
 
 The conversation view only needs to render three user-visible categories of model/runtime output:
 
-1. `reasoning_content`
+1. normalized reasoning deltas
 2. `content`
 3. tool execution
 
-Anything else must be projected into those categories before it reaches the timeline UI.
+Provider-specific fields such as `reasoning_content` must be projected into those categories before they reach the UI. The provider protocol shape is not part of the public Event contract.
 
 ## Event Truth vs Render Truth
 
@@ -31,15 +31,42 @@ In short:
 logical empty != visual empty
 ```
 
+## Content Streaming
+
+Assistant content remains independently streamable even when the same provider response later contains tool calls.
+
+- Runtime may coalesce small content deltas, but the buffer has a short maximum latency.
+- A newline, size threshold, first tool-call fragment, provider completion, failure, or cancellation flushes the pending content immediately.
+- Tool-call arguments remain private until the complete provider step is sealed; this does not permit them to delay preceding content.
+- The renderer releases grapheme batches adaptively so its visual backlog stays bounded instead of replaying every received character at a fixed rate.
+- Presentation pacing must not change the canonical Activity body.
+
+## Reasoning Inspector
+
+Reasoning has two projections with different jobs. The conversation timeline may use the initial reasoning seed to establish a stable activity slot, while the right-side inspector displays the complete reasoning stream for the current Run.
+
+- Runtime normalizes provider reasoning into durable `reasoning.updated` Run events carrying the current `modelStepId`. Provider field names and response envelopes never enter the Event stream.
+- Reasoning is Run-level state, not an Activity and not a tool result. It must not create timeline rows, aggregate counts, tasks, or duplicate lifecycle facts.
+- The inspector groups reasoning by model step. Every step owns one bullet and one vertical guide whose height is bounded by that step's text; deltas for the same `modelStepId` update that node in place.
+- A visual node requires an explicit `modelStepId`. Legacy aggregate reasoning without a recoverable step boundary may remain in compatibility state, but it must not be rendered as one fake Run-level step.
+- The inspector section sits below Plan and Runtime Environment. During an active or waiting Run it is expanded, appends deltas with bounded visual latency, and follows the latest text.
+- Upward wheel or scroll movement pauses following so new deltas cannot pull the user away from history. While paused, show a floating scroll-to-bottom control. Clicking it returns to the bottom and resumes adaptive following; manually returning within the bottom threshold does the same.
+- When the Run reaches `completed`, `failed`, or `cancelled`, the section automatically collapses. The completed trace remains available through manual expansion.
+- Bullets and vertical guides are presentation of model-step grouping only. They do not represent Activities, tools, or additional Runtime execution facts.
+- After the first reasoning delta, the inspector header starts as `正在思考`. The first thinking step may produce one early title after a natural paragraph, a hard size boundary, or a bounded wait. After that exception, Runtime submits reasoning only when each model step seals, so one step can produce at most one title candidate.
+- A successful early title consumes the first step's title opportunity; the step boundary does not generate a second title. If that first attempt fails validation or transport, the sealed boundary may retry it once.
+- Runtime asynchronously persists accepted titles through `reasoning.title.updated`; a title summarizes the current thinking stage and never replaces or edits the underlying reasoning text. If summary work falls behind, only the latest sealed pending step is retained, preventing old titles from replaying late.
+- The reasoning title is presentation state, not a tool, task, completion claim, or lifecycle boundary. Summary failures leave the previous title intact and must not delay ordinary model or tool execution.
+
 ## Live File Mutations
 
-`write_file` and `edit_file` may expose a throttled `liveFiles` preview while their arguments stream. The active slot shows its current `+x -x` metrics and remains expandable so the user can watch code arrive. This preview is render state, not workspace truth.
+Tool-call argument fragments are buffered inside Runtime and never create public Activities or file previews. A tool Activity starts only when the complete provider step has been received, its arguments have been parsed, and execution actually begins.
 
-After the tool writes to disk, replace the preview with the Git-derived `activity.files` and `run.changes` snapshot before emitting tool `done`. Rejected, cancelled, or failed operations clear `liveFiles`; previews must never enter aggregate counts or completed change history.
+After a file tool writes to disk, publish the Git-derived `activity.files` and `run.changes` snapshot before emitting tool `done`. Rejected, cancelled, or failed operations must never enter aggregate counts or completed change history. Real executor progress, such as stdout from an already-running command, may still stream into the original Activity.
 
 ## Segment Boundary
 
-A display segment is the unit that owns one main text area, one aggregate header, and a dynamic list of activity slots.
+A display segment is the unit that owns one main text area, one aggregate header, and one reusable activity slot.
 
 The boundary rule is:
 
@@ -84,16 +111,26 @@ Rules:
 
 - If the aggregate result is empty, there is no aggregate header slot.
 - The header appears only after the first tool `done`.
-- The header summarizes completed work, for example:
-  - `[Read 1 file]`
-  - `[Read 2 files]`
-  - `[Read 2 files | Edited 1 file]`
+- After the header appears, it remains visually active while any tool in the segment is running or while the Agent is still reasoning after those tool results. The dominant headline and the held activity label use the same motion class and rate. Motion stops when new user-facing content starts the next segment, the Run waits for input, or the Run reaches a terminal state; the settled headline then returns to the single neutral execution gray.
+- Runtime buffers the complete tool-call step and derives one dominant work intent before executing it.
+- Headline arbitration uses tool semantics, targets, command effects, and confidence rather than call counts. Shell plumbing such as `cd`, `echo`, and `sleep` has no headline weight.
+- Generic command execution is a fallback and must not automatically outrank an explicit file mutation. Recognized effects such as dependency installation, service startup, database initialization, verification, and deployment may outrank reads or edits when they describe the step's actual result.
+- Comparable modification and verification work may use a combined intent such as `Modify and verify project`.
+- The dominant intent supplies a stable, non-past-tense headline such as `Locate related content`, `Configure project environment`, `Start database`, or `Verify runtime`.
+- The icon before the headline represents that dominant intent rather than a generic completion checkmark.
+- The headline may promote at most once per sealed model step and never demotes inside one display segment.
+- Completed facts remain separate from the headline, for example:
+  - `[Read related information | Read 1 file]`
+  - `[Modify project files | Matched 1 file · Searched 2 items · Read 4 files · Edited 1 file]`
+- Only successfully completed objects use `completed` wording. Failed and cancelled calls are reported separately.
+- When command failures are present, make successful and failed counts unambiguous, for example `Successfully ran 2 commands · 1 failed`.
+- A legacy failed tool whose persisted snapshot lacks detailed ToolState still belongs to the aggregate. Keep its raw error available in expanded details; never promote that error body to a first-level timeline row.
 
 The aggregate header must update immediately when a tool finishes.
 
-### 4. Activity Slots
+### 4. Activity Slot
 
-Activity slots display transient live states for the segment. Every independently running tool object owns one slot. If another tool starts before it completes, append another stable slot instead of replacing the existing one.
+The segment owns one activity slot. Tool-call fragments do not enter it. Among real running tools, it displays the last tool in stable model-call order that is still running.
 
 It may display:
 
@@ -102,7 +139,7 @@ It may display:
 - `[Editing xxx.py]`
 - other tool-in-progress labels
 
-When one of several tools completes, remove only its slot and move that tool into the aggregate header. When the last active tool completes:
+When the displayed tool completes while another tool is still running, select the last remaining running tool. Completed tools move into the aggregate header immediately. When the last active tool completes:
 
 - keep the logical state as empty
 - keep the visual content as the previous visible label
@@ -110,7 +147,7 @@ When one of several tools completes, remove only its slot and move that tool int
 
 This is a render-layer hold, not an event-layer mutation.
 
-`reasoning_content` uses an available empty slot or allocates a new one. It must not hide another running tool. A `content` boundary consumes its own reasoning slot while unrelated running tool slots remain visible in their originating segment.
+Only the initial reasoning seed may display `Thinking`. After a tool has occupied the slot, later reasoning keeps the previous tool label visually held instead of replacing it with `Thinking`. This hold is render truth only; the finished tool remains terminal in Event truth. A `content` boundary consumes the held slot according to the segment-boundary rules.
 
 ## Managed Commands
 
@@ -119,7 +156,7 @@ This is a render-layer hold, not an event-layer mutation.
 - `wait_command(commandId)` waits for another checkpoint and updates the original command.
 - `stop_command(commandId)` terminates the original process tree and settles the original activity.
 - Neither control tool creates a new visible activity slot or aggregate member.
-- Normal Agent completion may leave managed commands alive; cancelling the run stops every command owned by that run.
+- An Agent Run must not finish while a managed command remains alive. A candidate final response is rejected until the model waits for the command or stops it; cancellation and failure still stop every command owned by the Run as cleanup.
 - Command completion, cancellation, and process errors must converge on one authoritative `done` event.
 
 ## Empty-Slot Rules
@@ -153,7 +190,7 @@ Examples:
 
 ```text
 activity slot [Thinking] -> [logical empty, visually keep Thinking] -> [Reading b.py]
-activity slot [Reading a.py] -> [logical empty, visually keep Reading a.py] -> [Editing c.py]
+activity slot [Reading a.py] -> [logical empty, visually keep Reading a.py during reasoning] -> [Editing c.py]
 ```
 
 ## Canonical Timelines
@@ -173,7 +210,7 @@ activity slot [Reading settings.py]
 
 t4
 main slot      [I will inspect the config first.]
-aggregate slot [Read 1 file]
+aggregate slot [Read related information | Read 1 file]
 activity slot  [logical empty, visually keep Reading settings.py]
 ```
 
@@ -181,15 +218,11 @@ activity slot  [logical empty, visually keep Reading settings.py]
 
 ```text
 main slot      [I will inspect the config first.]
-aggregate slot [Read 2 files | Edited 1 file]
-activity slot  [Thinking]
+aggregate slot [Modify project files | Read 2 files · Edited 1 file]
+activity slot  [logical empty, visually keep Editing runner.ts while reasoning]
 
 main slot      [I will inspect the config first.]
-aggregate slot [Read 2 files | Edited 1 file]
-activity slot  [logical empty, visually keep Thinking]
-
-main slot      [I will inspect the config first.]
-aggregate slot [Read 2 files | Edited 1 file]
+aggregate slot [Modify project files | Read 2 files · Edited 1 file]
 activity slot  [Reading b.py]
 ```
 
@@ -203,15 +236,15 @@ t2
 seed slot [Reading a.py]
 
 t3
-aggregate slot [Read 1 file]
+aggregate slot [Read related information | Read 1 file]
 activity slot  [logical empty, visually keep Reading a.py]
 
 t4
-aggregate slot [Read 1 file]
+aggregate slot [Modify project files | Read 1 file]
 activity slot  [Editing b.py]
 
 t5
-aggregate slot [Read 1 file | Edited 1 file]
+aggregate slot [Modify project files | Read 1 file · Edited 1 file]
 activity slot  [logical empty, visually keep Editing b.py]
 ```
 
@@ -220,13 +253,13 @@ activity slot  [logical empty, visually keep Editing b.py]
 ```text
 before next content
 main slot      [I will inspect the config first.]
-aggregate slot [Read 2 files | Edited 1 file]
+aggregate slot [Modify project files | Read 2 files · Edited 1 file]
 activity slot  [logical empty, visually keep Editing runner.ts]
 
 after next content
 previous segment
 main slot      [I will inspect the config first.]
-aggregate slot [Read 2 files | Edited 1 file]
+aggregate slot [Modify project files | Read 2 files · Edited 1 file]
 
 next segment
 main slot [I found the root cause and will patch it now.]
@@ -300,6 +333,13 @@ The following invariants must remain true:
 4. Never let later `thinking` overwrite a segment's main content slot.
 5. Allow activity-slot logical emptiness, but preserve its previous visual label until the next transient state arrives.
 6. Prefer one tool call per independent object; batch tools need child-level progress semantics.
-7. Give every independently running object its own stable activity slot.
+7. Project at most one activity slot: the last real tool in stable call order that is still running.
 8. Make command control calls update the original command instead of creating duplicate activities.
 9. Never finish an Agent run while one of its managed commands is running; use `wait_command` or `stop_command` first.
+10. Buffer tool-call fragments until the provider step is complete; fragments never create public Activities.
+11. Derive one dominant headline for the complete step and carry it on durable tool facts.
+12. Keep a segment headline monotonic; completed counts may update independently after every real tool terminal event.
+13. Project only the initial thinking seed. Later reasoning visually holds the previous tool label.
+14. Bound content-delta latency independently of tool-call argument streaming.
+15. Treat generic command execution as a fallback headline; only a recognized, higher-impact command intent may outrank explicit read or mutation work.
+16. Keep the complete reasoning trace grouped by model step as Run-level inspector state, preserve user-controlled history scrolling, and collapse it automatically when the Run becomes terminal.

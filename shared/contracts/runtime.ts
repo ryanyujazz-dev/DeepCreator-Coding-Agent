@@ -17,6 +17,26 @@ export type ActivityKind =
   | "error";
 
 export type ActionKind = "inspect" | "search" | "modify" | "execute" | "verify" | "task" | "plan" | "external";
+export type AggregateHeadlineKind =
+  | "browse"
+  | "locate"
+  | "read"
+  | "review"
+  | "inspect_environment"
+  | "modify"
+  | "modify_and_verify"
+  | "configure_environment"
+  | "execute"
+  | "verify"
+  | "verify_runtime"
+  | "build"
+  | "install_dependencies"
+  | "prepare_environment"
+  | "start_service"
+  | "start_database"
+  | "initialize_database"
+  | "external"
+  | "deploy";
 export type TargetKind = "file" | "directory" | "workspace" | "process" | "network" | "task" | "plan";
 export type Effect = "read_only" | "workspace_write" | "process_side_effect" | "external_side_effect" | "control_only";
 export type ToolMetrics = {
@@ -30,6 +50,8 @@ export type ToolMetrics = {
 
 export type ToolState = {
   callId: string;
+  /** Stable ordering inside one sealed model step. */
+  callIndex?: number;
   modelStepId: string;
   toolName: string;
   action: ActionKind;
@@ -47,6 +69,8 @@ export type ToolState = {
   detail?: { defaultCollapsed: boolean; pathStyle: "workspace_relative" | "raw"; previewLimit: number };
   resultSummary?: string;
   resultMetrics?: ToolMetrics;
+  /** Runtime-derived dominant work kind for the complete sealed model step. */
+  stepHeadline?: AggregateHeadlineKind;
 };
 
 export type TaskStatus = "pending" | "running" | "completed" | "blocked";
@@ -204,10 +228,21 @@ export type Run = {
   changes: Changes;
   approvals: Approval[];
   usage?: Usage;
+  /** Backward-compatible aggregate of all provider reasoning in this Run. */
+  reasoning?: string;
+  /** Provider reasoning grouped by sealed model step for the local Run inspector. */
+  reasoningSteps?: ReasoningStep[];
+  /** Latest model-generated progressive title for the reasoning inspector. */
+  reasoningTitle?: string;
   answer: string;
   error?: string;
   resume?: ResumeState;
   lastOffset: number;
+};
+
+export type ReasoningStep = {
+  modelStepId: string;
+  text: string;
 };
 
 export type WorkspaceKind = "project" | "scratch";
@@ -266,6 +301,12 @@ export type EventPayloadMap = {
     source?: "user" | "model" | "runtime";
   };
   "run.started": Pick<Run, "model" | "prompt" | "startedAt"> & { mode?: Mode };
+  "reasoning.updated": {
+    /** Optional only so pre-step-grouping Events remain replayable. */
+    modelStepId?: string;
+    textDelta: string;
+  };
+  "reasoning.title.updated": { title: string };
   "tasks.changed": { items: Task[] };
   "plan.proposed": { plan: Plan };
   "plan.revised": { plan: Plan };

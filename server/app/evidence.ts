@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { ToolResult } from "../../shared/contracts/tool";
+import { stableDigest, utf8ByteLength } from "../../shared/domain/digest";
 
 export type ReducedEvidence = {
   modelText: string;
@@ -36,18 +36,20 @@ export function reduceToolEvidence(toolName: string, result: ToolResult, sensiti
   const limit = limitFor(toolName);
   const body = middleTruncate(fullText, limit);
   const wasTruncated = body !== fullText;
+  const originalBytes = utf8ByteLength(fullText);
+  const retainedBytes = utf8ByteLength(body);
   const facts = [
     result.command ? `命令：${result.command}` : undefined,
     result.exitCode !== undefined ? `退出码：${result.exitCode}` : undefined,
     result.timedOut ? "状态：执行超时" : undefined,
-    wasTruncated ? `裁剪：原始 ${Buffer.byteLength(fullText)} 字节，保留 ${Buffer.byteLength(body)} 字节` : undefined
+    wasTruncated ? `裁剪：原始 ${originalBytes} 字节，保留 ${retainedBytes} 字节` : undefined
   ].filter(Boolean);
   return {
-    digest: createHash("sha256").update(fullText).digest("hex"),
+    digest: stableDigest(fullText),
     fullText,
     modelText: [...facts, body].filter(Boolean).join("\n"),
-    originalBytes: Buffer.byteLength(fullText),
-    retainedBytes: Buffer.byteLength(body),
+    originalBytes,
+    retainedBytes,
     wasTruncated
   };
 }

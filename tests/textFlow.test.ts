@@ -28,17 +28,17 @@ test("segments streamed text by grapheme rather than UTF-16 code unit", () => {
   assert.deepEqual(splitGraphemes("你好👨‍💻e\u0301"), ["你", "好", "👨‍💻", "e\u0301"]);
 });
 
-test("raises the per-frame quota as presentation backlog grows", () => {
-  assert.equal(streamFrameQuota(12), 1);
-  assert.equal(streamFrameQuota(48), 1);
-  assert.equal(streamFrameQuota(180), 2);
-  assert.equal(streamFrameQuota(500), 4);
+test("keeps streamed presentation within a bounded visual backlog", () => {
+  assert.equal(streamFrameQuota(12), 2);
+  assert.equal(streamFrameQuota(48), 6);
+  assert.equal(streamFrameQuota(180), 23);
+  assert.equal(streamFrameQuota(500), 63);
   assert.ok(streamFrameQuota(1_200) > streamFrameQuota(500));
-  assert.ok(streamFrameQuota(100_000) <= 24);
+  assert.ok(streamFrameQuota(100_000) <= 64);
 });
 
-test("paces ordinary output while allowing a large backlog to catch up", () => {
-  assert.equal(streamReleaseInterval(48), 28);
-  assert.equal(streamReleaseInterval(180), 20);
-  assert.equal(streamReleaseInterval(600), 0);
+test("batches ordinary output without delaying large backlogs", () => {
+  assert.equal(streamReleaseInterval(12), 24);
+  assert.equal(streamReleaseInterval(48), 16);
+  assert.equal(streamReleaseInterval(180), 0);
 });

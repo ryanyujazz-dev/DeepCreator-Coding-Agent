@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { finishActivity } from "../server/app/activityLifecycle";
 import { finishRun } from "../server/app/runLifecycle";
 import { RuntimeStore } from "../server/infra/runtimeStore";
+import { testSystem } from "./support/system";
 
 test("does not leave a managed command activity running after agent completion", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-background-run-"));
@@ -45,7 +47,8 @@ test("does not leave a managed command activity running after agent completion",
       runId: "run_background",
       sessionId: "session_background",
       status: "completed",
-      store
+      store,
+      system: testSystem
     });
 
     const run = store.getRun("run_background")!;
@@ -106,13 +109,79 @@ test("finishes a suspended thinking activity exactly once", () => {
       runId: "run_suspended_thinking",
       sessionId: "session_suspended_thinking",
       status: "completed",
-      store
+      store,
+      system: testSystem
     });
 
     const finishedEvents = store.readEvents("session_suspended_thinking")
       .filter((event) => event.type === "activity.finished" && event.scope.activityId === "activity_thinking");
     assert.equal(finishedEvents.length, 1);
     assert.equal(store.getRun("run_suspended_thinking")!.activities[0].status, "completed");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("cancelling an activity and then cancelling its run writes one terminal event", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-double-cancel-"));
+  const store = new RuntimeStore(directory);
+  try {
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_double_cancel",
+      title: "double cancel"
+    });
+    store.append({
+      data: { model: "test", prompt: "运行命令", startedAt: new Date().toISOString() },
+      runId: "run_double_cancel",
+      sessionId: "session_double_cancel",
+      type: "run.started"
+    });
+    store.append({
+      activityId: "activity_double_cancel",
+      data: {
+        audience: "user",
+        command: { command: "npm test", commandId: "command_double_cancel", state: "running" },
+        kind: "command",
+        startedAt: new Date().toISOString()
+      },
+      runId: "run_double_cancel",
+      sessionId: "session_double_cancel",
+      type: "activity.started"
+    });
+
+    assert.equal(finishActivity({
+      activityId: "activity_double_cancel",
+      runId: "run_double_cancel",
+      sessionId: "session_double_cancel",
+      store,
+      system: testSystem
+    }, {
+      command: { command: "npm test", commandId: "command_double_cancel", state: "cancelled" },
+      status: "cancelled"
+    }), true);
+
+    finishRun({
+      answer: "运行已取消。",
+      error: "用户取消了运行。",
+      failureType: "cancelled",
+      projectRoot: directory,
+      runId: "run_double_cancel",
+      sessionId: "session_double_cancel",
+      status: "cancelled",
+      store,
+      system: testSystem
+    });
+
+    const finishes = store.readEvents("session_double_cancel").filter((event) =>
+      event.type === "activity.finished" && event.scope.activityId === "activity_double_cancel"
+    );
+    assert.equal(finishes.length, 1);
+    assert.equal(store.getRun("run_double_cancel")?.status, "cancelled");
   } finally {
     store.close();
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
@@ -165,7 +234,8 @@ test("persists one interrupted result for every unfinished tool call", () => {
       runId: "run_interrupted_tools",
       sessionId: "session_interrupted_tools",
       status: "cancelled",
-      store
+      store,
+      system: testSystem
     });
     finish();
     finish();

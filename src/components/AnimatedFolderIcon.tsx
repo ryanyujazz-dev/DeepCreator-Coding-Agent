@@ -1,6 +1,8 @@
-import Lottie, { LottieRefCurrentProps } from "lottie-react";
-import { useEffect, useRef } from "react";
+import type { LottieRefCurrentProps } from "lottie-react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import folderAnimation from "../assets/folder.json";
+
+const Lottie = lazy(() => import("../shared-ui/LottiePlayer"));
 
 export function AnimatedFolderIcon({ expanded, size = 18 }: { expanded: boolean; size?: number }) {
   const animationRef = useRef<LottieRefCurrentProps>(null);
@@ -21,13 +23,15 @@ export function AnimatedFolderIcon({ expanded, size = 18 }: { expanded: boolean;
 
   return (
     <span aria-hidden="true" className="animated-folder-icon" style={{ height: size, width: size }}>
-      <Lottie
-        animationData={folderAnimation}
-        autoplay={false}
-        loop={false}
-        lottieRef={animationRef}
-        style={{ height: "100%", width: "100%" }}
-      />
+      <Suspense fallback={null}>
+        <Lottie
+          animationData={folderAnimation}
+          autoplay={false}
+          loop={false}
+          lottieRef={animationRef}
+          style={{ height: "100%", width: "100%" }}
+        />
+      </Suspense>
     </span>
   );
 }
