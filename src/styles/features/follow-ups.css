@@ -115,12 +115,12 @@
   opacity: 0.45;
 }
 
-.work-process .steer-user-turn {
+.conversation-turn > .steer-user-turn {
   width: 100%;
   margin: 8px 0 20px;
 }
 
-.work-process .steer-user-turn p {
+.conversation-turn > .steer-user-turn p {
   font-family: var(--font-family-ui);
   font-size: var(--type-conversation-size);
   font-weight: 560;

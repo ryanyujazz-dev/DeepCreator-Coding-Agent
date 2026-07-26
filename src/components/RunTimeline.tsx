@@ -1,11 +1,32 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
-import { projectDisplayTimeline } from "../../shared/projections/displaySegments";
+import React, { useEffect, useState } from "react";
 import { Run, Changes, Plan, isRunDone } from "../../shared/contracts/runtime";
+import { projectDisplayTimeline } from "../../shared/projections/displaySegments";
+import { DisplayTimelineEntry } from "../../shared/projections/types";
 import { ActivityView } from "./ActivityView";
 import { ChangePanel } from "./ChangePanel";
 import { DisplaySegmentRenderer } from "./DisplaySegmentRenderer";
 import { MarkdownContent } from "./MarkdownContent";
+
+type UserMessageEntry = Extract<DisplayTimelineEntry, { type: "activity" }>;
+
+export type RunConversationTurn = {
+  entries: DisplayTimelineEntry[];
+  turnId: string;
+  userMessage?: UserMessageEntry;
+};
+
+export function splitTimelineIntoConversationTurns(runId: string, entries: DisplayTimelineEntry[]): RunConversationTurn[] {
+  const turns: RunConversationTurn[] = [{ entries: [], turnId: `turn:${runId}:prompt` }];
+  for (const entry of entries) {
+    if (entry.type === "activity" && entry.activity.kind === "user_message") {
+      turns.push({ entries: [], turnId: `turn:${entry.entryId}`, userMessage: entry });
+      continue;
+    }
+    turns[turns.length - 1].entries.push(entry);
+  }
+  return turns;
+}
 
 function elapsed(run: Run): string {
   const seconds = Math.max(0, Math.floor(((run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now()) - new Date(run.startedAt).getTime()) / 1000));
@@ -36,66 +57,89 @@ export function RunTimeline({
         .filter((activity) => activity.kind === "message" && activity.body.trim() === run.answer.trim())
         .map((activity) => activity.activityId));
   const timelineEntries = projectDisplayTimeline(run, run.activities, { suppressedContentActivityIds });
-  const hasSteerMessages = timelineEntries.some((entry) =>
-    entry.type === "activity" && entry.activity.kind === "user_message"
-  );
+  const conversationTurns = splitTimelineIntoConversationTurns(run.runId, timelineEntries);
   const activeDisplaySegmentId = run.status === "running"
     ? [...timelineEntries].reverse().find((entry) => entry.type === "display_segment")?.entryId
     : undefined;
   const [expanded, setExpanded] = useState(active);
   useEffect(() => setExpanded(active), [active]);
   return (
-    <div className={`run-stream ${active ? "" : "completed-stream"}`}>
-      <button
-        aria-expanded={expanded}
-        className={`run-status-pill ${active ? "is-live" : ""} ${expanded ? "is-expanded" : ""}`}
-        onClick={() => setExpanded((value) => !value)}
-        type="button"
-      >
-        <span>{active
-          ? (run.status === "waiting" ? "等待批准" : "正在工作")
-          : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
-        <span>{elapsed(run)}</span>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-      </button>
-      {(expanded || hasSteerMessages) && timelineEntries.length > 0 && (
-        <section className="work-process" aria-label="工作过程">
-          {timelineEntries.map((entry) => {
-            if (!expanded && (entry.type !== "activity" || entry.activity.kind !== "user_message")) return null;
-            if (entry.type === "display_segment") {
-              return (
-                <DisplaySegmentRenderer
-                  activities={run.activities}
-                  changes={run.changes}
-                  continuationActive={entry.entryId === activeDisplaySegmentId}
-                  key={entry.entryId}
+    <>
+      {conversationTurns.map((turn, turnIndex) => {
+        const initialTurn = turnIndex === 0;
+        const lastTurn = turnIndex === conversationTurns.length - 1;
+        const showRunStream = initialTurn || (expanded && turn.entries.length > 0) || (lastTurn && !active);
+        return (
+          <div className="conversation-turn" key={turn.turnId}>
+            {initialTurn
+              ? <section className="user-turn"><p>{run.prompt}</p></section>
+              : turn.userMessage && (
+                <ActivityView
+                  activity={turn.userMessage.activity}
                   onOpenFile={onOpenFile}
-                  onStopCommand={onStopCommand}
+                  onOpenPlan={onOpenPlan}
                   onTextFrame={onTextFrame}
                   runActive={active}
-                  segment={entry.segment}
                 />
-              );
-            }
-            return (
-              <ActivityView
-                runActive={active}
-                key={entry.entryId}
-                onOpenFile={onOpenFile}
-                onOpenPlan={onOpenPlan}
-                onTextFrame={onTextFrame}
-                plan={plans.filter((plan) => plan.callId === entry.activity.tool?.callId).sort((left, right) => right.revision - left.revision)[0]}
-                activity={entry.activity}
-              />
-            );
-          })}
-        </section>
-      )}
-      {!active && (
-        <section className="final-answer">
-          <MarkdownContent text={(run.status === "failed" ? run.error : undefined) || run.answer || run.error || "本次工作未产生回答。"} />
-        </section>
-      )}
-      {!active && <ChangePanel delta={run.changes} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />}
-    </div>
+              )}
+            {showRunStream && (
+              <div className={`run-stream ${active ? "" : "completed-stream"}`}>
+                {initialTurn && (
+                  <button
+                    aria-expanded={expanded}
+                    className={`run-status-pill ${active ? "is-live" : ""} ${expanded ? "is-expanded" : ""}`}
+                    onClick={() => setExpanded((value) => !value)}
+                    type="button"
+                  >
+                    <span>{active
+                      ? (run.status === "waiting" ? "等待批准" : "正在工作")
+                      : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
+                    <span>{elapsed(run)}</span>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                  </button>
+                )}
+                {expanded && turn.entries.length > 0 && (
+                  <section className="work-process" aria-label="工作过程">
+                    {turn.entries.map((entry) => {
+                      if (entry.type === "display_segment") {
+                        return (
+                          <DisplaySegmentRenderer
+                            activities={run.activities}
+                            changes={run.changes}
+                            continuationActive={entry.entryId === activeDisplaySegmentId}
+                            key={entry.entryId}
+                            onOpenFile={onOpenFile}
+                            onStopCommand={onStopCommand}
+                            onTextFrame={onTextFrame}
+                            runActive={active}
+                            segment={entry.segment}
+                          />
+                        );
+                      }
+                      return (
+                        <ActivityView
+                          activity={entry.activity}
+                          key={entry.entryId}
+                          onOpenFile={onOpenFile}
+                          onOpenPlan={onOpenPlan}
+                          onTextFrame={onTextFrame}
+                          plan={plans.filter((plan) => plan.callId === entry.activity.tool?.callId).sort((left, right) => right.revision - left.revision)[0]}
+                          runActive={active}
+                        />
+                      );
+                    })}
+                  </section>
+                )}
+                {lastTurn && !active && (
+                  <section className="final-answer">
+                    <MarkdownContent text={(run.status === "failed" ? run.error : undefined) || run.answer || run.error || "本次工作未产生回答。"} />
+                  </section>
+                )}
+                {lastTurn && !active && <ChangePanel delta={run.changes} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }

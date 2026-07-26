@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { testSystem, TestRunRegistry as RunRegistry } from "./support/system";
 import { RunLauncher } from "../server/app/runLauncher";
 import { CancelRun } from "../server/app/cancelRun";
@@ -27,10 +29,11 @@ import { SUMMARY_MODEL_BY_PROVIDER } from "../server/bootstrap/runtime";
 import { emptyCapabilitySource } from "../shared/contracts/capability";
 import { emptyRuleSource } from "../shared/contracts/rules";
 import { Provider } from "../shared/contracts/provider";
-import { EVENT_VERSION, Event, EventPayloadMap, EventType, SessionInput } from "../shared/contracts/runtime";
+import { EVENT_VERSION, Event, EventPayloadMap, EventType, Session, SessionInput } from "../shared/contracts/runtime";
 import { createSession, reduceEvent } from "../shared/domain/reducer";
 import { decodeLegacyEvent } from "../shared/legacy/decoder";
 import { decodeLegacyContextEntry } from "../shared/legacy/context";
+import { RunTimeline } from "../src/components/RunTimeline";
 
 const createdAt = "2026-07-18T00:00:00.000Z";
 const registration: SessionInput = {
@@ -392,6 +395,160 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     await app.close();
     store.close();
     rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("steers an active HTTP Run into model context and the top-level conversation flow", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-steer-e2e-"));
+  const store = new RuntimeStore(directory);
+  const registry = new RunRegistry();
+  const requests: Parameters<Provider["stream"]>[0][] = [];
+  let markFirstRequestStarted: () => void = () => undefined;
+  const firstRequestStarted = new Promise<void>((resolve) => { markFirstRequestStarted = resolve; });
+  const provider: Provider = {
+    capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: true, supportsThinking: true, supportsTools: true },
+    async stream(request) {
+      requests.push(request);
+      if (requests.length === 1) {
+        markFirstRequestStarted();
+        return new Promise((_resolve, reject) => {
+          const abort = () => reject(request.signal?.reason ?? new DOMException("aborted", "AbortError"));
+          if (request.signal?.aborted) abort();
+          else request.signal?.addEventListener("abort", abort, { once: true });
+        });
+      }
+      const latestUser = [...request.messages].reverse().find((message) => message.role === "user");
+      assert.deepEqual(latestUser, { role: "user", text: "先停下来检查接口，再继续" });
+      request.onFragment?.({ kind: "answer", text: "已根据引导继续。" });
+      return {
+        answer: "已根据引导继续。",
+        continuationMessage: { role: "assistant", text: "已根据引导继续。" },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+  const providerFor = () => ({ model: "mock-agent", provider });
+  const launcher = new RunLauncher(
+    providerFor,
+    registry,
+    (input) => runAgent({ ...input, tools: toolHost }),
+    store
+  );
+  const startRun = new StartRun({
+    context: defaultContextConfig,
+    defaultModel: "mock-agent",
+    launcher,
+    store,
+    system: testSystem,
+    workspace: { canonicalize: path.resolve, ensureScratch: (sessionId) => ensureScratchWorkspace(directory, sessionId), resolveProjectRoot: async () => directory },
+    workspaceRoot: directory
+  });
+  const contextQueries = new ContextQueries({
+    capabilities: emptyCapabilitySource,
+    context: defaultContextConfig,
+    defaultModel: "mock-agent",
+    rules: emptyRuleSource,
+    store,
+    system: testSystem,
+    tools: toolHost.specs,
+    workspaceRoot: directory
+  });
+  const followUps = new FollowUpService({ registry, startRun, store, system: testSystem });
+  const app = createHttp({
+    cancelRun: new CancelRun(registry, commandManager),
+    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, models: [], workspaceRoot: directory },
+    contextQueries,
+    followUps,
+    launcher,
+    providerFor,
+    registry,
+    sessions: new SessionService(store),
+    startRun,
+    store,
+    workspace: new WorkspaceQueries(store, {
+      describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
+      readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
+    })
+  });
+  const auth = { authorization: "Bearer runtime-test-token" };
+
+  try {
+    const started = await app.inject({
+      headers: auth,
+      method: "POST",
+      payload: { accessMode: "full_access", model: "mock-agent", prompt: "先实现原始任务" },
+      url: "/api/sessions/session_steer_e2e/runs"
+    });
+    assert.equal(started.statusCode, 200);
+    const runId = (started.json() as { run: { runId: string } }).run.runId;
+    await firstRequestStarted;
+
+    const queued = await app.inject({
+      headers: auth,
+      method: "POST",
+      payload: {
+        accessMode: "full_access",
+        mode: "work",
+        model: "mock-agent",
+        planEntry: "suggest",
+        prompt: "先停下来检查接口，再继续"
+      },
+      url: "/api/sessions/session_steer_e2e/follow-ups"
+    });
+    assert.equal(queued.statusCode, 200);
+    const followUpId = (queued.json() as { session: { followUps: Array<{ followUpId: string }> } }).session.followUps[0].followUpId;
+    const runFinished = new Promise<void>((resolve) => registry.afterRun(runId, resolve));
+
+    const steered = await app.inject({
+      headers: auth,
+      method: "POST",
+      url: `/api/sessions/session_steer_e2e/follow-ups/${followUpId}/steer`
+    });
+    assert.equal(steered.statusCode, 200);
+    const immediateSession = (steered.json() as { session: Session }).session;
+    const immediateRun = immediateSession.runs.find((run) => run.runId === runId)!;
+    assert.equal(immediateRun.activities.at(-1)?.kind, "user_message");
+    assert.equal(immediateRun.activities.at(-1)?.body, "先停下来检查接口，再继续");
+    assert.equal(immediateSession.followUps.length, 0);
+
+    await runFinished;
+    const snapshot = await app.inject({ headers: auth, method: "GET", url: "/api/sessions/session_steer_e2e" });
+    assert.equal(snapshot.statusCode, 200);
+    const completedSession = (snapshot.json() as { session: Session }).session;
+    const completedRun = completedSession.runs.find((run) => run.runId === runId)!;
+    assert.equal(completedRun.status, "completed");
+    assert.equal(completedRun.answer, "已根据引导继续。");
+    assert.equal(requests.length, 2);
+
+    const replay = await app.inject({ headers: auth, method: "GET", url: "/api/sessions/session_steer_e2e/events?afterOffset=0" });
+    const replayedEvents = (replay.json() as { events: Event[] }).events;
+    const userMessageStart = replayedEvents.find(
+      (event): event is Event<"activity.started"> => event.type === "activity.started" && event.data.kind === "user_message"
+    );
+    assert.equal(userMessageStart?.data.body, "先停下来检查接口，再继续");
+    assert.equal(replayedEvents.some((event) => event.type === "activity.finished" && event.scope.activityId === userMessageStart?.scope.activityId), true);
+    const storedSteers = store.readContextEntries("session_steer_e2e")
+      .filter((entry) => entry.kind === "human_text" && entry.metadata?.steerId === followUpId);
+    assert.equal(storedSteers.length, 1);
+
+    const html = renderToStaticMarkup(createElement(RunTimeline, {
+      onOpenFile: () => undefined,
+      onOpenPlan: () => undefined,
+      onOpenReview: () => undefined,
+      onStopCommand: () => undefined,
+      plans: [],
+      run: completedRun
+    }));
+    assert.equal(html.match(/class="conversation-turn"/gu)?.length, 2);
+    assert.match(html, /<div class="conversation-turn"><article class="user-turn steer-user-turn"><p>先停下来检查接口，再继续<\/p><\/article>/u);
+    assert.doesNotMatch(html, /class="work-process"[^>]*>[\s\S]*steer-user-turn/u);
+  } finally {
+    followUps.close();
+    await app.close();
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
   }
 });
 

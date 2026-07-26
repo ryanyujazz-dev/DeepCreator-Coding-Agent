@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, TerminalSquare, Wrench } from "lucide-react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { Activity, Plan } from "../../shared/contracts/runtime";
 import {
   activityTitle,

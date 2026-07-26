@@ -6,7 +6,7 @@ import {
   TestTube2,
   Wrench
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Activity,
   Changes

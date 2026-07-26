@@ -195,17 +195,15 @@ export function Conversation({
             <div className="conversation-notice" key={`notice-${index}`}>{notice}</div>
           ))}
           {session.runs.map((run) => (
-            <div className="conversation-turn" key={run.runId}>
-              <section className="user-turn"><p>{run.prompt}</p></section>
-              <RunTimeline
-                run={run}
-                onOpenFile={onOpenFile}
-                onOpenPlan={onOpenPlan}
-                onOpenReview={onOpenReview}
-                onStopCommand={onStopCommand}
-                plans={session.plans.filter((plan) => plan.runId === run.runId)}
-              />
-            </div>
+            <RunTimeline
+              key={run.runId}
+              run={run}
+              onOpenFile={onOpenFile}
+              onOpenPlan={onOpenPlan}
+              onOpenReview={onOpenReview}
+              onStopCommand={onStopCommand}
+              plans={session.plans.filter((plan) => plan.runId === run.runId)}
+            />
           ))}
           <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 30}px` }} />
         </div>
