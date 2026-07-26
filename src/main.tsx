@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { App } from "./app/index";
 import { runtimeApi } from "./runtimeApi";
 import { ThemeProvider } from "./theme/ThemeProvider";
+import { installWorkingGlowMotion } from "./workingGlowMotion";
 import "./styles.css";
 
 async function bootstrap(): Promise<void> {
@@ -10,13 +11,15 @@ async function bootstrap(): Promise<void> {
     const connection = await window.deepseeker.runtime.connection();
     runtimeApi.configure(connection);
   }
-  ReactDOM.createRoot(document.getElementById("root")!).render(
+  const rootElement = document.getElementById("root")!;
+  ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <ThemeProvider>
         <App />
       </ThemeProvider>
     </React.StrictMode>
   );
+  installWorkingGlowMotion(rootElement);
 }
 
 void bootstrap().catch((error) => {

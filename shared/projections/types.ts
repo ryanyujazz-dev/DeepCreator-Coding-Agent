@@ -71,7 +71,7 @@ export type ToolAggregate = {
   successCount: number;
   failureCount: number;
   cancelledCount: number;
-  status: Exclude<ActivityStatus, "running">;
+  status: ActivityStatus;
   summaryLabel: string;
 };
 

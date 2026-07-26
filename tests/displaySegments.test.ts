@@ -125,6 +125,7 @@ test("creates no empty aggregate on tool start and creates it immediately on don
   const completedRead = activity(2);
   const after = onlySegment(run([content, completedRead]));
   assert.equal(after.aggregate?.summaryLabel, "已读取 1 个文件");
+  assert.equal(after.aggregate?.status, "completed");
   assert.equal(after.activitySlots[0]?.logicalState, "empty");
   assert.equal(after.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 });
@@ -305,9 +306,11 @@ test("shows only the last running tool and falls back to the remaining tool", ()
   const partiallySettled = onlySegment(run([message(1, "开始检查。"), activity(2), second]));
   assert.deepEqual(partiallySettled.activitySlots.map((slot) => slot.visual.label), ["正在读取 .env"]);
   assert.deepEqual(partiallySettled.aggregate?.memberActivityIds, ["activity_2"]);
+  assert.equal(partiallySettled.aggregate?.status, "running");
 
   const lastSettled = onlySegment(run([message(1, "开始检查。"), first, activity(3, {
     tool: tool({ callId: "call_3", displayTarget: ".env", normalizedTarget: ".env" })
   })]));
   assert.deepEqual(lastSettled.activitySlots.map((slot) => slot.visual.label), ["正在读取 App.tsx"]);
+  assert.equal(lastSettled.aggregate?.status, "running");
 });

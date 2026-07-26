@@ -2,17 +2,31 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
+  Database,
   Files,
+  FolderTree,
   FolderSearch,
+  Gauge,
+  GitCompare,
+  Globe2,
+  Hammer,
   ListTree,
+  ListChecks,
+  MonitorCog,
+  PackagePlus,
   PencilLine,
+  Play,
+  Rocket,
   Search,
+  Settings2,
   TestTube2,
-  TerminalSquare
+  TerminalSquare,
+  Wrench
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   Activity,
+  AggregateHeadlineKind,
   FileChange,
   Changes
 } from "../../shared/contracts/runtime";
@@ -363,11 +377,34 @@ export function ActivityGroupRenderer({
   );
 }
 
+const aggregateIconByHeadline: Record<AggregateHeadlineKind, typeof Search> = {
+  browse: FolderTree,
+  locate: Search,
+  read: Files,
+  review: GitCompare,
+  inspect_environment: MonitorCog,
+  modify: PencilLine,
+  modify_and_verify: ListChecks,
+  configure_environment: Settings2,
+  execute: TerminalSquare,
+  verify: TestTube2,
+  verify_runtime: Gauge,
+  build: Hammer,
+  install_dependencies: PackagePlus,
+  prepare_environment: Wrench,
+  start_service: Play,
+  start_database: Database,
+  initialize_database: Database,
+  external: Globe2,
+  deploy: Rocket
+};
+
 function aggregateIcon(aggregate: ToolAggregate) {
-  return aggregate.status === "failed" ? <CircleAlert size={13} /> : <CheckCircle2 size={13} />;
+  const Icon = aggregateIconByHeadline[aggregate.headlineKind];
+  return <Icon size={13} />;
 }
 
-function AggregateSummary({ aggregate }: { aggregate: ToolAggregate }) {
+function AggregateSummary({ aggregate, active }: { aggregate: ToolAggregate; active: boolean }) {
   const failureText = aggregate.failureCount > 0 ? `${aggregate.failureCount} 项失败` : "";
   const cancelledText = aggregate.cancelledCount > 0 ? `${aggregate.cancelledCount} 项已取消` : "";
   const failureLabel = failureText ? ` · ${failureText}` : "";
@@ -378,7 +415,7 @@ function AggregateSummary({ aggregate }: { aggregate: ToolAggregate }) {
     .join(" · ");
   return (
     <>
-      <span className="activity-aggregate-headline">{aggregate.headlineLabel}</span>
+      <span className={`activity-aggregate-headline ${active ? "working-glow" : ""}`}>{aggregate.headlineLabel}</span>
       {baseLabel && <><span className="activity-aggregate-divider"> | </span><span>{baseLabel}</span></>}
       {failureLabel && <span className="operation-group-failure">{failureLabel}</span>}
       {cancelledLabel && <span className="operation-group-cancelled">{cancelledLabel}</span>}
@@ -388,11 +425,13 @@ function AggregateSummary({ aggregate }: { aggregate: ToolAggregate }) {
 
 export function ActivityAggregateRenderer({
   aggregate,
+  active = false,
   onOpenFile,
   activities,
   changes
 }: {
   aggregate: ToolAggregate;
+  active?: boolean;
   onOpenFile: (path: string) => void;
   activities: Activity[];
   changes: Changes;
@@ -411,6 +450,7 @@ export function ActivityAggregateRenderer({
     setHasOpened(true);
     setExpanded((value) => !value);
   };
+  const headlineActive = active || aggregate.status === "running";
 
   return (
     <article className={`operation-group activity-aggregate is-${aggregate.status} ${expanded ? "is-expanded" : ""}`}>
@@ -421,7 +461,7 @@ export function ActivityAggregateRenderer({
         onToggle={toggleExpanded}
       >
         <span className="operation-group-icon">{aggregateIcon(aggregate)}</span>
-        <span className="operation-group-action"><AggregateSummary aggregate={aggregate} /></span>
+        <span className="operation-group-action"><AggregateSummary active={headlineActive} aggregate={aggregate} /></span>
         <ChevronRight className="operation-summary-chevron" size={13} />
       </DisclosureRow>
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>

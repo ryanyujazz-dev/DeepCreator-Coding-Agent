@@ -226,6 +226,7 @@ function bucketLabel(bucket: string, activities: Activity[], hasFailures: boolea
 function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
   const settled = draft.tools.filter((activity) => activity.status !== "running");
   if (settled.length === 0) return undefined;
+  const hasRunning = draft.tools.some((activity) => activity.status === "running");
   const buckets = new Map<string, Activity[]>();
   for (const activity of settled.filter((item) => item.status === "completed")) {
     const bucket = aggregateBucket(activity);
@@ -237,7 +238,9 @@ function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
     failureCount > 0 ? `${failureCount} 项失败` : "",
     cancelledCount > 0 ? `${cancelledCount} 项已取消` : ""
   ].filter(Boolean).join(" · ");
-  const status = failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
+  const status = hasRunning
+    ? "running"
+    : failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
   const summary = [...buckets].map(([bucket, activities]) => bucketLabel(bucket, activities, failureCount > 0)).join(" · ");
   const headlineKind = draft.tools.reduce<ReturnType<typeof headlineKindForTool> | undefined>((dominant, activity) => {
     const candidate = activity.tool?.stepHeadline ?? headlineKindForTool(activity.tool!);

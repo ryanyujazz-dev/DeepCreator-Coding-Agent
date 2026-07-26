@@ -66,6 +66,8 @@
   --color-text-secondary: #5f6a70;
   --color-text-muted: #778188;
   --color-text-subtle: #929aa0;
+  --color-execution-muted: #8e969b;
+  --color-execution-highlight: #ffffff;
   --color-control-idle: #aeb5b9;
   --color-border: rgba(38, 50, 56, 0.09);
   --color-surface: #ffffff;
@@ -101,8 +103,8 @@
 
   --execution-icon-column: 16px;
   --execution-column-gap: 5px;
-  --execution-slot-gap: 8px;
-  --execution-expanded-gap: calc(var(--execution-slot-gap) / 2);
+  --execution-slot-gap: 12px;
+  --execution-expanded-gap: var(--space-1);
   font-family: var(--font-family-ui);
   background: var(--app-chrome);
   color: var(--app-text);
@@ -900,7 +902,7 @@ textarea:disabled {
   border: 1px solid rgba(44, 57, 62, 0.08);
   border-radius: 8px;
   background: #fbfbfa;
-  color: #879195;
+  color: var(--color-execution-muted);
   cursor: pointer;
   font-size: 13px;
   font-weight: 720;
@@ -909,7 +911,7 @@ textarea:disabled {
 
 .run-status-pill.is-live {
   border-color: rgba(49, 136, 244, 0.68);
-  color: #6f7b80;
+  color: var(--color-execution-muted);
   box-shadow: 0 0 0 2px rgba(49, 136, 244, 0.08);
 }
 
@@ -925,8 +927,8 @@ textarea:disabled {
 .work-process {
   display: grid;
   --process-content-color: #303638;
-  --process-muted-color: #8f979a;
-  --process-detail-color: #969da0;
+  --process-muted-color: var(--color-execution-muted);
+  --process-detail-color: var(--color-execution-muted);
   --process-content-size: var(--type-conversation-size);
   --process-meta-size: var(--process-content-size);
   gap: var(--execution-slot-gap);
@@ -1054,12 +1056,12 @@ textarea:disabled {
 }
 
 .activity-aggregate-headline {
-  color: var(--color-text);
-  font-weight: 600;
+  color: var(--process-muted-color);
+  font-weight: inherit;
 }
 
 .activity-aggregate-divider {
-  color: var(--color-text-subtle);
+  color: var(--process-muted-color);
   white-space: pre;
 }
 
@@ -1283,6 +1285,20 @@ textarea:disabled {
   color: #252d30;
 }
 
+.activity-aggregate .operation-group-summary[aria-expanded="true"] .operation-group-action,
+.activity-aggregate .operation-group-summary[aria-expanded="true"] .operation-group-action * {
+  color: var(--process-muted-color);
+}
+
+.activity-aggregate .operation-group-summary:hover .operation-group-action,
+.activity-aggregate .operation-group-summary:hover .operation-group-action *,
+.activity-aggregate .operation-group-summary:focus-visible .operation-group-action,
+.activity-aggregate .operation-group-summary:focus-visible .operation-group-action * {
+  color: var(--color-text) !important;
+  background-image: none;
+  animation: none;
+}
+
 .operation-group-summary:hover:not(:has(.operation-summary-file:hover)) .operation-diff-metrics b,
 .operation-group-summary:focus-visible .operation-diff-metrics b {
   color: #159447;
@@ -1315,7 +1331,7 @@ textarea:disabled {
 
 .operation-group-failure,
 .operation-group-cancelled {
-  color: #a4abad;
+  color: var(--process-muted-color);
   font: inherit;
   font-weight: 450;
 }
@@ -1331,19 +1347,25 @@ textarea:disabled {
   50% { opacity: 1; }
 }
 
-.working-glow {
+.working-glow,
+.purpose-sweep {
+  --working-sweep-width: 50px;
+  --working-sweep-duration: 1.5s;
   color: transparent !important;
-  background-image: linear-gradient(90deg, #879195 0%, #879195 42%, #657075 50%, #879195 58%, #879195 100%);
-  background-position: 110% 50%;
-  background-size: 220% 100%;
+  background-image: linear-gradient(
+    90deg,
+    var(--process-muted-color, var(--color-execution-muted)) 0%,
+    var(--color-execution-highlight) 50%,
+    var(--process-muted-color, var(--color-execution-muted)) 100%
+  ), linear-gradient(
+    var(--process-muted-color, var(--color-execution-muted)),
+    var(--process-muted-color, var(--color-execution-muted))
+  );
+  background-position: calc(0px - var(--working-sweep-width)) 50%, 0 50%;
+  background-repeat: no-repeat, no-repeat;
+  background-size: var(--working-sweep-width) 100%, 100% 100%;
   background-clip: text;
   -webkit-background-clip: text;
-  animation: working-light-sweep 2.6s linear infinite;
-}
-
-@keyframes working-light-sweep {
-  0% { background-position: 110% 50%; }
-  100% { background-position: -110% 50%; }
 }
 
 .operation-group-expander,
@@ -6641,7 +6663,7 @@ body {
   flex: 0 0 auto;
   border-radius: var(--radius-circle);
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--color-execution-muted);
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
 }
@@ -6753,7 +6775,7 @@ body {
 }
 
 .ui-confirmation-dialog p {
-  color: var(--color-text-muted);
+  color: var(--color-execution-muted);
   font-size: var(--type-body-size);
   line-height: var(--type-body-line-height);
 }
@@ -6808,11 +6830,44 @@ body {
 /* Agent execution rows share one icon column and one text column at every level. */
 .work-process {
   --process-content-color: var(--color-text);
-  --process-muted-color: var(--color-text-muted);
-  --process-detail-color: var(--color-text-muted);
+  --process-muted-color: var(--color-execution-muted);
+  --process-detail-color: var(--color-execution-muted);
   --process-content-size: var(--type-conversation-size);
   --process-meta-size: var(--type-conversation-size);
   font-family: var(--font-family-ui);
+}
+
+/* The execution flow uses one neutral gray; semantic success/failure colors remain distinct. */
+.work-process .display-activity-slot.is-empty strong,
+.work-process .activity-slot-elapsed,
+.work-process .activity-slot-toggle svg,
+.work-process .operation-group-icon,
+.work-process .operation-group-action,
+.work-process .operation-summary-file,
+.work-process .operation-diff-metrics,
+.work-process .operation-summary-chevron,
+.work-process .operation-group-failure,
+.work-process .operation-group-cancelled,
+.work-process .activity-aggregate-headline,
+.work-process .activity-aggregate-divider,
+.work-process .operation-file-summary-icon,
+.work-process .operation-file-summary,
+.work-process .operation-file-summary-name,
+.work-process .operation-file-summary-chevron,
+.work-process .operation-call-row,
+.work-process .operation-call-row > span:first-child,
+.work-process .operation-call-row > svg,
+.work-process .operation-detail-icon,
+.work-process .operation-detail-panel > header,
+.work-process .operation-detail-copy,
+.work-process .operation-detail-chevron,
+.work-process .operation-detail-empty {
+  color: var(--process-muted-color);
+}
+
+.work-process .operation-summary-file,
+.work-process .operation-file-summary-name {
+  border-bottom-color: var(--process-muted-color);
 }
 
 /* Slot spacing belongs to the timeline structure, never to an individual slot body. */
@@ -7026,7 +7081,7 @@ body {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: var(--color-text-muted);
+  color: var(--color-execution-muted);
   font-size: var(--type-conversation-size);
   font-weight: 500;
   line-height: var(--type-conversation-line-height);
@@ -7037,13 +7092,13 @@ body {
   border: 0;
   background: transparent;
   box-shadow: none;
-  color: var(--color-text-muted);
+  color: var(--color-execution-muted);
 }
 
 .run-status-pill:hover:not(:disabled),
 .run-status-pill:focus-visible:not(:disabled) {
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text);
 }
 
 @media (max-width: 760px) {
@@ -9305,36 +9360,9 @@ html[data-color-scheme="dark"] .appearance-mode-card.is-light .appearance-mode-v
 /* Text-only activity animation for the initial thinking seed. */
 .purpose-sweep {
   display: inline-block;
-  color: inherit;
-  background-image:
-    linear-gradient(
-      90deg,
-      transparent 0%,
-      transparent 12%,
-      color-mix(in srgb, white 28%, transparent) 28%,
-      color-mix(in srgb, white 82%, transparent) 44%,
-      white 50%,
-      color-mix(in srgb, white 82%, transparent) 56%,
-      color-mix(in srgb, white 28%, transparent) 72%,
-      transparent 88%,
-      transparent 100%
-    ),
-    linear-gradient(currentColor, currentColor);
-  background-position: -164px 0, 0 0;
-  background-repeat: no-repeat;
-  background-size: 164px 100%, 100% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: purpose-text-sweep 1.5s linear infinite;
   line-height: inherit;
   vertical-align: baseline;
   white-space: nowrap;
-}
-
-@keyframes purpose-text-sweep {
-  0% { background-position: -164px 0, 0 0; }
-  86%, 100% { background-position: calc(100% + 164px) 0, 0 0; }
 }
 
 .display-activity-slot.is-thinking {
@@ -9351,6 +9379,8 @@ html[data-color-scheme="dark"] .appearance-mode-card.is-light .appearance-mode-v
 
 @media (prefers-reduced-motion: reduce) {
   .purpose-sweep {
+    color: inherit !important;
+    background: none;
     animation: none;
   }
 

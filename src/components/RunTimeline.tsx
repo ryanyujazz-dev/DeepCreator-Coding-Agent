@@ -36,6 +36,9 @@ export function RunTimeline({
         .filter((activity) => activity.kind === "message" && activity.body.trim() === run.answer.trim())
         .map((activity) => activity.activityId));
   const timelineEntries = projectDisplayTimeline(run, run.activities, { suppressedContentActivityIds });
+  const activeDisplaySegmentId = run.status === "running"
+    ? [...timelineEntries].reverse().find((entry) => entry.type === "display_segment")?.entryId
+    : undefined;
   const [expanded, setExpanded] = useState(active);
   useEffect(() => setExpanded(active), [active]);
   return (
@@ -59,6 +62,7 @@ export function RunTimeline({
                 <DisplaySegmentRenderer
                   activities={run.activities}
                   changes={run.changes}
+                  continuationActive={entry.entryId === activeDisplaySegmentId}
                   key={entry.entryId}
                   onOpenFile={onOpenFile}
                   onStopCommand={onStopCommand}

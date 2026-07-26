@@ -12,7 +12,8 @@ test("keeps one semantic token source and the licensed HarmonyOS font", () => {
   assert.match(styles, /--font-family-ui:\s*"HarmonyOS Sans SC"/);
   assert.match(styles, /--type-conversation-size:\s*14px/);
   assert.match(styles, /--execution-icon-column:\s*16px/);
-  assert.match(styles, /--execution-slot-gap:\s*8px/);
+  assert.match(styles, /--color-execution-muted:\s*#8e969b/);
+  assert.match(styles, /--execution-slot-gap:\s*12px/);
 
   const font = path.join(root, "src/assets/fonts/HarmonyOS_Sans_SC.ttf");
   const license = path.join(root, "src/assets/fonts/LICENSE-HarmonyOS-Sans.txt");
@@ -32,7 +33,7 @@ test("binds every execution hierarchy level to shared typography and columns", (
 test("uses structural gaps for equal execution slot spacing", () => {
   assert.match(styles, /\.work-process\s*\{[^}]*gap:\s*var\(--execution-slot-gap\)/s);
   assert.match(styles, /\.display-segment\s*\{[^}]*gap:\s*var\(--execution-slot-gap\)/s);
-  assert.match(styles, /--execution-expanded-gap:\s*calc\(var\(--execution-slot-gap\) \/ 2\)/);
+  assert.match(styles, /--execution-expanded-gap:\s*var\(--space-1\)/);
   assert.match(styles, /\.operation-group-details\s*\{[^}]*margin:\s*var\(--execution-expanded-gap\) 0 0;[^}]*gap:\s*var\(--execution-expanded-gap\)/s);
   assert.match(styles, /\.operation-detail-panel\s*\{[^}]*margin-top:\s*var\(--execution-expanded-gap\)/s);
   assert.match(styles, /\.work-process \.work-body,\s*\.work-process \.operation-group\s*\{[^}]*padding-bottom:\s*0/s);
@@ -56,11 +57,47 @@ test("anchors the scroll-to-bottom control to the responsive composer center", (
 
 test("keeps aggregate failures muted instead of coloring the entire header", () => {
   assert.match(styles, /\.operation-group\.is-failed \.operation-group-icon,[\s\S]*color:\s*var\(--process-muted-color\)/);
-  assert.match(styles, /\.operation-group-failure,[\s\S]*color:\s*#a4abad/);
+  assert.match(styles, /\.operation-group-failure,[\s\S]*color:\s*var\(--process-muted-color\)/);
 
   const renderer = readFileSync(path.join(root, "src/components/ActivityGroupRenderer.tsx"), "utf8");
   assert.match(renderer, /className="operation-group-failure"/);
-  assert.match(renderer, /<AggregateSummary aggregate=\{aggregate\}/);
+  assert.match(renderer, /<AggregateSummary active=\{headlineActive\} aggregate=\{aggregate\}/);
+});
+
+test("uses semantic aggregate icons and keeps the current aggregate active through model reasoning", () => {
+  const renderer = readFileSync(path.join(root, "src/components/ActivityGroupRenderer.tsx"), "utf8");
+  const segmentRenderer = readFileSync(path.join(root, "src/components/DisplaySegmentRenderer.tsx"), "utf8");
+  const timeline = readFileSync(path.join(root, "src/components/RunTimeline.tsx"), "utf8");
+  const workingGlowMotion = readFileSync(path.join(root, "src/workingGlowMotion.ts"), "utf8");
+  assert.match(styles, /\.activity-aggregate-headline\s*\{[^}]*color:\s*var\(--process-muted-color\)/s);
+  assert.match(styles, /\.activity-aggregate-headline\s*\{[^}]*font-weight:\s*inherit/s);
+  assert.match(styles, /\.activity-aggregate \.operation-group-summary\[aria-expanded="true"\] \.operation-group-action \*[\s\S]*color:\s*var\(--process-muted-color\)/);
+  assert.match(styles, /\.activity-aggregate \.operation-group-summary:hover \.operation-group-action \*[\s\S]*color:\s*var\(--color-text\) !important/s);
+  assert.match(styles, /The execution flow uses one neutral gray;[\s\S]*\.work-process \.operation-detail-chevron,[\s\S]*color:\s*var\(--process-muted-color\)/);
+  assert.match(renderer, /aggregateIconByHeadline:\s*Record<AggregateHeadlineKind/);
+  assert.match(renderer, /browse:\s*FolderTree/);
+  assert.match(renderer, /modify:\s*PencilLine/);
+  assert.match(renderer, /execute:\s*TerminalSquare/);
+  assert.match(renderer, /start_database:\s*Database/);
+  assert.match(renderer, /deploy:\s*Rocket/);
+  assert.match(renderer, /headlineActive = active \|\| aggregate\.status === "running"/);
+  assert.match(renderer, /active \? "working-glow" : ""/);
+  assert.match(segmentRenderer, /slotActive = slot\.logicalState === "active" \|\| continuationActive/);
+  assert.match(segmentRenderer, /slotActive \? "working-glow" : ""/);
+  assert.doesNotMatch(segmentRenderer, /isThinking \? "purpose-sweep" : "working-glow"/);
+  assert.match(styles, /\.working-glow,\s*\.purpose-sweep\s*\{[^}]*--working-sweep-width:\s*50px;[^}]*--working-sweep-duration:\s*1\.5s/s);
+  assert.match(styles, /--color-execution-highlight:\s*#ffffff/);
+  assert.match(styles, /var\(--process-muted-color, var\(--color-execution-muted\)\) 0%,\s*var\(--color-execution-highlight\) 50%,\s*var\(--process-muted-color, var\(--color-execution-muted\)\) 100%/s);
+  assert.match(styles, /background-repeat:\s*no-repeat, no-repeat;[\s\S]*background-size:\s*var\(--working-sweep-width\) 100%, 100% 100%/);
+  assert.match(workingGlowMotion, /WORKING_SWEEP_BEAT_MS = 1_500/);
+  assert.match(workingGlowMotion, /WORKING_SWEEP_WIDTH_PX = 50/);
+  assert.match(workingGlowMotion, /animation\.currentTime = timelineTime % metrics\.periodMs/);
+  assert.doesNotMatch(styles, /@keyframes working-light-sweep/);
+  assert.doesNotMatch(styles, /background-position:\s*110% 50%/);
+  assert.doesNotMatch(styles, /purpose-text-sweep/);
+  assert.match(timeline, /activeDisplaySegmentId = run\.status === "running"/);
+  assert.match(timeline, /continuationActive=\{entry\.entryId === activeDisplaySegmentId\}/);
+  assert.doesNotMatch(renderer, /aggregate\.status === "failed" \? <CircleAlert/);
 });
 
 test("colors only the failure word in expanded activity rows", () => {
@@ -97,7 +134,9 @@ test("keeps primary conversation controls visible and aligned", () => {
   assert.match(styles, /\.ui-icon-button\.send-button:disabled\s*\{[^}]*opacity:\s*1/s);
   assert.match(styles, /\.run-status-pill\s*\{[^}]*padding:\s*0;[^}]*background:\s*transparent/s);
   assert.match(styles, /\.run-stream\s*\{[^}]*border-top:\s*0;/s);
-  assert.match(styles, /\.run-status-pill\[aria-expanded="true"\]\s*\{[^}]*color:\s*var\(--color-text-muted\)/s);
+  assert.match(styles, /\.run-status-pill\s*\{[^}]*color:\s*var\(--color-execution-muted\)/s);
+  assert.match(styles, /\.run-status-pill\[aria-expanded="true"\]\s*\{[^}]*color:\s*var\(--color-execution-muted\)/s);
+  assert.match(styles, /\.run-status-pill:hover:not\(:disabled\),[\s\S]*color:\s*var\(--color-text\)/s);
 
   const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
   assert.match(conversation, /const \[composerPortalTarget, setComposerPortalTarget\]/);

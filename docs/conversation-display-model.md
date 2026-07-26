@@ -111,11 +111,13 @@ Rules:
 
 - If the aggregate result is empty, there is no aggregate header slot.
 - The header appears only after the first tool `done`.
+- After the header appears, it remains visually active while any tool in the segment is running or while the Agent is still reasoning after those tool results. The dominant headline and the held activity label use the same motion class and rate. Motion stops when new user-facing content starts the next segment, the Run waits for input, or the Run reaches a terminal state; the settled headline then returns to the single neutral execution gray.
 - Runtime buffers the complete tool-call step and derives one dominant work intent before executing it.
 - Headline arbitration uses tool semantics, targets, command effects, and confidence rather than call counts. Shell plumbing such as `cd`, `echo`, and `sleep` has no headline weight.
 - Generic command execution is a fallback and must not automatically outrank an explicit file mutation. Recognized effects such as dependency installation, service startup, database initialization, verification, and deployment may outrank reads or edits when they describe the step's actual result.
 - Comparable modification and verification work may use a combined intent such as `Modify and verify project`.
 - The dominant intent supplies a stable, non-past-tense headline such as `Locate related content`, `Configure project environment`, `Start database`, or `Verify runtime`.
+- The icon before the headline represents that dominant intent rather than a generic completion checkmark.
 - The headline may promote at most once per sealed model step and never demotes inside one display segment.
 - Completed facts remain separate from the headline, for example:
   - `[Read related information | Read 1 file]`
