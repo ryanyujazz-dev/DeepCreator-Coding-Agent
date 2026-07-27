@@ -1,0 +1,21 @@
+{
+  "caseId": "CAE-001",
+  "status": "ready",
+  "base": {
+    "kind": "git",
+    "revision": "HEAD"
+  },
+  "assertions": [
+    {
+      "id": "run-completed",
+      "kind": "run_completed",
+      "points": 20
+    },
+    {
+      "id": "workspace-unchanged",
+      "kind": "git_diff_empty",
+      "points": 10
+    }
+  ],
+  "timeoutMs": 300000
+}

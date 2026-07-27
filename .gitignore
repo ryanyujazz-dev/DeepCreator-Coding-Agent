@@ -8,3 +8,5 @@ output/
 .DS_Store
 .env.local
 .deepseeker/
+.eval-worktrees/
+evals/runs/

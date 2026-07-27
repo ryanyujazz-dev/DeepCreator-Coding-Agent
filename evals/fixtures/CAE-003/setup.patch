@@ -1,0 +1,13 @@
+diff --git a/shared/projections/displaySegments.ts b/shared/projections/displaySegments.ts
+index e95e074..fb2ca4b 100644
+--- a/shared/projections/displaySegments.ts
++++ b/shared/projections/displaySegments.ts
+@@ -320,7 +320,7 @@ export function projectDisplayTimeline(
+       continue;
+     }
+     if (activity.kind === "message") {
+-      if (current && (current.contentSeen || current.tools.length > 0)) {
++      if (current && current.contentSeen) {
+         // The next content visually replaces the old activity slot while anchoring a new segment.
+         current.transientBoundary = current.transients.length;
+         current = createDraft(activity);

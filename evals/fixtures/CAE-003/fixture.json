@@ -1,0 +1,27 @@
+{
+  "caseId": "CAE-003",
+  "status": "ready",
+  "base": {
+    "kind": "git",
+    "revision": "HEAD"
+  },
+  "setupPatch": "setup.patch",
+  "assertions": [
+    {
+      "id": "display-segment-regression",
+      "kind": "command",
+      "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/displaySegments.test.ts",
+      "expectedExitCode": 0,
+      "points": 20
+    },
+    {
+      "id": "event-contract-unchanged",
+      "kind": "git_diff_excludes",
+      "paths": [
+        "shared/contracts/runtime.ts"
+      ],
+      "points": 10
+    }
+  ],
+  "timeoutMs": 600000
+}
