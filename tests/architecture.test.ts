@@ -22,7 +22,7 @@ function countMatches(source: string, pattern: RegExp): number {
   return [...source.matchAll(pattern)].length;
 }
 
-test("typechecks shared, server, renderer, desktop, tooling, and tests as separate projects", () => {
+test("typechecks shared, server, renderer, desktop, evals, tooling, and tests as separate projects", () => {
   const solution = JSON.parse(readFileSync(path.join(root, "tsconfig.json"), "utf8")) as {
     files?: string[];
     references?: Array<{ path: string }>;
@@ -35,6 +35,7 @@ test("typechecks shared, server, renderer, desktop, tooling, and tests as separa
       "./tsconfig.server.json",
       "./tsconfig.renderer.json",
       "./tsconfig.desktop.json",
+      "./tsconfig.evals.json",
       "./tsconfig.tooling.json",
       "./tsconfig.tests.json"
     ]

@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deepseeker.local/evals/agent-eval-case.schema.json",
+  "title": "DeepSeeker Agent Eval Dataset",
+  "type": "object",
+  "required": ["dataset", "scoring", "cases"],
+  "properties": {
+    "dataset": {
+      "type": "object",
+      "required": ["id", "version", "language", "caseCount", "status"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "language": { "const": "zh-CN" },
+        "caseCount": { "const": 20 },
+        "status": { "enum": ["spec_only", "runnable", "released"] }
+      },
+      "additionalProperties": false
+    },
+    "scoring": {
+      "type": "object",
+      "required": ["passScore", "dimensions", "hardFailRules"],
+      "properties": {
+        "passScore": { "type": "number", "minimum": 0, "maximum": 100 },
+        "dimensions": {
+          "type": "object",
+          "required": ["taskOutcome", "processContent", "toolTrajectory", "verification", "safety", "efficiency"],
+          "properties": {
+            "taskOutcome": { "const": 30 },
+            "processContent": { "const": 25 },
+            "toolTrajectory": { "const": 15 },
+            "verification": { "const": 15 },
+            "safety": { "const": 10 },
+            "efficiency": { "const": 5 }
+          },
+          "additionalProperties": false
+        },
+        "hardFailRules": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 20,
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/evalCase" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "evalCase": {
+      "type": "object",
+      "required": [
+        "caseId",
+        "title",
+        "scenario",
+        "difficulty",
+        "riskLevel",
+        "fixture",
+        "userRequest",
+        "modeExpectation",
+        "tools",
+        "idealTrajectory",
+        "contentEvaluation",
+        "successCriteria",
+        "failureModes",
+        "tags"
+      ],
+      "properties": {
+        "caseId": { "type": "string", "pattern": "^CAE-[0-9]{3}$" },
+        "title": { "type": "string", "minLength": 1 },
+        "scenario": {
+          "enum": [
+            "code_explanation",
+            "bug_fix",
+            "feature_implementation",
+            "test_completion",
+            "refactor_optimization",
+            "documentation",
+            "data_processing",
+            "environment_dependency"
+          ]
+        },
+        "difficulty": { "enum": ["easy", "medium", "hard"] },
+        "riskLevel": { "enum": ["low", "medium", "high"] },
+        "fixture": {
+          "type": "object",
+          "required": ["id", "status", "description"],
+          "properties": {
+            "id": { "type": "string" },
+            "status": { "enum": ["planned", "ready"] },
+            "description": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "userRequest": { "type": "string", "minLength": 1 },
+        "modeExpectation": {
+          "type": "object",
+          "required": ["initialMode", "planBehavior", "userConfirmation"],
+          "properties": {
+            "initialMode": { "enum": ["work", "plan"] },
+            "planBehavior": { "enum": ["not_required", "recommended", "required"] },
+            "userConfirmation": { "enum": ["not_required", "required_before_mutation", "required_for_ambiguity"] }
+          },
+          "additionalProperties": false
+        },
+        "tools": {
+          "type": "object",
+          "required": ["allowed", "forbidden", "expected"],
+          "properties": {
+            "allowed": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "forbidden": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "expected": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+          },
+          "additionalProperties": false
+        },
+        "idealTrajectory": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": ["intent", "observableOutcome"],
+            "properties": {
+              "intent": { "type": "string" },
+              "observableOutcome": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "contentEvaluation": {
+          "type": "object",
+          "required": ["checkpoints", "groundedFacts", "forbiddenClaims"],
+          "properties": {
+            "checkpoints": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "object",
+                "required": ["stage", "purpose", "mustInclude", "mustAvoid"],
+                "properties": {
+                  "stage": { "enum": ["before_tools", "after_investigation", "before_mutation", "before_verification", "final"] },
+                  "purpose": { "type": "string" },
+                  "mustInclude": { "type": "array", "items": { "type": "string" } },
+                  "mustAvoid": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+              }
+            },
+            "groundedFacts": { "type": "array", "items": { "type": "string" } },
+            "forbiddenClaims": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "successCriteria": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": ["criterionId", "evaluator", "assertion"],
+            "properties": {
+              "criterionId": { "type": "string" },
+              "evaluator": { "enum": ["deterministic", "trace_rule", "llm_judge"] },
+              "assertion": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "failureModes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["code", "layer", "severity", "description"],
+            "properties": {
+              "code": { "type": "string" },
+              "layer": { "enum": ["model", "tool", "context", "interaction", "feedback"] },
+              "severity": { "enum": ["minor", "major", "critical"] },
+              "description": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": false
+    }
+  }
+}
