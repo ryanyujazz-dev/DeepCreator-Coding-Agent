@@ -46,8 +46,8 @@ export function TaskProgress({
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        <span className={active ? "working-glow" : ""}>{active ? "正在执行" : "等待决定"}</span>
-        <strong className={active ? "working-glow" : ""}>{label}</strong>
+        <span>{active ? "正在执行" : "等待决定"}</span>
+        <strong>{label}</strong>
         {expandable && <ChevronDown className="task-progress-chevron" size={14} />}
       </button>
       {open && (

@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   EVENT_VERSION,
+  Delegation,
   Event,
+  EventPayloadMap,
   EventType,
   Run,
   Session,
@@ -23,6 +25,7 @@ import { SessionStore } from "./sessionStore";
 import { createContextEntry } from "./contextEntry";
 import {
   ContextPort,
+  DelegationPort,
   EventInput,
   EventPort,
   EventSubscriber,
@@ -46,7 +49,7 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-export class RuntimeStore implements EventPort, SessionPort, ContextPort, EvidencePort, MemoryPort, MetricPort, StoreLifecyclePort {
+export class RuntimeStore implements EventPort, SessionPort, DelegationPort, ContextPort, EvidencePort, MemoryPort, MetricPort, StoreLifecyclePort {
   readonly startupReport: RuntimeStoreStartupReport;
   private readonly contexts: ContextStore;
   private readonly database: Database;
@@ -96,6 +99,72 @@ export class RuntimeStore implements EventPort, SessionPort, ContextPort, Eviden
     this.sessions.set(input.sessionId, session);
     this.publish(input.sessionId, [event]);
     return clone(session);
+  }
+
+  createDelegatedRun(input: {
+    childRun: EventPayloadMap["run.started"] & { runId: string };
+    childSession: Omit<SessionInput, "createdAt">;
+    delegation: Delegation;
+  }): { childSession: Session; parentSession: Session } {
+    if (this.sessions.has(input.childSession.sessionId)) throw new Error("Child session already exists.");
+    const parent = this.sessions.get(input.delegation.parentSessionId);
+    if (!parent) throw new Error("Parent session not found.");
+    const at = input.delegation.createdAt;
+    const registration: SessionInput = { ...input.childSession, createdAt: at };
+    const createdEvent: Event<"session.created"> = {
+      at,
+      data: registration,
+      eventId: `${registration.sessionId}:1`,
+      offset: 1,
+      scope: { sessionId: registration.sessionId },
+      type: "session.created",
+      version: EVENT_VERSION
+    };
+    const runEvent: Event<"run.started"> = {
+      at,
+      data: {
+        mode: input.childRun.mode,
+        model: input.childRun.model,
+        prompt: input.childRun.prompt,
+        startedAt: input.childRun.startedAt
+      },
+      eventId: `${registration.sessionId}:2`,
+      offset: 2,
+      scope: { runId: input.childRun.runId, sessionId: registration.sessionId },
+      type: "run.started",
+      version: EVENT_VERSION
+    };
+    const child = reduceEvent(createSession(registration, 1), runEvent);
+    const parentOffset = parent.lastOffset + 1;
+    const parentEvent: Event<"delegation.created"> = {
+      at,
+      data: { delegation: input.delegation },
+      eventId: `${parent.sessionId}:${parentOffset}`,
+      offset: parentOffset,
+      scope: { sessionId: parent.sessionId },
+      type: "delegation.created",
+      version: EVENT_VERSION
+    };
+    const nextParent = reduceEvent(parent, parentEvent);
+    this.events.appendAcross([
+      { events: [createdEvent, runEvent], session: child },
+      { events: [parentEvent], session: nextParent }
+    ], () => {
+      this.contexts.append({
+        createdAt: at,
+        kind: "human_text",
+        recordId: `context_${input.delegation.delegationId}_message`,
+        runId: input.childRun.runId,
+        sessionId: registration.sessionId,
+        source: "user",
+        text: input.childRun.prompt
+      });
+    });
+    this.sessions.set(child.sessionId, child);
+    this.sessions.set(nextParent.sessionId, nextParent);
+    this.publish(child.sessionId, [createdEvent, runEvent]);
+    this.publish(nextParent.sessionId, [parentEvent]);
+    return { childSession: clone(child), parentSession: clone(nextParent) };
   }
 
   append<K extends Exclude<EventType, "session.created">>(input: EventInput<K>): Event<K> {

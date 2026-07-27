@@ -50,7 +50,7 @@ export class RunLauncher implements RunLaunchPort {
       if (!run || ["completed", "failed", "cancelled"].includes(run.status)) return;
       const cancelled = controller.signal.aborted;
       finishRun({
-        answer: cancelled ? "运行已取消。" : "本次运行未能完成。",
+        answer: "",
         error: cancelled ? "用户取消了运行。" : error instanceof Error ? error.message : String(error),
         failureType: cancelled ? "cancelled" : "runtime_error",
         projectRoot: input.projectRoot,

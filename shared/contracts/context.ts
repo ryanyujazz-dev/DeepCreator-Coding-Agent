@@ -10,7 +10,8 @@ export type ContextKind =
   | "recovery_capsule"
   | "checkpoint"
   | "runtime_fact"
-  | "mode_context";
+  | "mode_context"
+  | "delegation_result";
 
 export type ContextSource =
   | "user"
@@ -169,7 +170,7 @@ export type ContextStats = {
 export type ContextLayerId = "kernel" | "session" | "checkpoint" | "trajectory" | "runtime";
 
 /** 系统提醒标签类型 — 统一替换原有 XML 信封标签 */
-export type SystemReminderType = "context" | "checkpoint" | "mode" | "recovery" | "guidance";
+export type SystemReminderType = "context" | "checkpoint" | "mode" | "recovery" | "guidance" | "delegation_result";
 
 /** 缓存控制标记(预留,当前 DeepSeek 隐式缓存不需要;未来 Anthropic 需要显式 cache_control) */
 export type CacheControl = { type: "ephemeral"; ttl?: "1h" };

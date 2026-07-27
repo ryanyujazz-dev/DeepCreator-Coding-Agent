@@ -38,6 +38,8 @@ export class RunRegistry {
   private readonly finishListeners = new Map<string, Set<() => void>>();
   private readonly interruptibleSteps = new Map<string, InterruptibleStep>();
   private readonly steers = new Map<string, RunSteer[]>();
+  private readonly children = new Map<string, Set<string>>();
+  private readonly parents = new Map<string, string>();
 
   constructor(readonly system: SystemPort) {}
 
@@ -57,6 +59,12 @@ export class RunRegistry {
     this.interruptibleSteps.delete(runId);
     this.runs.delete(runId);
     this.steers.delete(runId);
+    const parent = this.parents.get(runId);
+    if (parent) {
+      this.children.get(parent)?.delete(runId);
+      this.parents.delete(runId);
+    }
+    if ((this.children.get(runId)?.size ?? 0) === 0) this.children.delete(runId);
     const listeners = this.finishListeners.get(runId);
     this.finishListeners.delete(runId);
     listeners?.forEach((listener) => listener());
@@ -128,8 +136,20 @@ export class RunRegistry {
   cancelRun(runId: string): boolean {
     const controller = this.runs.get(runId);
     if (!controller) return false;
+    for (const childRunId of this.childRunIds(runId)) this.cancelRun(childRunId);
     controller.abort();
     return true;
+  }
+
+  linkChild(parentRunId: string, childRunId: string): void {
+    const children = this.children.get(parentRunId) ?? new Set<string>();
+    children.add(childRunId);
+    this.children.set(parentRunId, children);
+    this.parents.set(childRunId, parentRunId);
+  }
+
+  childRunIds(parentRunId: string): string[] {
+    return [...(this.children.get(parentRunId) ?? [])];
   }
 
   waitForRun(runId: string, timeoutMs = 15_000): Promise<boolean> {

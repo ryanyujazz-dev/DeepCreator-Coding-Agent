@@ -29,6 +29,21 @@ export class EventStore {
     });
   }
 
+  appendAcross(entries: Array<{ events: Event[]; session: Session }>, appendRelated?: () => void): void {
+    this.database.transaction(() => {
+      for (const entry of entries) {
+        for (const event of entry.events) this.insert(event);
+        const runIds = new Set(entry.events.flatMap((event) => event.scope.runId ? [event.scope.runId] : []));
+        this.sessions.save(entry.session);
+        for (const runId of runIds) {
+          const run = entry.session.runs.find((item) => item.runId === runId);
+          if (run) this.sessions.save(entry.session, run);
+        }
+      }
+      appendRelated?.();
+    });
+  }
+
   import(events: Event[], session: Session): void {
     this.database.transaction(() => {
       for (const event of events) this.insert(event);

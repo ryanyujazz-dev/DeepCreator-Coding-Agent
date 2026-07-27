@@ -457,3 +457,55 @@ html[data-color-scheme="dark"] :is(
   color: inherit;
 }
 
+.agent-surface {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-primary);
+}
+
+.agent-surface .conversation-scroll {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-composer-stack {
+  left: var(--space-5);
+  right: var(--space-5);
+}
+
+.delegation-call-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: left;
+}
+
+.delegation-call-row > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delegation-status {
+  color: var(--text-tertiary);
+  font-size: var(--type-meta-size);
+  white-space: nowrap;
+}
+
+.delegation-status.is-failed,
+.delegation-status.is-cancelled {
+  color: var(--status-danger);
+}
+
+.delegation-status.is-waiting {
+  color: var(--status-warning);
+}

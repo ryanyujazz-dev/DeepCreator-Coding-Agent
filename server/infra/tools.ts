@@ -141,13 +141,13 @@ export async function executeTool(input: {
 
 
 function registrationFor(name: string): ToolRegistration {
-  const registration = toolRegistry.find((tool) => tool.name === name);
+  const registration = toolRegistry.find((tool) => tool.name === (name === "spawn_agent" ? "delegate" : name));
   if (!registration) throw new Error(`未知工具：${name}`);
   return registration;
 }
 
 export function hasTool(name: string): boolean {
-  return toolRegistry.some((tool) => tool.name === name);
+  return name === "spawn_agent" || toolRegistry.some((tool) => tool.name === name);
 }
 
 export function toolNames(): string[] {
@@ -155,6 +155,7 @@ export function toolNames(): string[] {
 }
 
 export function toolCanRunInParallel(name: string): boolean {
+  if (name === "delegate" || name === "spawn_agent") return true;
   if (name === "run_command") return true;
   if (name === "search_memory") return false;
   const registration = toolRegistry.find((tool) => tool.name === name);
@@ -235,6 +236,7 @@ function resultMetricsFor(
 }
 
 export function activityKindForTool(tool: ToolState): ActivityKind {
+  if (tool.toolName === "delegate" || tool.toolName === "spawn_agent") return "delegation";
   if (tool.toolName === "submit_plan") return "plan";
   if (tool.action === "modify") return "file_mutation";
   if (tool.action === "execute" || tool.action === "verify") return "command";
@@ -264,7 +266,8 @@ export function toolTitle(name: string): string {
     multi_edit: "批量编辑文件",
     fetch_url: "抓取网页",
     web_search: "联网搜索",
-    spawn_agent: "启动子 Agent"
+    delegate: "委派子代理",
+    spawn_agent: "委派子代理"
   } as Record<string, string>)[name] ?? name;
 }
 

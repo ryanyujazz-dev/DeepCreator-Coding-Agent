@@ -280,6 +280,34 @@ test("supports a tool-only segment while preserving the held start label", () =>
   assert.equal(segment.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 });
 
+test("projects delegation as its own aggregate semantic and promotes child status", () => {
+  const delegated = activity(2, {
+    delegation: {
+      agentId: "explorer",
+      childRunId: "run_child",
+      childSessionId: "session_child",
+      createdAt: "2026-07-20T10:00:02.000Z",
+      delegationId: "delegation_1",
+      message: "Inspect routing",
+      status: "waiting",
+      updatedAt: "2026-07-20T10:00:02.500Z"
+    },
+    kind: "delegation",
+    tool: tool({
+      action: "execute",
+      callId: "call_delegate",
+      effect: "control_only",
+      normalizedTarget: "explorer",
+      targetKind: "workspace",
+      toolName: "delegate"
+    })
+  });
+  const segment = onlySegment(run([message(1, "我会委派调查。"), delegated]));
+  assert.equal(segment.aggregate?.semantic, "delegation");
+  assert.equal(segment.aggregate?.status, "running");
+  assert.equal(segment.aggregate?.summaryLabel, "已委派 1 个子代理");
+});
+
 test("starts content after a tool-only segment without moving its aggregate header", () => {
   const toolOnly = [thinking(1, "completed"), activity(2)];
   const before = projectDisplayTimeline(run(toolOnly));

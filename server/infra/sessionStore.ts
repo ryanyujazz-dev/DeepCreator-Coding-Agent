@@ -20,15 +20,30 @@ export class SessionStore {
 
   save(session: Session, run?: Run): void {
     this.database.raw.prepare(`INSERT INTO sessions
-      (session_id, title, project_root, search_text, updated_at, session_json)
-      VALUES (?, ?, ?, ?, ?, ?)
+      (session_id, title, project_root, search_text, updated_at, session_json, session_kind, parent_session_id, parent_run_id, origin_delegation_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         title = excluded.title,
         project_root = excluded.project_root,
         search_text = excluded.search_text,
         updated_at = excluded.updated_at,
-        session_json = excluded.session_json`)
-      .run(session.sessionId, session.title, session.projectRoot, searchText(session), session.updatedAt, JSON.stringify(session));
+        session_json = excluded.session_json,
+        session_kind = excluded.session_kind,
+        parent_session_id = excluded.parent_session_id,
+        parent_run_id = excluded.parent_run_id,
+        origin_delegation_id = excluded.origin_delegation_id`)
+      .run(
+        session.sessionId,
+        session.title,
+        session.projectRoot,
+        searchText(session),
+        session.updatedAt,
+        JSON.stringify(session),
+        session.kind ?? "primary",
+        session.parentSessionId ?? null,
+        session.parentRunId ?? null,
+        session.originDelegationId ?? null
+      );
     if (run) {
       this.database.raw.prepare(`INSERT INTO runs (run_id, session_id, status, started_at, run_json)
         VALUES (?, ?, ?, ?, ?)
@@ -72,12 +87,12 @@ export class SessionStore {
       ? this.database.raw.prepare(`SELECT sessions.session_json, sidebar.pinned_at
           FROM sessions
           LEFT JOIN session_sidebar_state sidebar ON sidebar.session_id = sessions.session_id
-          WHERE sidebar.archived_at IS NULL AND lower(sessions.search_text) LIKE ?
+          WHERE sessions.session_kind = 'primary' AND sidebar.archived_at IS NULL AND lower(sessions.search_text) LIKE ?
           ORDER BY (sidebar.pinned_at IS NOT NULL) DESC, sidebar.pinned_at DESC, sessions.updated_at DESC`).all(`%${normalized}%`)
       : this.database.raw.prepare(`SELECT sessions.session_json, sidebar.pinned_at
           FROM sessions
           LEFT JOIN session_sidebar_state sidebar ON sidebar.session_id = sessions.session_id
-          WHERE sidebar.archived_at IS NULL
+          WHERE sessions.session_kind = 'primary' AND sidebar.archived_at IS NULL
           ORDER BY (sidebar.pinned_at IS NOT NULL) DESC, sidebar.pinned_at DESC, sessions.updated_at DESC`).all();
     return (rows as Array<{ pinned_at?: string; session_json: string }>).map((row) => ({ row, session: decodeStoredSession(JSON.parse(row.session_json)) })).map(({ row, session }) => ({
       active: session.runs.some((run) => run.status === "running" || run.status === "waiting" || run.status === "queued"),

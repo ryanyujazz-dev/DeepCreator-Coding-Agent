@@ -69,7 +69,7 @@ test("injects time and identity into the execution chain", () => {
   const execution = sourceOf([
     path.join(root, "server/app/runRegistry.ts"),
     path.join(root, "server/app/runner.ts"),
-    path.join(root, "server/app/subAgent.ts"),
+    path.join(root, "server/app/delegationCoordinator.ts"),
     path.join(root, "server/app/toolPipeline.ts")
   ]);
   assert.doesNotMatch(execution, /["']node:crypto["']/);

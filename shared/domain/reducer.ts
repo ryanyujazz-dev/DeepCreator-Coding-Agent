@@ -63,6 +63,61 @@ export function reduceEvent(current: Session, event: Event): Session {
     return next;
   }
 
+  if (event.type === "delegation.created") {
+    next.delegations ??= [];
+    if (!next.delegations.some((item) => item.delegationId === event.data.delegation.delegationId)) {
+      next.delegations.push(clone(event.data.delegation));
+    }
+    const delegation = event.data.delegation;
+    const run = next.runs.find((item) => item.runId === delegation.parentRunId);
+    const activity = run?.activities.find((item) => item.activityId === delegation.parentActivityId);
+    if (activity) {
+      activity.delegation = {
+        agentId: delegation.agentId,
+        childRunId: delegation.childRunId,
+        childSessionId: delegation.childSessionId,
+        createdAt: delegation.createdAt,
+        delegationId: delegation.delegationId,
+        message: delegation.message,
+        status: delegation.status,
+        updatedAt: delegation.updatedAt
+      };
+    }
+    return next;
+  }
+
+  if (event.type === "delegation.updated") {
+    const delegation = next.delegations?.find((item) => item.delegationId === event.data.delegationId);
+    if (!delegation) return next;
+    Object.assign(delegation, clone(event.data));
+    const run = next.runs.find((item) => item.runId === delegation.parentRunId);
+    const activity = run?.activities.find((item) => item.activityId === delegation.parentActivityId);
+    if (activity) {
+      activity.delegation = {
+        agentId: delegation.agentId,
+        childRunId: delegation.childRunId,
+        childSessionId: delegation.childSessionId,
+        content: delegation.content,
+        createdAt: delegation.createdAt,
+        delegationId: delegation.delegationId,
+        error: delegation.error,
+        message: delegation.message,
+        status: delegation.status,
+        updatedAt: delegation.updatedAt
+      };
+    }
+    return next;
+  }
+
+  if (event.type === "delegation.delivered") {
+    const delegation = next.delegations?.find((item) => item.delegationId === event.data.delegationId);
+    if (delegation) {
+      delegation.deliveryStatus = "delivered";
+      delegation.updatedAt = event.data.deliveredAt;
+    }
+    return next;
+  }
+
   if (event.type === "run.started") {
     const data = event.data;
     const runId = event.scope.runId;
@@ -260,6 +315,8 @@ export function createSession(input: SessionInput, offset = 0): Session {
     contextTokens: 0,
     grants: [],
     followUps: [],
+    delegations: [],
+    kind: input.kind ?? "primary",
     mode: input.mode ?? "work",
     planEntry: input.planEntry ?? "suggest",
     plans: [],

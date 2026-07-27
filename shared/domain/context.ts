@@ -38,7 +38,7 @@ export function modelMessageFromEntry(record: ContextEntry): ModelMessage | unde
   if (record.kind === "tool_result") {
     return { role: "tool", text: record.text ?? "", toolCallKey: record.toolCallKey };
   }
-  if (["context_update", "recovery_capsule", "mode_context", "runtime_fact"].includes(record.kind)) {
+  if (["context_update", "recovery_capsule", "mode_context", "runtime_fact", "delegation_result"].includes(record.kind)) {
     return { role: "user", text: record.text ?? "" };
   }
   return undefined;

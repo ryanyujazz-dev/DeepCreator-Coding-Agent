@@ -35,6 +35,7 @@ function elapsed(run: Run): string {
 
 export function RunTimeline({
   run,
+  onOpenAgent,
   onOpenFile,
   onOpenReview,
   onStopCommand,
@@ -43,6 +44,7 @@ export function RunTimeline({
   onTextFrame
 }: {
   run: Run;
+  onOpenAgent?: (childSessionId: string, delegationId: string, title?: string) => void;
   onOpenFile: (path: string) => void;
   onOpenReview: (delta: Changes) => void;
   onStopCommand: (commandId: string) => void;
@@ -108,6 +110,7 @@ export function RunTimeline({
                             continuationActive={entry.entryId === activeDisplaySegmentId}
                             key={entry.entryId}
                             onOpenFile={onOpenFile}
+                            onOpenAgent={onOpenAgent ?? (() => undefined)}
                             onStopCommand={onStopCommand}
                             onTextFrame={onTextFrame}
                             runActive={active}
@@ -129,9 +132,9 @@ export function RunTimeline({
                     })}
                   </section>
                 )}
-                {lastTurn && !active && (
+                {lastTurn && !active && Boolean((run.status === "failed" ? run.error : run.answer) || run.error) && (
                   <section className="final-answer">
-                    <MarkdownContent text={(run.status === "failed" ? run.error : undefined) || run.answer || run.error || "本次工作未产生回答。"} />
+                    <MarkdownContent text={(run.status === "failed" ? run.error : undefined) || run.answer || run.error || ""} />
                   </section>
                 )}
                 {lastTurn && !active && <ChangePanel delta={run.changes} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />}

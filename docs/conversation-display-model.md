@@ -1,5 +1,11 @@
 # Conversation Display Model
 
+## Delegated Agents
+
+`delegate` is a completed control-tool fact plus a durable child-run reference. Consecutive delegations aggregate into one header with one member per child. A member displays the child agent, delegated message, and live status; selecting it opens the child Session in the Agent Surface instead of exposing raw tool JSON.
+
+Child conversation content never becomes synthetic parent content. Only the typed terminal result enters parent model context, and child status refreshes must never rewrite the original tool start/done facts. The parent-child control tree is not a shared prompt or cache tree.
+
 ## Purpose
 
 This document captures the agreed frontend display model for agent execution flow. It is intentionally stricter than the raw event stream, because the UX goal is not "render every backend activity as one row", but "render a stable set of slots that reuse screen space without visual jumping".

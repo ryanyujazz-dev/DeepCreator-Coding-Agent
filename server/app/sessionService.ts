@@ -1,6 +1,7 @@
 import { AccessMode, Mode, PlanEntry, Run, Session, SessionSummary } from "../../shared/contracts/runtime";
 import { EventPort, SessionPort } from "./runtimeRepo";
 import { AppError } from "./appError";
+import { accessExceeds, agentDefinition, stricterAccess } from "./agentDefinitions";
 
 export class SessionServiceError extends AppError {
   constructor(message: string, readonly kind: "invalid_input" | "not_found" | "conflict") {
@@ -53,6 +54,13 @@ export class SessionService {
     const session = this.get(sessionId);
     if (!accessMode || !["request_approval", "smart_approval", "full_access"].includes(accessMode)) {
       throw new SessionServiceError("invalid permission profile", "invalid_input");
+    }
+    if (session.kind === "subagent" && session.agentId) {
+      const parent = session.parentSessionId ? this.store.getSession(session.parentSessionId) : undefined;
+      const maximum = stricterAccess(parent?.accessMode ?? "request_approval", agentDefinition(session.agentId).maxAccessMode);
+      if (accessExceeds(accessMode, maximum)) {
+        throw new SessionServiceError("subagent permission cannot exceed its parent or agent profile", "conflict");
+      }
     }
     this.store.append({ data: { accessMode }, sessionId: session.sessionId, type: "session.updated" });
     return this.get(session.sessionId);

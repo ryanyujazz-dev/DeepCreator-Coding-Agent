@@ -526,14 +526,13 @@ export const toolRegistry: ToolRegistration[] = [
     }
   },
   {
-    // 子 Agent 任务委派(对标 Claude Code Task / Codex sub-agent)
-    name: "spawn_agent",
-    description: "启动一个新 Agent 处理复杂的多步骤任务。子 Agent 在隔离会话中运行，只有最终摘要会进入父对话，中间步骤不会进入。\n\n适用场景：跨大量文件搜索关键词或模式，让子 Agent 探索而不污染当前上下文；探索陌生的代码库区域；可以并行进行的多方向研究，例如同时查找测试模式、路由结构和数据库 schema；中间探索会消耗过多上下文的任务。\n\n不适用场景：读取一个已知文件，应使用 read_file；简单的单模式搜索，应使用 grep；一至两次工具调用即可解决的任务；需要让用户看到每个步骤，子 Agent 的中间步骤不会展示。\n\n子 Agent 类型：\n- 'Explore'：只读，可使用 read_file、grep、glob、list_files、git_status、search_memory，适合调查和研究\n- 'general-purpose'：除 spawn_agent 外可使用完整工具集，适合需要编辑文件或执行命令的任务\n\n返回值：只返回子 Agent 的最终文本摘要，中间工具调用和 reasoning 不会进入父对话。\n\n并行性：在同一条消息中发起多个 spawn_agent 会并发运行，适合彼此独立的研究任务。\n\n重要：子 Agent 不能继续创建子 Agent，不允许递归。子 Agent 从全新上下文开始，因此 prompt 必须自包含，提供完成任务所需的全部上下文。\n\n示例：\n  spawn_agent(description='查找未捕获的 Promise 拒绝', prompt='扫描 src/ 下所有 .ts 文件，查找没有 .catch() 的 .then() 调用链，并报告每个问题的 file:line。', subagentType='Explore')",
+    // 子代理委派：创建独立 Session/Run，结果通过 Runtime 信封异步回传。
+    name: "delegate",
+    description: "把一个自包含任务委派给独立子代理。子代理拥有独立系统提示词、工具白名单和会话上下文，看不到父对话。工具会立即返回子会话标识；子代理终态结果稍后自动进入当前上下文，父运行在读取结果前不会结束。\n\nagent='explorer' 只调查和读取；agent='worker' 可以修改和验证工作区。同一步可以并行发起多个委派，每个父运行最多 4 个。子代理不能继续委派。\n\n示例：delegate(agent='explorer', message='检查路由注册与对应测试，报告 file:line 和结论。')",
     inputSchema: objectSchema({
-      description: { type: "string", description: "用于日志和活动时间线的简短任务说明" },
-      prompt: { type: "string", description: "给子 Agent 的完整、自包含任务提示词。必须提供全部必要上下文，子 Agent 看不到父对话。" },
-      subagentType: { type: "string", enum: ["Explore", "general-purpose"], description: "'Explore' 使用只读研究工具；'general-purpose' 使用完整工具集，可以编辑文件和运行命令" }
-    }, ["description", "prompt", "subagentType"]),
+      agent: { type: "string", enum: ["explorer", "worker"], description: "要使用的内置子代理" },
+      message: { type: "string", description: "给子代理的完整、自包含用户消息" }
+    }, ["agent", "message"]),
     presentation: {
       groupMode: "standalone",
       detail: COLLAPSED_RAW_DETAIL,
@@ -541,7 +540,7 @@ export const toolRegistry: ToolRegistration[] = [
       importance: "notable",
       action: "execute",
       targetKind: "workspace",
-      resolveTarget: (args) => String(args.description ?? "子 Agent")
+      resolveTarget: (args) => `${String(args.agent ?? "agent")}: ${String(args.message ?? "").slice(0, 80)}`
     }
   }
 ];

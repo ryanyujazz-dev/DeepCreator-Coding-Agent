@@ -33,10 +33,14 @@ import { executeToolStep } from "./toolStepExecutor";
 import { ModelStepStream } from "./modelStepStream";
 import { streamProviderWithRecovery } from "./providerRecovery";
 import { persistAssistantRecord, persistPreparedContext, prepareRuntimeContext } from "./runtimeContext";
+import { AgentId } from "../../shared/contracts/runtime";
+import { DelegationCoordinator } from "./delegationCoordinator";
+import { agentDefinition, createAgentToolHost } from "./agentDefinitions";
 
 export type RunnerPorts = ContextPort & EventPort & EvidencePort & MemoryPort & MetricPort & SessionPort;
 
 type RuntimeInput = {
+  agentPrompt?: string;
   runId: string;
   sessionId: string;
   projectRoot: string;
@@ -55,6 +59,7 @@ type RuntimeInput = {
   summaryModel?: string;
   system: RunRegistry["system"];
   thinkingSummary?: ThinkingSummaryLoop;
+  delegations?: DelegationCoordinator;
 };
 
 export type RunInput = Omit<RuntimeInput, "workspaceBaseline" | "capabilities" | "context" | "rules" | "system" | "thinkingSummary"> & Partial<Pick<RuntimeInput, "capabilities" | "context" | "rules">>;
@@ -98,34 +103,23 @@ function suspendActivity(input: RuntimeInput, activityId: string): void {
 }
 
 async function executeRun(input: RuntimeInput): Promise<void> {
-  // spawn_agent handler:携带 provider/registry/store 等运行时依赖注入到 pipeline。
-  // 子 Agent 在独立 Session 上运行,复用 runAgent,只返回最终摘要。
-  const spawnAgentHandler = async (args: { description: string; prompt: string; subagentType: "Explore" | "general-purpose" }) => {
-    const { spawnSubAgent } = await import("./subAgent");
-    return spawnSubAgent({
-      description: args.description,
-      prompt: args.prompt,
-      subagentType: args.subagentType,
-      parentRunId: input.runId,
-      parentSessionId: input.sessionId,
-      projectRoot: input.projectRoot,
-      model: input.model,
-      store: input.store,
-      tools: input.tools,
-      provider: input.provider,
-      registry: input.registry,
-      rules: input.rules,
-      capabilities: input.capabilities,
-      context: input.context,
-      signal: input.signal
-    });
-  };
-  const pipeline = new ToolPipeline(input.tools, input.rules, input.registry.system, spawnAgentHandler);
+  // delegate 只创建独立子运行；终态结果由 DelegationCoordinator 以类型化消息回注。
+  const delegateHandler = input.delegations ? (args: { activityId: string; agent: AgentId; callId: string; message: string }) => input.delegations!.delegate({
+    ...args,
+    model: input.model,
+    parentRunId: input.runId,
+    parentSessionId: input.sessionId,
+    projectRoot: input.projectRoot
+  }) : undefined;
+  const pipeline = new ToolPipeline(input.tools, input.rules, input.registry.system, delegateHandler);
   const session = input.store.getSession(input.sessionId);
   if (!session) throw new Error("Session 不存在。");
-  const mode = session.mode === "plan" ? "agent" : classifyInteraction(input.prompt, session);
+  const mode = session.kind === "subagent" || session.mode === "plan" ? "agent" : classifyInteraction(input.prompt, session);
   const tools = mode === "direct" ? [] : input.tools.specs;
-  let prepared = await prepareRuntimeContext(input, session, tools, Boolean(input.continuation));
+  const promptAlreadyPersisted = input.store.readContextEntries(input.sessionId).some((record) =>
+    record.runId === input.runId && record.kind === "human_text" && record.text === input.prompt
+  );
+  let prepared = await prepareRuntimeContext(input, session, tools, Boolean(input.continuation) || promptAlreadyPersisted);
 
   const persistContext = (context: BuiltContext) => persistPreparedContext(input, context, {
     onCompactionFinished: (handle, compacted) => finishActivity(input, String(handle), {
@@ -139,7 +133,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     })
   });
   persistContext(prepared);
-  if (!input.continuation) {
+  if (!input.continuation && !promptAlreadyPersisted) {
     input.store.appendContextEntry({
       runId: input.runId,
       kind: "human_text",
@@ -155,7 +149,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       Array.isArray(record.metadata?.guidanceKeys) ? record.metadata.guidanceKeys.map(String) : []
     )
   ]);
-  let answer = "";
   let protocolCorrectionCount = 0;
   let taskMaintenanceCorrectionCount = 0;
   let consecutiveToolProtocolErrors = 0;
@@ -181,10 +174,16 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     }
     return steers.length > 0;
   };
+  const applyDelegationResults = () => {
+    const results = input.delegations?.takeResults(input.runId) ?? [];
+    messages.push(...results);
+    return results.length > 0;
+  };
 
   while (true) {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
     applyPendingSteers();
+    applyDelegationResults();
     if (providerRequestCount > 0 && estimateProviderRequestTokens(messages, tools) >= prepared.thresholdTokens) {
       const refreshedSession = input.store.getSession(input.sessionId)!;
       const refreshed = await prepareRuntimeContext(input, refreshedSession, tools, true);
@@ -279,7 +278,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       if (!input.signal?.aborted && providerStep.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
         if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "cancelled" });
         if (answerActivity) finishActivity(input, answerActivity, { status: "cancelled" });
-        answer = "";
         applyPendingSteers();
         continue;
       }
@@ -291,7 +289,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     if (!input.signal?.aborted && providerStep.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
       if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "cancelled" });
       if (answerActivity) finishActivity(input, answerActivity, { status: "cancelled" });
-      answer = "";
       applyPendingSteers();
       continue;
     }
@@ -341,7 +338,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     if (answerActivity) finishActivity(input, answerActivity, {
       status: "completed"
     });
-    if (response.answer.trim()) answer = response.answer.trim();
     messages.push(response.continuationMessage);
     persistAssistantRecord(input, response.continuationMessage);
     if (response.finishCause === "length" || response.finishCause === "content_filter" || response.finishCause === "insufficient_system_resource") {
@@ -352,6 +348,14 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           : "DeepSeek 推理资源不足，本轮未完成。");
     }
     if (response.toolCalls.length === 0) {
+      if (applyDelegationResults()) {
+        continue;
+      }
+      if ((input.delegations?.activeCount(input.runId) ?? 0) > 0) {
+        await input.delegations!.waitForResult(input.runId, input.signal);
+        applyDelegationResults();
+        continue;
+      }
       if (completionBlock?.kind === "task_maintenance") {
         taskMaintenanceCorrectionCount += 1;
         if (taskMaintenanceCorrectionCount > 2) {
@@ -359,7 +363,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         }
       }
       if (completionBlock) {
-        answer = "";
         messages.push({ role: "user", text: completionBlock.retryMessage });
         continue;
       }
@@ -372,17 +375,25 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         type: "changes.changed"
       });
       if (applyPendingSteers()) {
-        answer = "";
         continue;
       }
       await input.thinkingSummary?.finish();
       if (applyPendingSteers()) {
-        answer = "";
+        continue;
+      }
+      if (applyDelegationResults()) {
+        continue;
+      }
+      if ((input.delegations?.activeCount(input.runId) ?? 0) > 0) {
+        await input.delegations!.waitForResult(input.runId, input.signal);
+        applyDelegationResults();
         continue;
       }
       finishRun({
         runId: input.runId,
-        answer: answer || "已完成。",
+        // The model owns its content. Preserve the terminal payload byte-for-byte,
+        // including whitespace and the empty string; status and errors are separate facts.
+        answer: response.answer,
         status: "completed",
         projectRoot: input.projectRoot,
         sessionId: input.sessionId,
@@ -449,7 +460,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
             toolCallKey: call.callId
           });
         }
-        answer = "";
         applyPendingSteers();
         continue;
       }
@@ -470,7 +480,6 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       messages.push({ role: "user", text: persisted.text ?? "" });
     }
     if (toolControl.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
-      answer = "";
       applyPendingSteers();
       continue;
     }
@@ -536,7 +545,7 @@ export async function runAgent(input: RunInput): Promise<void> {
         runId: input.runId,
         error: cancelled ? "用户取消了运行。" : message,
         failureType: cancelled ? "cancelled" : error instanceof ModelProtocolError ? "provider_protocol_error" : "runtime_error",
-        answer: cancelled ? "运行已取消。" : "本次运行未能完成。",
+        answer: "",
         status: cancelled ? "cancelled" : "failed",
         projectRoot: input.projectRoot,
         sessionId: input.sessionId,
@@ -552,6 +561,7 @@ export async function runAgent(input: RunInput): Promise<void> {
 }
 
 export class Runner {
+  private delegations?: DelegationCoordinator;
   constructor(
     private readonly tools: ToolHost,
     private readonly rules: RuleSource = emptyRuleSource,
@@ -559,7 +569,24 @@ export class Runner {
     private readonly context: ContextConfig = defaultContextConfig
   ) {}
 
+  setDelegationCoordinator(delegations: DelegationCoordinator): void {
+    this.delegations = delegations;
+  }
+
   run(input: Omit<RunInput, "tools">): Promise<void> {
-    return runAgent({ ...input, capabilities: this.capabilities, context: this.context, rules: this.rules, tools: this.tools });
+    const session = input.store.getSession(input.sessionId);
+    if (session?.kind === "subagent" && session.agentId) {
+      const definition = agentDefinition(session.agentId);
+      return runAgent({
+        ...input,
+        agentPrompt: definition.systemPrompt,
+        capabilities: this.capabilities,
+        context: this.context,
+        delegations: this.delegations,
+        rules: this.rules,
+        tools: createAgentToolHost(this.tools, definition)
+      });
+    }
+    return runAgent({ ...input, capabilities: this.capabilities, context: this.context, delegations: this.delegations, rules: this.rules, tools: this.tools });
   }
 }
