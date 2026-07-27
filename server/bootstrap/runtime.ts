@@ -23,6 +23,7 @@ import { ensureScratchWorkspace } from "../infra/sessionWorkspace";
 import { nodeSystem } from "../infra/system";
 import { createHttp } from "../transport/http";
 import { ModelOption, ProviderFamily } from "../../shared/contracts/provider";
+import { DelegationCoordinator } from "../app/delegationCoordinator";
 
 export type RuntimeOptions = {
   apiKey?: string;
@@ -130,6 +131,9 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     return { model: "mock-agent", provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
   };
   const launcher = new RunLauncher(providerFor, registry, (input) => runner.run(input), store);
+  const delegations = new DelegationCoordinator(launcher, registry, store, system);
+  runner.setDelegationCoordinator(delegations);
+  delegations.recover();
   const startRun = new StartRun({
     context,
     defaultModel,

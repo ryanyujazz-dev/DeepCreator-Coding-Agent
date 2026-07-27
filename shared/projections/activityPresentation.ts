@@ -49,6 +49,7 @@ export function activityTitle(activity: Pick<Activity, "kind" | "title" | "tool"
   return ({
     command: "运行命令",
     compaction: "正在压缩上下文",
+    delegation: "委派子代理",
     error: "运行错误",
     file_mutation: "修改文件",
     message: "回复",

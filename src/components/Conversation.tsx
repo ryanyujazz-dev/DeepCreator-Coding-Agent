@@ -27,6 +27,7 @@ const POLL_INTERVAL_MS = 200;
 
 export function Conversation({
   notices,
+  onOpenAgent,
   onOpenFile,
   onOpenPlan,
   onOpenReview,
@@ -34,6 +35,7 @@ export function Conversation({
   session
 }: {
   notices?: string[];
+  onOpenAgent: (childSessionId: string, delegationId: string, title?: string) => void;
   onOpenFile: (path: string) => void;
   onOpenPlan: (runId: string, callId: string) => void;
   onOpenReview: (delta: Changes) => void;
@@ -199,6 +201,7 @@ export function Conversation({
               key={run.runId}
               run={run}
               onOpenFile={onOpenFile}
+              onOpenAgent={onOpenAgent}
               onOpenPlan={onOpenPlan}
               onOpenReview={onOpenReview}
               onStopCommand={onStopCommand}

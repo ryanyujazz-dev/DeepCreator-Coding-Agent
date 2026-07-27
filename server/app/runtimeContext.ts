@@ -21,6 +21,7 @@ import { SystemPort } from "./systemPort";
 export type RuntimeContextPorts = ContextPort & EventPort & EvidencePort & MemoryPort & MetricPort & SessionPort;
 
 export type RuntimeContextInput = {
+  agentPrompt?: string;
   capabilities: CapabilitySource;
   context: ContextConfig;
   model: string;
@@ -53,6 +54,7 @@ export async function prepareRuntimeContext(
   latestUserInRecords = false
 ): Promise<BuiltContext> {
   const contextInput: BuildInput = {
+    agentPrompt: input.agentPrompt,
     capabilityIndex: input.capabilities.digest(input.projectRoot),
     context: input.context,
     runId: input.runId,

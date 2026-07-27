@@ -123,6 +123,7 @@ export function App() {
     activeSurface,
     closeActiveSurface,
     closeSurfaceTab,
+    openAgentSurface,
     openFileSurface,
     openPlanSurface,
     openReviewSurface,
@@ -269,7 +270,7 @@ export function App() {
               session={session}
               workspace={workspace}
             />
-            <Conversation notices={modelNotices} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
+            <Conversation notices={modelNotices} onOpenAgent={openAgentSurface} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
             {(workspace?.exists === false || error) && (
               <div className="conversation-error-overlay">
                 {workspace?.exists === false && <div className="conversation-error-toast" role="alert">项目目录不存在，请新建任务并重新选择项目。</div>}
@@ -333,6 +334,8 @@ export function App() {
               isClosing={surfaceClosing}
               onClose={closeActiveSurface}
               onCloseSurface={closeSurfaceTab}
+              onOpenFile={openFileSurface}
+              onOpenReview={openReviewSurface}
               onRevisePlan={revisePlan}
               onSelectSurface={setActiveSurfaceId}
               onWidthChange={setSurfaceWidth}

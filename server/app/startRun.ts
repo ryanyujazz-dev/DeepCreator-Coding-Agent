@@ -5,6 +5,7 @@ import { EventPort, SessionPort } from "./runtimeRepo";
 import { SystemPort } from "./systemPort";
 import { WorkspacePort } from "./workspacePort";
 import { AppError } from "./appError";
+import { accessExceeds, agentDefinition, stricterAccess } from "./agentDefinitions";
 
 export type StartRunInput = {
   accessMode?: AccessMode;
@@ -48,11 +49,21 @@ export class StartRun {
   async execute(input: StartRunInput): Promise<StartRunResult> {
     const prompt = input.prompt.trim();
     if (!prompt) throw new StartRunError("prompt is required", "invalid_input");
-    const model = input.model ?? this.deps.defaultModel;
+    let model = input.model ?? this.deps.defaultModel;
     let session = this.deps.store.getSession(input.sessionId);
     let projectRoot: string;
 
     if (session) {
+      if (session.kind === "subagent" && session.agentId) {
+        if (input.mode && input.mode !== "work") throw new StartRunError("Subagent tasks always run in work mode.", "conflict");
+        if (input.model && input.model !== session.model) throw new StartRunError("A subagent model is fixed by its agent profile.", "conflict");
+        const parent = session.parentSessionId ? this.deps.store.getSession(session.parentSessionId) : undefined;
+        const maximum = stricterAccess(parent?.accessMode ?? "request_approval", agentDefinition(session.agentId).maxAccessMode);
+        if (input.accessMode && accessExceeds(input.accessMode, maximum)) {
+          throw new StartRunError("Subagent permission cannot exceed its parent or agent profile.", "conflict");
+        }
+        model = session.model;
+      }
       if (input.workspaceKind && input.workspaceKind !== session.workspaceKind) {
         throw new StartRunError("This task is locked to its original workspace.", "conflict");
       }

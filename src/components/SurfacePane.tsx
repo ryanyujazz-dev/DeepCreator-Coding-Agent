@@ -1,6 +1,6 @@
-import { CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
+import { Bot, CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { FileChange, Plan, Run, isRunDone } from "../../shared/contracts/runtime";
+import { Changes, FileChange, Plan, Run, isRunDone } from "../../shared/contracts/runtime";
 import { fileDisplayName } from "../../shared/projections/activityPresentation";
 import { RuntimeFilePreview } from "../runtimeApi";
 import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
@@ -8,12 +8,14 @@ import { PanelResizeHandle } from "./PanelResizeHandle";
 import { PlanSurface } from "./PlanSurface";
 import { IconButton, RowAction } from "../shared-ui/ControlPrimitives";
 import { desktopBridge } from "../platform/desktop";
+import { AgentSurface } from "./AgentSurface";
 
 export type Surface =
-  | { id: string; kind: "file"; path: string }
-  | { files: FileChange[]; id: string; kind: "review"; selectedPath?: string; title?: string }
+  | { id: string; kind: "file"; ownerSessionId: string; path: string }
+  | { files: FileChange[]; id: string; kind: "review"; ownerSessionId?: string; selectedPath?: string; title?: string }
   | { callId: string; id: string; kind: "plan"; runId: string; title?: string }
-  | { id: string; kind: "browser"; title?: string; url: string };
+  | { id: string; kind: "browser"; title?: string; url: string }
+  | { delegationId: string; id: string; kind: "agent"; sessionId: string; title?: string };
 
 function fileBreadcrumbs(file: RuntimeFilePreview): string[] {
   return file.path.split("/").filter(Boolean);
@@ -125,6 +127,7 @@ function surfaceTitle(surface: Surface): string {
   if (surface.kind === "file") return surface.path.split("/").filter(Boolean).at(-1) ?? "文件";
   if (surface.kind === "review") return surface.title ?? "审阅";
   if (surface.kind === "plan") return surface.title ?? "计划";
+  if (surface.kind === "agent") return surface.title ?? "子代理";
   return surface.title ?? surface.url;
 }
 
@@ -132,6 +135,7 @@ function surfaceIcon(surface: Surface) {
   if (surface.kind === "review") return <CheckSquare size={13} />;
   if (surface.kind === "plan") return <Lightbulb size={13} />;
   if (surface.kind === "browser") return <Globe2 size={13} />;
+  if (surface.kind === "agent") return <Bot size={13} />;
   return <FileCode2 size={13} />;
 }
 
@@ -143,6 +147,8 @@ export function SurfacePane({
   isClosing = false,
   onClose,
   onCloseSurface,
+  onOpenFile,
+  onOpenReview,
   onRevisePlan,
   onSelectSurface,
   onWidthChange,
@@ -160,6 +166,8 @@ export function SurfacePane({
   isClosing?: boolean;
   onClose: () => void;
   onCloseSurface: (surfaceId: string) => void;
+  onOpenFile: (path: string, ownerSessionId: string) => void;
+  onOpenReview: (delta: Changes, ownerSessionId?: string) => void;
   onRevisePlan: (plan: Plan, title: string, markdown: string) => Promise<void> | void;
   onSelectSurface: (surfaceId: string) => void;
   onWidthChange: (width: number) => void;
@@ -227,7 +235,14 @@ export function SurfacePane({
                 plan={plans.filter((plan) => plan.runId === surface.runId && plan.callId === surface.callId).sort((left, right) => right.revision - left.revision)[0]}
                 runActive={Boolean(planRun && !isRunDone(planRun.status))}
               />
-            : <BrowserSurface surface={surface} />}
+            : surface.kind === "agent"
+              ? <AgentSurface
+                  key={surface.sessionId}
+                  onOpenFile={(path) => onOpenFile(path, surface.sessionId)}
+                  onOpenReview={(delta) => onOpenReview(delta, surface.sessionId)}
+                  surface={surface}
+                />
+              : <BrowserSurface surface={surface} />}
     </aside>
   );
 }

@@ -79,7 +79,8 @@ function createDraft(activity: Activity): SegmentDraft {
 function toolStartLabel(activity: Activity): string {
   const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
   let action = "正在执行";
-  if (activity.tool?.toolName === "read_file") action = "正在读取";
+  if (activity.tool?.toolName === "delegate" || activity.tool?.toolName === "spawn_agent") action = "委派";
+  else if (activity.tool?.toolName === "read_file") action = "正在读取";
   else if (activity.tool?.toolName === "list_files") action = "正在列出";
   else if (activity.tool?.toolName === "grep") action = "正在搜索";
   else if (activity.tool?.toolName === "glob") action = "正在匹配";
@@ -194,6 +195,7 @@ function aggregateBucket(activity: Activity): string {
   }
   if (activity.tool?.action === "search") return "search";
   if (activity.tool?.action === "verify") return "verify";
+  if (activity.tool?.toolName === "delegate" || activity.tool?.toolName === "spawn_agent") return "delegation";
   if (activity.tool?.toolName === "run_command" || activity.tool?.action === "execute") return "execute";
   if (activity.tool?.action === "external") return "external";
   return "inspect";
@@ -219,6 +221,7 @@ function bucketLabel(bucket: string, activities: Activity[], hasFailures: boolea
   if (bucket === "external_search") return `已检索 ${count} 项外部结果`;
   if (bucket === "external_read") return `已查阅 ${count} 个页面`;
   if (bucket === "review") return `已检查 ${count} 次工作区改动`;
+  if (bucket === "delegation") return `已委派 ${activities.length} 个子代理`;
   if (bucket === "verify") return `已完成 ${count} 项验证`;
   if (bucket === "execute") return hasFailures
     ? `成功运行 ${activities.length} 条命令`
@@ -236,13 +239,21 @@ function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
     const bucket = aggregateBucket(activity);
     buckets.set(bucket, [...(buckets.get(bucket) ?? []), activity]);
   }
-  const failureCount = settled.filter((activity) => activity.status === "failed").length;
-  const cancelledCount = settled.filter((activity) => activity.status === "cancelled").length;
+  const delegationOnly = settled.length > 0 && settled.every((activity) => Boolean(activity.delegation));
+  const failureCount = delegationOnly
+    ? settled.filter((activity) => activity.delegation?.status === "failed").length
+    : settled.filter((activity) => activity.status === "failed").length;
+  const cancelledCount = delegationOnly
+    ? settled.filter((activity) => activity.delegation?.status === "cancelled").length
+    : settled.filter((activity) => activity.status === "cancelled").length;
   const suffix = [
     failureCount > 0 ? `${failureCount} 项失败` : "",
     cancelledCount > 0 ? `${cancelledCount} 项已取消` : ""
   ].filter(Boolean).join(" · ");
-  const status = hasRunning
+  const delegationActive = delegationOnly && settled.some((activity) =>
+    activity.delegation?.status === "running" || activity.delegation?.status === "waiting"
+  );
+  const status = hasRunning || delegationActive
     ? "running"
     : failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
   const summary = [...buckets].map(([bucket, activities]) => bucketLabel(bucket, activities, failureCount > 0)).join(" · ");
@@ -263,8 +274,11 @@ function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
     headlineLabel: headlineLabel(resolvedHeadline),
     memberActivityIds: settled.map((activity) => activity.activityId),
     runId: draft.runId,
+    semantic: delegationOnly ? "delegation" : undefined,
     status,
-    successCount: settled.filter((activity) => activity.status === "completed").length,
+    successCount: delegationOnly
+      ? settled.filter((activity) => activity.delegation?.status === "completed").length
+      : settled.filter((activity) => activity.status === "completed").length,
     summaryLabel: [summary, suffix].filter(Boolean).join(" · "),
     totalCalls: settled.length
   };

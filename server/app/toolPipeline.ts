@@ -1,9 +1,9 @@
 import { ContextInput } from "../../shared/contracts/context";
 import { ModelMessage, ToolCall } from "../../shared/contracts/provider";
-import { AggregateHeadlineKind, EventPayloadMap, ToolState } from "../../shared/contracts/runtime";
+import { AgentId, AggregateHeadlineKind, EventPayloadMap, ToolState } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { emptyRuleSource, RuleSource } from "../../shared/contracts/rules";
-import { approvalFor } from "../domain/accessPolicy";
+import { analyzeCommand, approvalFor } from "../domain/accessPolicy";
 import { reduceToolEvidence } from "./evidence";
 import { hasConflictingControlStep, planPolicy } from "../domain/planPolicy";
 import { contextUpdateRecord, findNewPathInstructions } from "./contextBuilder";
@@ -14,6 +14,8 @@ import { durableToolState } from "./toolFacts";
 import { finishActivity as finishActivityOnce, updateActivity } from "./activityLifecycle";
 import { ControlToolHandlers } from "./controlToolHandlers";
 import { SystemPort } from "./systemPort";
+import { workspaceMutationCoordinator } from "./workspaceMutationCoordinator";
+import { agentDefinition, stricterAccess } from "./agentDefinitions";
 
 export type ToolContext = {
   baseline: Baseline;
@@ -71,11 +73,12 @@ function finishActivity(
   }, durableData);
 }
 
-export type SpawnAgentHandler = (args: {
-  description: string;
-  prompt: string;
-  subagentType: "Explore" | "general-purpose";
-}) => Promise<string>;
+export type DelegateHandler = (args: {
+  activityId: string;
+  agent: AgentId;
+  callId: string;
+  message: string;
+}) => { agentId: AgentId; childRunId: string; childSessionId: string; delegationId: string; status: string };
 
 export class ToolPipeline {
   private readonly controlTools: ControlToolHandlers;
@@ -84,7 +87,7 @@ export class ToolPipeline {
     private readonly host: ToolHost,
     private readonly rules: RuleSource = emptyRuleSource,
     private readonly system: SystemPort,
-    private readonly spawnAgent?: SpawnAgentHandler
+    private readonly delegateAgent?: DelegateHandler
   ) {
     this.controlTools = new ControlToolHandlers(this.host, {
       createId: this.system.createId,
@@ -92,7 +95,7 @@ export class ToolPipeline {
       now: this.system.now,
       record: (input, call, modelStepId, text, metadata, isError) =>
         this.record(input, call, modelStepId, text, metadata, isError)
-    }, this.spawnAgent);
+    }, this.delegateAgent);
   }
 
   stepRejection(calls: ToolCall[], modelStepId: string, projectRoot: string): string | undefined {
@@ -131,6 +134,8 @@ export class ToolPipeline {
   ): Promise<ToolOutcome> {
     let activityId = existingActivityId;
     let retainedCommandBaseline = false;
+    let workspaceRelease: (() => void) | undefined;
+    let workspaceLeaseTransferred = false;
     try {
       if (input.signal?.aborted) throw input.signal.reason ?? new DOMException("当前工具步骤已中断。", "AbortError");
       // normalize
@@ -209,7 +214,13 @@ export class ToolPipeline {
       }
 
       // authorize
-      const approval = approvalFor({ args, grants: session.grants, profile: session.accessMode, runId: input.runId, toolName: call.name });
+      const parentAccess = session.kind === "subagent" && session.parentSessionId
+        ? input.store.getSession(session.parentSessionId)?.accessMode
+        : undefined;
+      const profile = session.kind === "subagent" && session.agentId
+        ? stricterAccess(session.accessMode, stricterAccess(parentAccess ?? "request_approval", agentDefinition(session.agentId).maxAccessMode))
+        : session.accessMode;
+      const approval = approvalFor({ args, grants: session.grants, profile, runId: input.runId, toolName: call.name });
       if (approval) {
         const decision = await input.registry.requestApproval({
           ...approval,
@@ -235,6 +246,9 @@ export class ToolPipeline {
       }
 
       // execute
+      const mutatesWorkspace = prepared.effect === "workspace_write"
+        || (call.name === "run_command" && !analyzeCommand(String(args.command ?? "")).readOnly);
+      if (mutatesWorkspace) workspaceRelease = await workspaceMutationCoordinator.acquire(input.projectRoot, input.signal);
       if (call.name === "run_command") {
         this.host.retain(input.baseline);
         retainedCommandBaseline = true;
@@ -244,7 +258,8 @@ export class ToolPipeline {
         args,
         name: call.name,
         onCommandSettled: call.name === "run_command" ? (settled) => {
-          void this.settleManagedCommand(input, activityId!, settled, true);
+          void this.settleManagedCommand(input, activityId!, settled, true)
+            .finally(() => workspaceMutationCoordinator.releaseCommand(settled.commandId));
         } : undefined,
         onOutput: call.name === "run_command" ? ({ text }) => {
           updateActivity({ activityId: activityId!, runId: input.runId, sessionId: input.sessionId, store: input.store }, { bodyDelta: text });
@@ -254,6 +269,10 @@ export class ToolPipeline {
         sessionId: input.sessionId,
         signal: input.signal
       });
+      if (workspaceRelease && result.commandState === "running" && result.commandId) {
+        workspaceMutationCoordinator.retainForCommand(result.commandId, workspaceRelease);
+        workspaceLeaseTransferred = true;
+      }
       if (call.name === "run_command" && result.commandState !== "running") {
         retainedCommandBaseline = false;
         await this.host.close(input.baseline);
@@ -387,6 +406,8 @@ export class ToolPipeline {
         protocolError: /未知工具|有效的 JSON|格式无效|参数/.test(message),
         target: call.name
       };
+    } finally {
+      if (workspaceRelease && !workspaceLeaseTransferred) workspaceRelease();
     }
   }
 
@@ -424,6 +445,7 @@ export class ToolPipeline {
         });
       } else {
         await this.settleManagedCommand(input, result.commandActivityId, result, false);
+        workspaceMutationCoordinator.releaseCommand(result.commandId);
       }
     }
     const evidence = reduceToolEvidence(call.name, result);

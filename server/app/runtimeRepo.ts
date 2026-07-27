@@ -1,5 +1,5 @@
 import { ContextEntry, ContextInput, ContextStats, MemoryFact } from "../../shared/contracts/context";
-import { Event, EventPayloadMap, EventType, Run, Session, SessionInput, SessionSummary } from "../../shared/contracts/runtime";
+import { Delegation, Event, EventPayloadMap, EventType, Run, Session, SessionInput, SessionSummary } from "../../shared/contracts/runtime";
 
 export type EventSubscriber = (events: Event[]) => void;
 
@@ -25,6 +25,14 @@ export interface SessionPort {
   getSession(sessionId: string): Session | undefined;
   listSessions(query?: string): SessionSummary[];
   updateSessionSidebar(sessionId: string, input: { archived?: boolean; pinned?: boolean }): boolean;
+}
+
+export interface DelegationPort {
+  createDelegatedRun(input: {
+    childRun: EventPayloadMap["run.started"] & { runId: string };
+    childSession: Omit<SessionInput, "createdAt">;
+    delegation: Delegation;
+  }): { childSession: Session; parentSession: Session };
 }
 
 export interface ContextPort {
@@ -55,4 +63,4 @@ export interface StoreLifecyclePort {
   close(): void;
 }
 
-export type RuntimePorts = EventPort & SessionPort & ContextPort & EvidencePort & MemoryPort & MetricPort & StoreLifecyclePort;
+export type RuntimePorts = EventPort & SessionPort & DelegationPort & ContextPort & EvidencePort & MemoryPort & MetricPort & StoreLifecyclePort;

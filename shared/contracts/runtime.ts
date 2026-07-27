@@ -14,6 +14,7 @@ export type ActivityKind =
   | "tool"
   | "command"
   | "file_mutation"
+  | "delegation"
   | "compaction"
   | "error";
 
@@ -121,6 +122,33 @@ export type Question = {
 };
 
 export type AccessMode = "request_approval" | "smart_approval" | "full_access";
+export type AgentId = "explorer" | "worker";
+export type SessionKind = "primary" | "subagent";
+export type DelegationStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
+export type DelegationDeliveryStatus = "pending" | "delivered";
+
+export type Delegation = {
+  agentId: AgentId;
+  childRunId: string;
+  childSessionId: string;
+  createdAt: string;
+  deliveryStatus: DelegationDeliveryStatus;
+  delegationId: string;
+  message: string;
+  parentActivityId: string;
+  parentCallId: string;
+  parentRunId: string;
+  parentSessionId: string;
+  status: DelegationStatus;
+  updatedAt: string;
+  content?: string;
+  error?: string;
+  resultRecordId?: string;
+};
+
+export type DelegationActivity = Pick<Delegation,
+  "agentId" | "childRunId" | "childSessionId" | "createdAt" | "delegationId" | "message" | "status" | "updatedAt"
+> & Pick<Delegation, "content" | "error">;
 export type ApprovalChoice = "allow_once" | "allow_run" | "allow_session" | "deny";
 export type AccessScope = "workspace_write" | "workspace_delete" | "shell_execute" | "network_access" | "external_access";
 export type AccessRisk = "low" | "medium" | "high" | "critical";
@@ -212,6 +240,7 @@ export type Activity = {
   files?: FileChange[];
   liveFiles?: FileChange[];
   error?: string;
+  delegation?: DelegationActivity;
 };
 
 export type Run = {
@@ -279,13 +308,29 @@ export type Session = {
   compactSummary?: string;
   accessMode: AccessMode;
   grants: Grant[];
+  kind?: SessionKind;
+  agentId?: AgentId;
+  parentSessionId?: string;
+  parentRunId?: string;
+  originDelegationId?: string;
+  delegations?: Delegation[];
   lastOffset: number;
 };
 
 export type SessionInput = Pick<
   Session,
   "sessionId" | "title" | "model" | "projectRoot" | "createdAt" | "contextWindowTokens" | "compactThresholdTokens"
-> & { accessMode?: AccessMode; mode?: Mode; planEntry?: PlanEntry; workspaceKind?: WorkspaceKind };
+> & {
+  accessMode?: AccessMode;
+  agentId?: AgentId;
+  kind?: SessionKind;
+  mode?: Mode;
+  originDelegationId?: string;
+  parentRunId?: string;
+  parentSessionId?: string;
+  planEntry?: PlanEntry;
+  workspaceKind?: WorkspaceKind;
+};
 
 export type SessionSummary = Pick<
   Session,
@@ -314,6 +359,16 @@ export type EventPayloadMap = {
   };
   "follow_up.queued": { followUp: FollowUp };
   "follow_up.removed": { followUpId: string };
+  "delegation.created": { delegation: Delegation };
+  "delegation.updated": {
+    content?: string;
+    delegationId: string;
+    error?: string;
+    resultRecordId?: string;
+    status: DelegationStatus;
+    updatedAt: string;
+  };
+  "delegation.delivered": { deliveredAt: string; delegationId: string };
   "run.started": Pick<Run, "model" | "prompt" | "startedAt"> & { mode?: Mode };
   "reasoning.updated": {
     /** Optional only so pre-step-grouping Events remain replayable. */

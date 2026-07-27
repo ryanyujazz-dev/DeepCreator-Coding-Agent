@@ -301,6 +301,17 @@ export class Prompts {
       version: selected.map((blueprint) => `${blueprint.slot}@${blueprint.version}`).join(",")
     };
   }
+
+  compileAgentSystem(model: string, agentPrompt: string): { text: string; version: string; hash: string } {
+    const selected = ["safety", "content_policy", "tool_policy", "doing_tasks", "output_style", "final_response"]
+      .map((slot) => this.get(slot as PromptBlueprintSlot, model));
+    const text = [selected.map((blueprint) => blueprint.text).join("\n\n"), agentPrompt].join("\n\n");
+    return {
+      hash: hash([selected.map((blueprint) => `${blueprint.slot}:${blueprint.hash}`).join("|"), agentPrompt].join("|")),
+      text,
+      version: `${selected.map((blueprint) => `${blueprint.slot}@${blueprint.version}`).join(",")},agent@1`
+    };
+  }
 }
 
 export const prompts = new Prompts();

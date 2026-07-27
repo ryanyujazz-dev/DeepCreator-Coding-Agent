@@ -59,6 +59,26 @@ function followUp(value: unknown): boolean {
     && oneOf(value.planEntry, ["manual", "suggest", "auto"] as const);
 }
 
+function delegation(value: unknown): boolean {
+  return record(value)
+    && oneOf(value.agentId, ["explorer", "worker"] as const)
+    && string(value.childRunId)
+    && string(value.childSessionId)
+    && string(value.createdAt)
+    && oneOf(value.deliveryStatus, ["pending", "delivered"] as const)
+    && string(value.delegationId)
+    && string(value.message)
+    && string(value.parentActivityId)
+    && string(value.parentCallId)
+    && string(value.parentRunId)
+    && string(value.parentSessionId)
+    && oneOf(value.status, ["running", "waiting", "completed", "failed", "cancelled"] as const)
+    && string(value.updatedAt)
+    && optional(value.content, string)
+    && optional(value.error, string)
+    && optional(value.resultRecordId, string);
+}
+
 function plan(value: unknown): boolean {
   return record(value)
     && string(value.planId)
@@ -173,7 +193,12 @@ const payloadSchemas = {
     && string(value.projectRoot)
     && string(value.createdAt)
     && number(value.contextWindowTokens)
-    && number(value.compactThresholdTokens),
+    && number(value.compactThresholdTokens)
+    && optional(value.kind, (item) => oneOf(item, ["primary", "subagent"] as const))
+    && optional(value.agentId, (item) => oneOf(item, ["explorer", "worker"] as const))
+    && optional(value.parentSessionId, string)
+    && optional(value.parentRunId, string)
+    && optional(value.originDelegationId, string),
   "session.updated": (value) => record(value)
     && optional(value.accessMode, (item) => oneOf(item, ["request_approval", "smart_approval", "full_access"] as const))
     && optional(value.compactSummary, string)
@@ -187,6 +212,17 @@ const payloadSchemas = {
     && optional(value.source, (item) => oneOf(item, ["user", "model", "runtime"] as const)),
   "follow_up.queued": (value) => record(value) && followUp(value.followUp),
   "follow_up.removed": (value) => record(value) && string(value.followUpId),
+  "delegation.created": (value) => record(value) && delegation(value.delegation),
+  "delegation.updated": (value) => record(value)
+    && string(value.delegationId)
+    && oneOf(value.status, ["running", "waiting", "completed", "failed", "cancelled"] as const)
+    && string(value.updatedAt)
+    && optional(value.content, string)
+    && optional(value.error, string)
+    && optional(value.resultRecordId, string),
+  "delegation.delivered": (value) => record(value)
+    && string(value.delegationId)
+    && string(value.deliveredAt),
   "run.started": (value) => record(value)
     && string(value.model)
     && string(value.prompt)
@@ -230,7 +266,7 @@ const payloadSchemas = {
     && optional(value.inputTokens, number)
     && optional(value.outputTokens, number),
   "activity.started": (value) => record(value)
-    && oneOf(value.kind, ["thinking", "message", "user_message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const)
+    && oneOf(value.kind, ["thinking", "message", "user_message", "plan", "tool", "command", "file_mutation", "delegation", "compaction", "error"] as const)
     && oneOf(value.audience, ["user", "debug", "internal"] as const)
     && optional(value.title, string)
     && string(value.startedAt)
@@ -244,7 +280,7 @@ const payloadSchemas = {
     && optional(value.command, (item) => command(item, true))
     && optional(value.files, (item) => Array.isArray(item) && item.every(fileChange))
     && optional(value.liveFiles, (item) => Array.isArray(item) && item.every(fileChange))
-    && optional(value.kind, (item) => oneOf(item, ["thinking", "message", "user_message", "plan", "tool", "command", "file_mutation", "compaction", "error"] as const))
+    && optional(value.kind, (item) => oneOf(item, ["thinking", "message", "user_message", "plan", "tool", "command", "file_mutation", "delegation", "compaction", "error"] as const))
     && optional(value.status, (item) => oneOf(item, ["running", "suspended"] as const))
     && optional(value.title, string)
     && optional(value.tool, (item) => toolState(item, true)),
@@ -298,7 +334,10 @@ export const eventSchema = {
         || type === "session.updated"
         || type === "mode.changed"
         || type === "follow_up.queued"
-        || type === "follow_up.removed";
+        || type === "follow_up.removed"
+        || type === "delegation.created"
+        || type === "delegation.updated"
+        || type === "delegation.delivered";
       if (!sessionScoped && !record(input.scope)) {
         issues.push({ path: "scope", message: `${type} requires a Run scope.` });
       } else if (!sessionScoped && !string((input.scope as RecordValue).runId)) {

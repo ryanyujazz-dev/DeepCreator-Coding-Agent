@@ -197,14 +197,14 @@ test("runs ordered migrations idempotently", () => {
   const file = path.join(directory, "runtime.sqlite");
   try {
     const first = new Database(file);
-    assert.equal(first.migrationReport.applied.length, 4);
+    assert.equal(first.migrationReport.applied.length, 5);
     const count = Number((first.raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count);
     first.close();
     const second = new Database(file);
     assert.equal(second.migrationReport.applied.length, 0);
     const repeated = Number((second.raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as { count: number }).count);
     second.close();
-    assert.equal(count, 4);
+    assert.equal(count, 5);
     assert.equal(repeated, count);
   } finally {
     rmSync(directory, { force: true, recursive: true });

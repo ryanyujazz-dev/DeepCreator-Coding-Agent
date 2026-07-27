@@ -1,4 +1,5 @@
 import {
+  Bot,
   CheckCircle2,
   ChevronRight,
   CircleAlert,
@@ -23,7 +24,7 @@ import {
   TerminalSquare,
   Wrench
 } from "lucide-react";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AggregateHeadlineKind,
@@ -179,12 +180,50 @@ function detailContent(activity: Activity): string {
 
 function OperationMemberRow({
   onOpenFile,
+  onOpenAgent,
   activity
 }: {
   onOpenFile: (path: string) => void;
+  onOpenAgent: (childSessionId: string, delegationId: string, title?: string) => void;
   activity: Activity;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const delegationActive = activity.delegation?.status === "running" || activity.delegation?.status === "waiting";
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!delegationActive) return undefined;
+    const interval = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [delegationActive]);
+  if (activity.delegation) {
+    const delegation = activity.delegation;
+    const elapsedMs = Math.max(0, (delegationActive ? clock : Date.parse(delegation.updatedAt)) - Date.parse(delegation.createdAt));
+    const elapsed = elapsedMs >= 60_000
+      ? `${Math.floor(elapsedMs / 60_000)}m ${Math.floor(elapsedMs % 60_000 / 1_000)}s`
+      : `${Math.floor(elapsedMs / 1_000)}s`;
+    const status = delegation.status === "running"
+      ? "正在工作"
+      : delegation.status === "waiting" ? "等待批准"
+        : delegation.status === "completed" ? "已完成"
+          : delegation.status === "cancelled" ? "已取消" : "失败";
+    return (
+      <div className={`operation-member-call delegation-member is-${delegation.status}`}>
+        <button
+          className="operation-call-row delegation-call-row"
+          onClick={() => onOpenAgent(delegation.childSessionId, delegation.delegationId, `${delegation.agentId}: ${delegation.message.slice(0, 36)}`)}
+          title={delegation.message}
+          type="button"
+        >
+          <span><Bot size={12} /></span>
+          <span className={delegation.status === "running" ? "working-glow" : ""}>
+            <strong>{delegation.agentId}</strong> · {delegation.message}
+          </span>
+          <span className={`delegation-status is-${delegation.status}`}>{status} · {elapsed}</span>
+          <ChevronRight className="operation-member-chevron" size={12} />
+        </button>
+      </div>
+    );
+  }
   const target = toolTarget(activity.tool);
   const isFileReference = activity.tool?.targetKind === "file" && Boolean(target);
   return (
@@ -292,11 +331,13 @@ export function ModificationFileRow({
 export function ActivityGroupRenderer({
   group,
   onOpenFile,
+  onOpenAgent,
   activities,
   changes
 }: {
   group: ActivityGroup;
   onOpenFile: (path: string) => void;
+  onOpenAgent: (childSessionId: string, delegationId: string, title?: string) => void;
   activities: Activity[];
   changes: Changes;
 }) {
@@ -380,7 +421,7 @@ export function ActivityGroupRenderer({
                     />
                   ))
                 : members.map((activity) => (
-                    <OperationMemberRow key={activity.activityId} onOpenFile={onOpenFile} activity={activity} />
+                    <OperationMemberRow key={activity.activityId} onOpenAgent={onOpenAgent} onOpenFile={onOpenFile} activity={activity} />
                   ))}
             </div>
           )}
@@ -440,12 +481,14 @@ export function ActivityAggregateRenderer({
   aggregate,
   active = false,
   onOpenFile,
+  onOpenAgent,
   activities,
   changes
 }: {
   aggregate: ToolAggregate;
   active?: boolean;
   onOpenFile: (path: string) => void;
+  onOpenAgent: (childSessionId: string, delegationId: string, title?: string) => void;
   activities: Activity[];
   changes: Changes;
 }) {
@@ -464,17 +507,29 @@ export function ActivityAggregateRenderer({
     setExpanded((value) => !value);
   };
   const headlineActive = active || aggregate.status === "running";
+  const delegationMembers = members.filter((activity) => activity.delegation);
+  const allDelegations = aggregate.semantic === "delegation" && delegationMembers.length === members.length;
+  const delegationWaiting = delegationMembers.filter((activity) => activity.delegation?.status === "waiting").length;
+  const delegationFailed = delegationMembers.filter((activity) => activity.delegation?.status === "failed").length;
+  const delegationCancelled = delegationMembers.filter((activity) => activity.delegation?.status === "cancelled").length;
+  const delegationRunning = delegationMembers.filter((activity) => activity.delegation?.status === "running").length;
+  const delegationStatus = delegationFailed > 0
+    ? "failed"
+    : delegationCancelled > 0 ? "cancelled"
+      : delegationWaiting > 0 || delegationRunning > 0 ? "running" : aggregate.status;
 
   return (
-    <article className={`operation-group activity-aggregate is-${aggregate.status} ${expanded ? "is-expanded" : ""}`}>
+    <article className={`operation-group activity-aggregate is-${delegationStatus} ${expanded ? "is-expanded" : ""}`}>
       <DisclosureRow
         className="operation-group-summary"
         onClick={toggleExpanded}
         expanded={expanded}
         onToggle={toggleExpanded}
       >
-        <span className="operation-group-icon">{aggregateIcon(aggregate)}</span>
-        <span className="operation-group-action"><AggregateSummary active={headlineActive} aggregate={aggregate} /></span>
+        <span className="operation-group-icon">{allDelegations ? <Bot size={13} /> : aggregateIcon(aggregate)}</span>
+        <span className="operation-group-action">{allDelegations
+          ? <span className={delegationRunning > 0 ? "working-glow" : ""}>委派 {members.length} 个子代理{delegationWaiting ? ` · ${delegationWaiting} 个等待批准` : ""}{delegationFailed ? ` · ${delegationFailed} 个失败` : ""}{delegationCancelled ? ` · ${delegationCancelled} 个已取消` : ""}</span>
+          : <AggregateSummary active={headlineActive} aggregate={aggregate} />}</span>
         <ChevronRight className="operation-summary-chevron" size={13} />
       </DisclosureRow>
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>
@@ -488,7 +543,7 @@ export function ActivityAggregateRenderer({
                   : undefined;
                 return changedFile
                   ? <ModificationFileRow file={changedFile} key={activity.activityId} onOpenFile={onOpenFile} />
-                  : <OperationMemberRow activity={activity} key={activity.activityId} onOpenFile={onOpenFile} />;
+                  : <OperationMemberRow activity={activity} key={activity.activityId} onOpenAgent={onOpenAgent} onOpenFile={onOpenFile} />;
               })}
             </div>
           )}

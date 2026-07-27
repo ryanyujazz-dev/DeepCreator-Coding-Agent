@@ -127,6 +127,7 @@ export function DisplaySegmentRenderer({
   activities,
   changes,
   onOpenFile,
+  onOpenAgent,
   onStopCommand,
   onTextFrame,
   runActive,
@@ -136,6 +137,7 @@ export function DisplaySegmentRenderer({
   activities: Parameters<typeof ActivityAggregateRenderer>[0]["activities"];
   changes: Changes;
   onOpenFile: (path: string) => void;
+  onOpenAgent: (childSessionId: string, delegationId: string, title?: string) => void;
   onStopCommand: (commandId: string) => void;
   onTextFrame?: () => void;
   runActive: boolean;
@@ -170,6 +172,7 @@ export function DisplaySegmentRenderer({
           changes={changes}
           key="aggregate"
           onOpenFile={onOpenFile}
+          onOpenAgent={onOpenAgent}
         />
       )}
       {remainingSlots.map((slot) => (

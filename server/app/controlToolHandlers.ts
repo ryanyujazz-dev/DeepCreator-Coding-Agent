@@ -1,7 +1,7 @@
 import { ToolCall } from "../../shared/contracts/provider";
 import { Plan, Question, QuestionPrompt, Task, ToolState } from "../../shared/contracts/runtime";
 import { ToolHost } from "./toolHost";
-import type { SpawnAgentHandler, ToolContext, ToolOutcome } from "./toolPipeline";
+import type { DelegateHandler, ToolContext, ToolOutcome } from "./toolPipeline";
 
 type ControlToolCallbacks = {
   createId: (prefix: string) => string;
@@ -53,7 +53,7 @@ export class ControlToolHandlers {
   constructor(
     private readonly host: ToolHost,
     private readonly callbacks: ControlToolCallbacks,
-    private readonly spawnAgent?: SpawnAgentHandler
+    private readonly delegateAgent?: DelegateHandler
   ) {}
 
   async handle(input: {
@@ -71,7 +71,8 @@ export class ControlToolHandlers {
       case "submit_plan": return this.submitPlan(input);
       case "update_tasks": return this.updateTasks(input);
       case "search_memory": return this.searchMemory(input);
-      case "spawn_agent": return this.spawnAgentTask(input);
+      case "delegate":
+      case "spawn_agent": return this.delegateTask(input);
       default: return undefined;
     }
   }
@@ -225,48 +226,37 @@ export class ControlToolHandlers {
     return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "Memory" };
   }
 
-  private async spawnAgentTask(input: Parameters<ControlToolHandlers["handle"]>[0]): Promise<ToolOutcome> {
+  private delegateTask(input: Parameters<ControlToolHandlers["handle"]>[0]): ToolOutcome {
     const { activityId, args, call, context, modelStepId, prepared } = input;
-    if (!this.spawnAgent) {
-      const text = "spawn_agent 需要运行时注入处理函数,当前环境不支持子 Agent。";
+    if (!this.delegateAgent) {
+      const text = "delegate 需要运行时委派协调器，当前环境不支持子代理。";
       this.callbacks.finishActivity(context, activityId, { body: text, status: "failed", tool: { ...prepared, resultSummary: text } });
       this.callbacks.record(context, call, modelStepId, text, { action: "execute", target: "子 Agent" }, true);
       return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
     }
-    const description = String(args.description ?? "子 Agent 任务").trim();
-    const prompt = String(args.prompt ?? "").trim();
-    const subagentType = args.subagentType === "Explore" || args.subagentType === "general-purpose"
-      ? args.subagentType
-      : "Explore";
-    if (!prompt) {
-      const text = "prompt 不能为空。";
+    const requestedAgent = args.agent ?? args.subagent_type;
+    const agent = requestedAgent === "explorer" || requestedAgent === "Explore"
+      ? "explorer"
+      : requestedAgent === "worker" || requestedAgent === "general-purpose" ? "worker" : undefined;
+    const message = String(args.message ?? args.prompt ?? "").trim();
+    if (!agent || !message) {
+      const text = "agent 必须是 explorer 或 worker，message 不能为空。";
       this.callbacks.finishActivity(context, activityId, { body: text, status: "failed", tool: { ...prepared, resultSummary: text } });
-      this.callbacks.record(context, call, modelStepId, text, { action: "execute", target: description }, true);
+      this.callbacks.record(context, call, modelStepId, text, { action: "execute", target: "子代理" }, true);
       return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
     }
-    context.store.append({
-      activityId,
-      data: {
-        kind: this.host.kind(prepared),
-        title: description,
-        tool: { ...prepared, resultSummary: `正在执行子 Agent(${subagentType}):${description}` }
-      },
-      runId: context.runId,
-      sessionId: context.sessionId,
-      type: "activity.updated"
-    });
-    let output: string;
     try {
-      output = await this.spawnAgent({ description, prompt, subagentType });
+      const receipt = this.delegateAgent({ activityId, agent, callId: call.callId, message });
+      const output = JSON.stringify(receipt);
+      const summary = `已委派给 ${agent}`;
+      this.callbacks.finishActivity(context, activityId, { body: summary, status: "completed", tool: { ...prepared, resultSummary: summary } });
+      this.callbacks.record(context, call, modelStepId, output, { action: "execute", delegationId: receipt.delegationId, target: `${agent}: ${message}` });
+      return { contextRecords: [], message: { role: "tool", text: output, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
     } catch (error) {
-      output = `子 Agent 执行失败:${error instanceof Error ? error.message : String(error)}`;
+      const output = `委派失败：${error instanceof Error ? error.message : String(error)}`;
       this.callbacks.finishActivity(context, activityId, { body: output, status: "failed", tool: { ...prepared, resultSummary: output } });
-      this.callbacks.record(context, call, modelStepId, output, { action: "execute", target: description }, true);
+      this.callbacks.record(context, call, modelStepId, output, { action: "execute", target: `${agent}: ${message}` }, true);
       return { contextRecords: [], message: { role: "tool", text: output, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
     }
-    const finishSummary = `子 Agent 完成:${description}`;
-    this.callbacks.finishActivity(context, activityId, { body: finishSummary, status: "completed", tool: { ...prepared, resultSummary: finishSummary } });
-    this.callbacks.record(context, call, modelStepId, output, { action: "execute", target: description });
-    return { contextRecords: [], message: { role: "tool", text: output, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };
   }
 }

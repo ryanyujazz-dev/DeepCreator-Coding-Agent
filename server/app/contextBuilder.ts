@@ -67,6 +67,7 @@ export type BuiltContext = {
 };
 
 export type BuildInput = {
+  agentPrompt?: string;
   context?: ContextConfig;
   session: Session;
   records: ContextEntry[];
@@ -399,7 +400,9 @@ function uniqueRecords(records: ContextEntry[]): ContextEntry[] {
 export function prepareSessionContext(input: BuildInput): BuiltContext {
   const context = input.context ?? defaultContextConfig;
   const calibrationFactor = Math.min(2.5, Math.max(0.4, input.tokenCalibrationFactor ?? 1));
-  const blueprint = prompts.compileSystem(input.model);
+  const blueprint = input.agentPrompt
+    ? prompts.compileAgentSystem(input.model, input.agentPrompt)
+    : prompts.compileSystem(input.model);
   const prior = latestCheckpoint(input.records);
   const existingEnvelope = [...input.records].reverse().find((record) => record.kind === "session_context" && record.text);
   const startupGuidance = (input.rules ?? emptyRuleSource).resolve({ phase: "session_start", projectRoot: input.projectRoot });

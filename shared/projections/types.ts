@@ -66,6 +66,7 @@ export type ToolAggregate = {
   headlineKind: AggregateHeadlineKind;
   headlineLabel: string;
   runId: string;
+  semantic?: "delegation";
   memberActivityIds: string[];
   totalCalls: number;
   successCount: number;

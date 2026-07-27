@@ -19,56 +19,71 @@ export function useSurfaceWorkspace(session: Session | null) {
     () => surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0] ?? null,
     [activeSurfaceId, surfaces]
   );
-  const activeFileState = activeSurface?.kind === "file" ? surfaceFiles[activeSurface.path] : undefined;
+  const activeFileState = activeSurface?.kind === "file" ? surfaceFiles[activeSurface.id] : undefined;
 
-  const openFileSurface = useCallback((filePath: string) => {
-    if (!session?.sessionId) return;
-    const surfaceId = `file:${filePath}`;
+  const openFileSurface = useCallback((filePath: string, ownerSessionId = session?.sessionId) => {
+    if (!ownerSessionId) return;
+    const surfaceId = `file:${ownerSessionId}:${filePath}`;
     setSurfaceClosing(false);
     setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
       ? current
-      : [...current, { id: surfaceId, kind: "file", path: filePath }]);
+      : [...current, { id: surfaceId, kind: "file", ownerSessionId, path: filePath }]);
     setActiveSurfaceId(surfaceId);
     setSurfaceFiles((current) => ({
       ...current,
-      [filePath]: { error: null, file: current[filePath]?.file ?? null, loading: true }
+      [surfaceId]: { error: null, file: current[surfaceId]?.file ?? null, loading: true }
     }));
-    void runtimeApi.getFile(session.sessionId, filePath)
+    void runtimeApi.getFile(ownerSessionId, filePath)
       .then((file) => {
         setSurfaceFiles((current) => ({
           ...current,
-          [filePath]: { error: null, file, loading: false }
+          [surfaceId]: { error: null, file, loading: false }
         }));
       })
       .catch((nextError) => {
         const message = nextError instanceof Error ? nextError.message : String(nextError);
         setSurfaceFiles((current) => ({
           ...current,
-          [filePath]: {
+          [surfaceId]: {
             error: /Route GET:\/api\/sessions\/.+\/files|not found/i.test(message)
               ? "文件读取接口未生效，请重启 Runtime。"
               : message,
-            file: current[filePath]?.file ?? null,
+            file: current[surfaceId]?.file ?? null,
             loading: false
           }
         }));
       });
   }, [session?.sessionId]);
 
-  const openReviewSurface = useCallback((delta?: Changes) => {
+  const openAgentSurface = useCallback((childSessionId: string, delegationId: string, title?: string) => {
+    const surface: Surface = {
+      delegationId,
+      id: `agent:${childSessionId}`,
+      kind: "agent",
+      sessionId: childSessionId,
+      title: title ?? "子代理"
+    };
+    setSurfaceClosing(false);
+    setSurfaces((current) => current.some((candidate) => candidate.id === surface.id)
+      ? current.map((candidate) => candidate.id === surface.id ? surface : candidate)
+      : [...current, surface]);
+    setActiveSurfaceId(surface.id);
+  }, []);
+
+  const openReviewSurface = useCallback((delta?: Changes, ownerSessionId = session?.sessionId) => {
     const reviewDelta = delta ?? [...(session?.runs ?? [])]
       .reverse()
       .map((run) => run.changes)
       .find((candidate) => candidate.comparisonBase === "run_start" && candidate.fileCount > 0);
     if (!reviewDelta || reviewDelta.comparisonBase !== "run_start" || reviewDelta.fileCount === 0) return;
-    const surfaceId = `review:${reviewDelta.files.map((file) => file.path).join("|")}:${reviewDelta.additions}:${reviewDelta.deletions}`;
-    const reviewSurface: Surface = { files: reviewDelta.files, id: surfaceId, kind: "review", title: "审阅" };
+    const surfaceId = `review:${ownerSessionId ?? "unknown"}:${reviewDelta.files.map((file) => file.path).join("|")}:${reviewDelta.additions}:${reviewDelta.deletions}`;
+    const reviewSurface: Surface = { files: reviewDelta.files, id: surfaceId, kind: "review", ownerSessionId, title: "审阅" };
     setSurfaceClosing(false);
     setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
       ? current.map((candidate) => candidate.id === surfaceId ? reviewSurface : candidate)
       : [...current, reviewSurface]);
     setActiveSurfaceId(surfaceId);
-  }, [session?.runs]);
+  }, [session?.runs, session?.sessionId]);
 
   const openPlanSurface = useCallback((runId: string, callId: string) => {
     const plan = [...(session?.plans ?? [])].reverse().find((candidate) => candidate.runId === runId && candidate.callId === callId);
@@ -131,6 +146,7 @@ export function useSurfaceWorkspace(session: Session | null) {
     closeActiveSurface,
     closeSurfaceTab,
     openFileSurface,
+    openAgentSurface,
     openPlanSurface,
     openReviewSurface,
     setActiveSurfaceId,
