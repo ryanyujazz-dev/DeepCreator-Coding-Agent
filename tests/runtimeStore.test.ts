@@ -17,7 +17,7 @@ function register(store: RuntimeStore, sessionId = "session_store") {
 }
 
 test("persists projections, replays logs, and resumes after an offset", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-store-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-store-"));
   try {
     const first = new RuntimeStore(directory);
     register(first);
@@ -42,7 +42,7 @@ test("persists projections, replays logs, and resumes after an offset", () => {
 });
 
 test("persists pinned and archived sidebar state without changing session history", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-sidebar-state-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-sidebar-state-"));
   try {
     const first = new RuntimeStore(directory);
     register(first, "session_sidebar_a");

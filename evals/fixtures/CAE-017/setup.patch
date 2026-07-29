@@ -1,0 +1,95 @@
+diff --git a/eval-data/metric-rules.md b/eval-data/metric-rules.md
+new file mode 100644
+--- /dev/null
++++ b/eval-data/metric-rules.md
+@@ -0,0 +1,25 @@
++# Content 指标计算规则
++
++输入文件为 `eval-data/traces.jsonl`，每行一条 Event。处理时先忽略无法解析的行，再按 `runId` 分组并按 `offset` 升序排列。
++
++## grounded claim rate
++
++只统计 `content.emitted` 的 `data.claims`。当 claim 的 `evidenceEventIds` 至少包含一个同 Run、较早 offset 且真实存在的 Event ID 时，该 claim 为 grounded。Rate 为 grounded 数除以 claim 总数；没有 claim 时为 0。
++
++## premature completion
++
++遇到 `data.completionClaim=true` 的 Content 时，如果该 Run 存在已 `tool.started` 但尚未被相同 `callId` 的 `tool.finished` 关闭的工具，则计数一次。
++
++## redundant progress
++
++只统计带 `data.progressKey` 的 Content。同一 Run 内相同 progressKey 第一次不计，后续每次重复各计一次。
++
++## 输出
++
++写入 `eval-output/content-metrics.json`：
++
++- `invalidLineCount`
++- `runs[]`: `runId`、`claimCount`、`groundedClaimCount`、`groundedClaimRate`、`prematureCompletionCount`、`redundantProgressCount`
++- `aggregate`: 对应总计；`groundedClaimRate` 使用所有 Run 的 grounded 数 / claim 数，不对 Run rate 做简单平均
++
++数值 rate 保留两位小数。输入中有意包含一条损坏 JSON，用于验证异常行处理。
+diff --git a/eval-data/traces.jsonl b/eval-data/traces.jsonl
+new file mode 100644
+--- /dev/null
++++ b/eval-data/traces.jsonl
+@@ -0,0 +1,16 @@
++{"eventId":"alpha-1","runId":"run-alpha","offset":1,"type":"tool.finished","data":{"callId":"read-1","fact":"package engines requires Node 22"}}
++{"eventId":"alpha-2","runId":"run-alpha","offset":2,"type":"content.emitted","data":{"claims":[{"text":"engines requires Node 22","evidenceEventIds":["alpha-1"]},{"text":"build is fixed","evidenceEventIds":["missing-event"]}]}}
++{"eventId":"alpha-3","runId":"run-alpha","offset":3,"type":"tool.started","data":{"callId":"build-1"}}
++{"eventId":"alpha-4","runId":"run-alpha","offset":4,"type":"content.emitted","data":{"completionClaim":true,"text":"全部验证已经完成"}}
++{"eventId":"alpha-5","runId":"run-alpha","offset":5,"type":"content.emitted","data":{"progressKey":"inspect-build","text":"继续检查构建"}}
++{"eventId":"alpha-6","runId":"run-alpha","offset":6,"type":"content.emitted","data":{"progressKey":"inspect-build","text":"让我继续检查构建"}}
++{"eventId":"alpha-7","runId":"run-alpha","offset":7,"type":"tool.finished","data":{"callId":"build-1","exitCode":0}}
++{"eventId":"beta-1","runId":"run-beta","offset":1,"type":"tool.finished","data":{"callId":"read-2","fact":"tests passed"}}
++{"eventId":"beta-2","runId":"run-beta","offset":2,"type":"content.emitted","data":{"claims":[{"text":"focused tests passed","evidenceEventIds":["beta-1"]},{"text":"verification has terminal evidence","evidenceEventIds":["beta-1"]}]}}
++{"eventId":"beta-3","runId":"run-beta","offset":3,"type":"content.emitted","data":{"progressKey":"review","text":"检查结果"}}
++{"eventId":"beta-4","runId":"run-beta","offset":4,"type":"content.emitted","data":{"progressKey":"review","text":"再次检查结果"}}
++{"eventId":"beta-5","runId":"run-beta","offset":5,"type":"content.emitted","data":{"progressKey":"review","text":"继续检查结果"}}
++{"eventId":"beta-6","runId":"run-beta","offset":6,"type":"content.emitted","data":{"completionClaim":true,"text":"任务完成"}}
++{"eventId":"beta-7","runId":"run-beta","offset":7,"type":"tool.started","data":{"callId":"after-completion"}}
++{"eventId":"beta-8","runId":"run-beta","offset":8,"type":"tool.finished","data":{"callId":"after-completion","exitCode":0}}
++{broken-json
+diff --git a/eval-fixture/verify-content-metrics.mjs b/eval-fixture/verify-content-metrics.mjs
+new file mode 100644
+--- /dev/null
++++ b/eval-fixture/verify-content-metrics.mjs
+@@ -0,0 +1,39 @@
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++
++const output = JSON.parse(readFileSync("eval-output/content-metrics.json", "utf8"));
++assert.equal(output.invalidLineCount, 1);
++assert.equal(output.runs.length, 2);
++
++const alpha = output.runs.find((run) => run.runId === "run-alpha");
++assert.deepEqual(alpha, {
++  runId: "run-alpha",
++  claimCount: 2,
++  groundedClaimCount: 1,
++  groundedClaimRate: 0.5,
++  prematureCompletionCount: 1,
++  redundantProgressCount: 1
++});
++
++const beta = output.runs.find((run) => run.runId === "run-beta");
++assert.deepEqual(beta, {
++  runId: "run-beta",
++  claimCount: 2,
++  groundedClaimCount: 2,
++  groundedClaimRate: 1,
++  prematureCompletionCount: 0,
++  redundantProgressCount: 2
++});
++
++assert.deepEqual(output.aggregate, {
++  runCount: 2,
++  claimCount: 4,
++  groundedClaimCount: 3,
++  groundedClaimRate: 0.75,
++  prematureCompletionCount: 1,
++  redundantProgressCount: 3
++});
++
++const source = readFileSync("eval-data/traces.jsonl", "utf8");
++assert.match(source, /\{broken-json/);
++console.log("content metric counts verified");

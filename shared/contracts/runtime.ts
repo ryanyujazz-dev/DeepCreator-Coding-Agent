@@ -1,4 +1,4 @@
-export const EVENT_VERSION = "deepseeker.events/v2" as const;
+export const EVENT_VERSION = "deepcreator.events/v2" as const;
 
 export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 export type ActivityStatus = "running" | "suspended" | "completed" | "failed" | "cancelled";

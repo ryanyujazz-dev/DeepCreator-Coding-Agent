@@ -7,7 +7,7 @@ import { ensureScratchWorkspace, scratchWorkspacePath } from "../server/infra/se
 import { RuntimeStore } from "../server/infra/runtimeStore";
 
 test("creates stable isolated scratch directories without exposing the session id", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-scratch-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-scratch-"));
   try {
     const first = await ensureScratchWorkspace(directory, "session-one");
     const repeated = await ensureScratchWorkspace(directory, "session-one");
@@ -27,7 +27,7 @@ test("creates stable isolated scratch directories without exposing the session i
 });
 
 test("persists scratch workspace identity across Runtime restarts and archive", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-scratch-store-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-scratch-store-"));
   const sessionId = "session-persisted-scratch";
   try {
     const workspace = await ensureScratchWorkspace(directory, sessionId);

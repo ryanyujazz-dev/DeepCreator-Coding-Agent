@@ -1,7 +1,7 @@
-# DeepSeeker CodeAgent 工具清单与缺口分析
+# DeepCreator CodeAgent 工具清单与缺口分析
 
 > 对标对象:Claude Code / OpenAI Codex / Cursor
-> 基线版本:DeepSeeker CodeAgent v0.1.0(14 个已注册工具 → 当前 16 个,新增 grep/glob)
+> 基线版本:DeepCreator CodeAgent v0.1.0(14 个已注册工具 → 当前 16 个,新增 grep/glob)
 > 编写日期:2026-07-20
 
 ---
@@ -202,12 +202,12 @@ invoke_capability(capabilityId="mcp:github:create_pr", arguments={title, body, h
 **好处与解决的问题**
 - ✅ 解决:每个外部集成都要从零写工具胶水代码的重复劳动
 - ✅ 解决:agent 能力边界的扩展依赖核心团队的问题
-- ✅ 好处:借力 MCP 生态,把 DeepSeeker 从"编码助手"扩展到"通用任务平台"
+- ✅ 好处:借力 MCP 生态,把 DeepCreator 从"编码助手"扩展到"通用任务平台"
 
 **实现机制(三句话)**
 1. 在 `server/infra/capabilities.ts` 实现一个 `McpCapabilityProvider`,用 `@modelcontextprotocol/sdk` 启动子进程或连 stdio/SSE server。
 2. 把 MCP server 暴露的 tools 转成 `Capability` 元数据写入索引,`invoke_capability` 时按 `capabilityId` 路由到对应 server 调用。
-3. 配置文件(`~/.deepseeker/mcp.json` 或项目级 `.deepseeker/mcp.json`)声明 server 列表,启动时按需加载(走你已有的渐进披露)。
+3. 配置文件(`~/.deepcreator/mcp.json` 或项目级 `.deepcreator/mcp.json`)声明 server 列表,启动时按需加载(走你已有的渐进披露)。
 
 ---
 
@@ -230,7 +230,7 @@ invoke_capability(capabilityId="mcp:github:create_pr", arguments={title, body, h
 
 **实现机制(三句话)**
 1. 在 `desktop/preload.ts` 或 Runtime 加一层命令解析器,识别输入首个 token 是否以 `/` 开头。
-2. 命令定义放在 `~/.deepseeker/commands/*.md` 和 `<root>/.deepseeker/commands/*.md`,YAML frontmatter 声明参数,正文是 prompt 模板(支持 `$ARGUMENTS` `$1` 占位符)。
+2. 命令定义放在 `~/.deepcreator/commands/*.md` 和 `<root>/.deepcreator/commands/*.md`,YAML frontmatter 声明参数,正文是 prompt 模板(支持 `$ARGUMENTS` `$1` 占位符)。
 3. 命中后把渲染好的 prompt 作为用户消息提交,无需改动 Runner 核心。
 
 ---
@@ -240,7 +240,7 @@ invoke_capability(capabilityId="mcp:github:create_pr", arguments={title, body, h
 **用法**
 用户配置:
 ```yaml
-# .deepseeker/hooks.yaml
+# .deepcreator/hooks.yaml
 - event: PreToolUse
   matcher: "run_command"
   script: ./hooks/audit-log.sh     # 记录所有 shell 调用
@@ -260,7 +260,7 @@ invoke_capability(capabilityId="mcp:github:create_pr", arguments={title, body, h
 **实现机制(三句话)**
 1. 在 `server/app/toolPipeline.ts` 的 checkpoint 前后插入两个 hook 触发点,把 `toolName + args + targetPath` 传给已注册的 hook 列表。
 2. Hook 执行器支持 `shell script`(子进程)和 `inline JS` 两种,返回 `{decision: "allow"|"block"|"modify", reason}` 控制流程。
-3. 配置从 `.deepseeker/hooks.yaml` 加载,与 Guidance 同源,失败 hook 默认 block + 告警。
+3. 配置从 `.deepcreator/hooks.yaml` 加载,与 Guidance 同源,失败 hook 默认 block + 告警。
 
 ---
 
@@ -472,7 +472,7 @@ run_command(command="rm -rf /tmp/test", sandbox="docker")
 ### #18 VSCode 扩展
 
 **用法**
-用户在 VSCode 里安装 "DeepSeeker" 扩展,侧边栏出现对话面板,直接在编辑器里和 agent 交互,选中代码右键"解释这段代码"。
+用户在 VSCode 里安装 "DeepCreator" 扩展,侧边栏出现对话面板,直接在编辑器里和 agent 交互,选中代码右键"解释这段代码"。
 
 **为什么需要这个工具**
 当前产品是独立 Electron 应用,用户必须切换窗口,无法和编辑器原生集成。Cursor 本身就是 IDE,Claude Code 和 Codex 都有 VSCode 扩展。触达存量用户必须有 IDE 入口。
@@ -495,7 +495,7 @@ run_command(command="rm -rf /tmp/test", sandbox="docker")
 用户在编辑器敲 `const result = await fetchU`,按下 Tab,自动补全为 `const result = await fetchUser(id);`。
 
 **为什么需要这个工具**
-Cursor 的 Tab 补全是它的核心商业卖点,也是用户最高频的交互。当前 DeepSeeker 完全没有这个能力。
+Cursor 的 Tab 补全是它的核心商业卖点,也是用户最高频的交互。当前 DeepCreator 完全没有这个能力。
 
 **好处与解决的问题**
 - ✅ 解决:逐字符敲代码的低效

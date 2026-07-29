@@ -66,7 +66,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 export async function captureBaseline(projectRoot: string): Promise<Baseline> {
-  const snapshotDirectory = await fs.mkdtemp(path.join(tmpdir(), "deepseeker-run-"));
+  const snapshotDirectory = await fs.mkdtemp(path.join(tmpdir(), "deepcreator-run-"));
   const baseline: Baseline = { available: false, files: new Map(), leases: 1, released: false, snapshotDirectory };
   const statusResult = await runShell(
     projectRoot,

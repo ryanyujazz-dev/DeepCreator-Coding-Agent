@@ -195,7 +195,7 @@ export class RuntimeClient {
     return headers;
   }
 
-  private request<T>(path: string, decode: RuntimeDecoder<T>, init: RequestInit = {}): Promise<T> {
+  request<T>(path: string, decode: RuntimeDecoder<T>, init: RequestInit = {}): Promise<T> {
     const hasBody = init.body !== undefined && init.body !== null;
     return fetch(this.url(path), { ...init, headers: this.headers(init.headers, hasBody) }).then((response) => json(response, decode));
   }

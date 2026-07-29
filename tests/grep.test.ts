@@ -10,7 +10,7 @@ import { executeTool } from "../server/infra/tools";
 //          安全(敏感路径/脱敏/越界)、取消、无命中、无效正则、只读语义。
 
 function setupProject(): string {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-"));
   mkdirSync(path.join(directory, "src", "sub"), { recursive: true });
   mkdirSync(path.join(directory, "node_modules", "lib"), { recursive: true });
   writeFileSync(path.join(directory, "src", "a.ts"), "TODO: fix this\nfunction foo() { return 1; }\n// todo: lowercase\n");
@@ -136,7 +136,7 @@ test("grep: output_mode=json 返回结构化字段", async () => {
 });
 
 test("grep: max_results 截断(content 模式按命中行数截断)", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-trunc-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-trunc-"));
   try {
     // 造 5 个文件,每个 1 个命中
     for (let i = 0; i < 5; i++) {
@@ -151,7 +151,7 @@ test("grep: max_results 截断(content 模式按命中行数截断)", async () =
 });
 
 test("grep: 🔒 敏感文件搜索前过滤(.env 不被命中)", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-secret-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-secret-"));
   try {
     writeFileSync(path.join(directory, ".env"), "API_KEY=leaked-secret-value-here\nTODO: rotate key\n");
     writeFileSync(path.join(directory, "app.ts"), "TODO: normal\n");
@@ -165,7 +165,7 @@ test("grep: 🔒 敏感文件搜索前过滤(.env 不被命中)", async () => {
 });
 
 test("grep: 🔒 输出整体脱敏(sk- 格式 API key)", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-redact-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-redact-"));
   try {
     // app.ts 里出现 sk- 格式 key(非敏感文件名,但内容含密钥),输出应脱敏
     writeFileSync(path.join(directory, "app.ts"), 'const key = "sk-abcdefghij1234";\n');
@@ -224,7 +224,7 @@ test("grep: 拒绝可能产生灾难性回溯的正则", async () => {
 });
 
 test("grep: 跳过大文件和二进制文件并返回提示", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-bounds-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-bounds-"));
   try {
     writeFileSync(path.join(directory, "large.txt"), `needle${"x".repeat(2 * 1024 * 1024)}`);
     writeFileSync(path.join(directory, "binary.bin"), Buffer.from([0, 110, 101, 101, 100, 108, 101]));
@@ -238,7 +238,7 @@ test("grep: 跳过大文件和二进制文件并返回提示", async () => {
 });
 
 test("grep: 响应 AbortSignal", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-abort-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-abort-"));
   try {
     // 造多个文件,确保 walk 还没结束就被取消
     for (let i = 0; i < 20; i++) {
@@ -263,7 +263,7 @@ test("grep: 响应 AbortSignal", async () => {
 // === 方言归一化测试:JS RegExp 不支持 PCRE 的 (?i) 等内联标志,需自动归一化 ===
 
 test("grep: 方言归一化 (?i) 内联标志转为外部大小写不敏感", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-dialect-i-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-dialect-i-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), "TODO: upper\nTodo: mixed\ntodo: lower\n");
     // (?i)todo|TODO 这种 PCRE 写法在 JS 会抛 Invalid group,但应被归一化
@@ -282,7 +282,7 @@ test("grep: 方言归一化 (?i) 内联标志转为外部大小写不敏感", as
 });
 
 test("grep: 方言归一化 (?i:foo) 内联标志组保留组体", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-dialect-group-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-dialect-group-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), "Foo bar\nfoo baz\nFOO qux\n");
     // (?i:foo) 应被转成非捕获组 + 外部 i 标志
@@ -300,7 +300,7 @@ test("grep: 方言归一化 (?i:foo) 内联标志组保留组体", async () => {
 });
 
 test("grep: 方言归一化 (?-i) 取反标志剥离并警告", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-dialect-neg-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-dialect-neg-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), "abcDEF\n");
     // (?-i) 取反标志 JS 不支持,应被剥离并记录警告。剩余 abc 仍按外部 i 标志匹配
@@ -317,7 +317,7 @@ test("grep: 方言归一化 (?-i) 取反标志剥离并警告", async () => {
 });
 
 test("grep: case_sensitive=true 与 (?i) 同时出现时以参数为准", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-dialect-conflict-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-dialect-conflict-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), "TODO upper\ntodo lower\n");
     // 用户显式 case_sensitive=true,即便 pattern 带 (?i),也应严格大小写
@@ -337,7 +337,7 @@ test("grep: case_sensitive=true 与 (?i) 同时出现时以参数为准", async 
 // === fixed_strings 模式测试 ===
 
 test("grep: fixed_strings=true 把 pattern 当字面量(转义元字符)", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-fixed-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-fixed-"));
   try {
     // 文件里包含字面的 "function.*test" 字符串(不是正则)
     writeFileSync(path.join(directory, "a.ts"), 'const desc = "function.*test";\nfunction test() {}\n');
@@ -355,7 +355,7 @@ test("grep: fixed_strings=true 把 pattern 当字面量(转义元字符)", async
 });
 
 test("grep: fixed_strings=true 搜索包含正则元字符的字符串(如 API key)", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-fixed-key-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-fixed-key-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), 'const url = "https://api.example.com/v1/users";\n');
     // 搜一个含 / 和 . 的 URL,字面量模式必须正常工作
@@ -374,7 +374,7 @@ test("grep: fixed_strings=true 搜索包含正则元字符的字符串(如 API k
 // === 错误信息测试 ===
 
 test("grep: 真正无效的正则给出可操作的错误提示", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-badregex-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-badregex-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), "content\n");
     // [ 单独一个方括号是真正无效的正则,无法通过归一化救回
@@ -394,7 +394,7 @@ test("grep: 真正无效的正则给出可操作的错误提示", async () => {
 // === output_mode 三档测试(Claude Code 兼容设计) ===
 
 test("grep: output_mode=files_with_matches 默认只返回文件路径", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-fm-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-fm-"));
   try {
     mkdirSync(path.join(directory, "src"), { recursive: true });
     writeFileSync(path.join(directory, "src", "a.ts"), "TODO: one\nTODO: two\n");
@@ -416,7 +416,7 @@ test("grep: output_mode=files_with_matches 默认只返回文件路径", async (
 });
 
 test("grep: output_mode=files_with_matches 显式传参同样生效", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-fm-explicit-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-fm-explicit-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), "TODO: x\n");
     const result = await executeTool({
@@ -432,7 +432,7 @@ test("grep: output_mode=files_with_matches 显式传参同样生效", async () =
 });
 
 test("grep: output_mode=count 返回每文件命中数", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-count-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-count-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), "TODO: one\nTODO: two\nTODO: three\n");
     writeFileSync(path.join(directory, "b.ts"), "TODO: only one\n");
@@ -452,7 +452,7 @@ test("grep: output_mode=count 返回每文件命中数", async () => {
 });
 
 test("grep: output_mode=content 仍返回 path:line:content(向后兼容)", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-grep-content-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-content-"));
   try {
     writeFileSync(path.join(directory, "a.ts"), "TODO: fix this\n");
     const result = await executeTool({

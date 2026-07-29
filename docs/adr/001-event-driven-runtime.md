@@ -8,7 +8,7 @@ Superseded by [ADR 004](./004-clean-runtime-architecture.md)
 
 The first prototype stores a complete agent run in memory and publishes that whole object after every mutation. This makes reconnects expensive, loses conversations on restart, and forces the UI to infer lifecycle state from loosely related model events.
 
-DeepSeeker needs a stable product protocol that is independent from any model provider. DeepSeek response fields are transport details, not UI domain concepts.
+DeepCreator needs a stable product protocol that is independent from any model provider. DeepSeek response fields are transport details, not UI domain concepts.
 
 ## Historical Decision (V1)
 
@@ -49,7 +49,7 @@ Provider continuation state is stored outside the public signal protocol. Ordina
 ADR 004 keeps the event-driven principle but replaces the V1 vocabulary and storage model:
 
 - `Session -> Run -> Activity`, with immutable `Event` facts;
-- `deepseeker.events/v2` replaces `deepseeker.flow/v1` in active writes;
+- `deepcreator.events/v2` replaces `deepcreator.flow/v1` in active writes;
 - SQLite replaces JSONL as the only authoritative store;
 - Event append and projection update commit atomically;
 - V1 JSONL is accepted only through `LegacyDecoder` when no SQLite Event history exists.

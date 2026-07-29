@@ -30,7 +30,7 @@ void bootstrap().catch((error) => {
   const title = document.createElement("h1");
   const detail = document.createElement("p");
   main.className = "bootstrap-error";
-  title.textContent = "DeepSeeker 无法启动";
+  title.textContent = "DeepCreator 无法启动";
   detail.textContent = error instanceof Error ? error.message : String(error);
   main.append(title, detail);
   root.replaceChildren(main);

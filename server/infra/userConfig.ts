@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADR-009: 普通用户配置统一为 ~/.deepseeker/config.json
+// ADR-009: 普通用户配置统一为 ~/.deepcreator/config.json
 //
 // 不再读取项目内的 .env.local。桌面端历史 DeepSeek 密钥仍可由
 // safeStorage 兼容解析，Runtime 环境变量只承担宿主到 worker 的进程传递。
@@ -82,6 +82,10 @@ export function parseUserConfig(raw: string): UserConfig {
 }
 
 function configPath(): string {
+  return path.join(homedir(), ".deepcreator", "config.json");
+}
+
+function previousConfigPath(): string {
   return path.join(homedir(), ".deepseeker", "config.json");
 }
 
@@ -101,7 +105,7 @@ export function loadUserConfig(): UserConfig {
 }
 
 /**
- * 确保 ~/.deepseeker/config.json 存在。首次运行时创建模板。
+ * 确保 ~/.deepcreator/config.json 存在。首次运行时创建模板。
  * 如果已存在则不覆盖。
  */
 export function ensureUserConfig(): void {
@@ -109,6 +113,11 @@ export function ensureUserConfig(): void {
   if (existsSync(file)) return;
   const dir = path.dirname(file);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const previous = previousConfigPath();
+  if (existsSync(previous)) {
+    writeFileSync(file, readFileSync(previous, "utf8"), { encoding: "utf8", mode: 0o600 });
+    return;
+  }
   writeFileSync(file, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n", "utf8");
 }
 

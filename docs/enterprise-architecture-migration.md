@@ -24,7 +24,7 @@
 - 为 renderer 建立 platform 边界和重量级功能懒加载，首屏不再同步加载 Monaco、Mermaid 与 Lottie。
 - 建立语义颜色的新样式入口和受控 legacy CSS 债务门禁，浅色与暗色主题必须通过同一语义 token 映射；工作区表面、主题编辑、思考动效与暗色交互审计已迁入独立 feature stylesheet。
 - Application 的时间与 ID 全部通过 `SystemPort` 注入；稳定摘要算法进入平台无关 domain，`server/app` 不再引用 Node API、平台全局或直接时钟。
-- 用户配置由宿主一次性解析后注入 Runtime；项目 `.env.local` 不再自动加载，默认模型统一持久化到 `~/.deepseeker/config.json`，损坏配置会明确报错且不会被静默覆盖。
+- 用户配置由宿主一次性解析后注入 Runtime；项目 `.env.local` 不再自动加载，默认模型统一持久化到 `~/.deepcreator/config.json`，损坏配置会明确报错且不会被静默覆盖。
 - 增加零警告 lint、生产依赖审计和统一 `npm run check` 验收入口。
 
 ## 兼容策略

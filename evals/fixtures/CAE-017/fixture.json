@@ -1,0 +1,28 @@
+{
+  "caseId": "CAE-017",
+  "status": "ready",
+  "base": {
+    "kind": "git",
+    "revision": "HEAD"
+  },
+  "setupPatch": "setup.patch",
+  "assertions": [
+    {
+      "id": "content-metrics-known-counts",
+      "kind": "command",
+      "command": "node eval-fixture/verify-content-metrics.mjs",
+      "expectedExitCode": 0,
+      "points": 20
+    },
+    {
+      "id": "trace-input-unchanged",
+      "kind": "git_diff_excludes",
+      "paths": [
+        "eval-data/traces.jsonl",
+        "eval-data/metric-rules.md"
+      ],
+      "points": 10
+    }
+  ],
+  "timeoutMs": 600000
+}

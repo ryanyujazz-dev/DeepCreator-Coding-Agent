@@ -4,13 +4,14 @@ import path from "node:path";
 import { DesktopSettingsInput } from "../shared/contracts/desktop";
 import { ThemeImportInput, ThemePack, ThemePreference, WindowChromeTheme } from "../shared/contracts/theme";
 import { DEFAULT_THEME_ID, isHexColor } from "../shared/themeCatalog";
+import { migratePreviousDesktopData } from "./brandMigration";
 import { RuntimeHost } from "./runtime-host";
 import { DesktopStore } from "./store";
 import { importThemeFile } from "./themeImport";
 import { ThemeStore } from "./themeStore";
 import { ensureUserConfig } from "../server/infra/userConfig";
 
-// ADR-009: 普通配置统一从 ~/.deepseeker/config.json 读取；密钥由宿主边界解析。
+// ADR-009: 普通配置统一从 ~/.deepcreator/config.json 读取；密钥由宿主边界解析。
 ensureUserConfig();
 console.log("[desktop] main started");
 
@@ -127,8 +128,8 @@ function registerIpc(): void {
     const theme = themes.get(themeId);
     if (!theme) throw new Error("主题不存在。");
     const result = await dialog.showSaveDialog(mainWindow!, {
-      defaultPath: `${theme.name.replace(/[\\/:*?"<>|]/g, "-")}.deepseeker-theme.json`,
-      filters: [{ extensions: ["json"], name: "DeepSeeker 主题" }],
+      defaultPath: `${theme.name.replace(/[\\/:*?"<>|]/g, "-")}.deepcreator-theme.json`,
+      filters: [{ extensions: ["json"], name: "DeepCreator 主题" }],
       title: "导出主题"
     });
     if (result.canceled || !result.filePath) return false;
@@ -164,7 +165,7 @@ function createWindow(): BrowserWindow {
     minHeight: 620,
     minWidth: 420,
     show: false,
-    title: "DeepSeeker",
+    title: "DeepCreator",
     ...(process.platform === "darwin"
       ? { titleBarStyle: "hiddenInset" as const }
       : {
@@ -208,6 +209,7 @@ else {
   });
   app.whenReady().then(async () => {
     console.log("[desktop] app ready");
+    migratePreviousDesktopData();
     store = new DesktopStore();
     themes = new ThemeStore();
     runtime = new RuntimeHost(store, MAIN_WINDOW_VITE_DEV_SERVER_URL ?? "file://");

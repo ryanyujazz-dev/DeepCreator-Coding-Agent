@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Beaker,
   Bot,
   KeyRound,
   Search,
@@ -12,14 +13,16 @@ import { PanelResizeHandle } from "../PanelResizeHandle";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { ModelSettings } from "./ModelSettings";
 
-type SettingsSection = "general" | "appearance" | "models";
+type SettingsSection = "general" | "appearance" | "models" | "evals";
 
-const sections: Array<{
+type SettingsSectionDefinition = {
   icon: typeof Settings;
   id: SettingsSection;
   keywords: string[];
   label: string;
-}> = [
+};
+
+const sections: SettingsSectionDefinition[] = [
   {
     icon: Settings,
     id: "general",
@@ -40,7 +43,13 @@ const sections: Array<{
     id: "models",
     keywords: ["模型", "默认模型", "api", "key", "deepseek", "智谱", "凭据"],
     label: "模型与 API"
-  }
+  },
+  ...(import.meta.env.DEV ? [{
+    icon: Beaker,
+    id: "evals" as const,
+    keywords: ["评测", "eval", "case", "模型", "judge", "开发者"],
+    label: "评测中心"
+  }] : [])
 ];
 
 function GeneralSettings() {
@@ -48,12 +57,12 @@ function GeneralSettings() {
     <section className="settings-page">
       <header className="settings-page-header">
         <h1>常规</h1>
-        <p>管理 DeepSeeker 的本地桌面体验。</p>
+        <p>管理 DeepCreator 的本地桌面体验。</p>
       </header>
       <div className="settings-preference-section">
         <h2>应用</h2>
         <div className="settings-preference-row">
-          <div><strong>DeepSeeker CodeAgent</strong><span>本地 Agent Runtime 与桌面工作区</span></div>
+          <div><strong>DeepCreator CodeAgent</strong><span>本地 Agent Runtime 与桌面工作区</span></div>
           <span className="settings-readonly-value">0.1.0</span>
         </div>
         <div className="settings-preference-row">
@@ -67,22 +76,27 @@ function GeneralSettings() {
 
 export function SettingsWorkspace({
   onClose,
+  onOpenEvals,
   onWidthChange,
   onWidthReset,
-  sidebarWidth
+  sidebarWidth,
+  showEvals = false
 }: {
   onClose: () => void;
+  onOpenEvals?: () => void;
   onWidthChange: (width: number) => void;
   onWidthReset: () => void;
   sidebarWidth: number;
+  showEvals?: boolean;
 }) {
   const [active, setActive] = useState<SettingsSection>("appearance");
   const [query, setQuery] = useState("");
   const visibleSections = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return sections;
-    return sections.filter((section) => section.keywords.some((keyword) => keyword.toLocaleLowerCase().includes(normalized)));
-  }, [query]);
+    const available = sections.filter((section) => section.id !== "evals" || showEvals);
+    if (!normalized) return available;
+    return available.filter((section) => section.keywords.some((keyword) => keyword.toLocaleLowerCase().includes(normalized)));
+  }, [query, showEvals]);
   useEffect(() => {
     if (query.trim() && visibleSections.length > 0 && !visibleSections.some((section) => section.id === active)) {
       setActive(visibleSections[0].id);
@@ -106,7 +120,7 @@ export function SettingsWorkspace({
                 aria-current={active === section.id ? "page" : undefined}
                 className={active === section.id ? "is-active" : ""}
                 key={section.id}
-                onClick={() => setActive(section.id)}
+                onClick={() => section.id === "evals" && onOpenEvals ? onOpenEvals() : setActive(section.id)}
                 type="button"
               >
                 <Icon size={16} />
@@ -116,14 +130,18 @@ export function SettingsWorkspace({
           })}
           {visibleSections.length === 0 && <div className="settings-search-empty">没有匹配的设置</div>}
         </nav>
-        <div className="settings-sidebar-footer"><Bot size={16} /><span>DeepSeeker</span></div>
+        <div className="settings-sidebar-footer"><Bot size={16} /><span>DeepCreator</span></div>
         <PanelResizeHandle ariaLabel="调整设置侧栏宽度" edge="right" max={360} min={220} onChange={onWidthChange} onReset={onWidthReset} value={sidebarWidth} />
       </aside>
       <main className="settings-main">
         <div className="settings-mobile-navigation">
           <button onClick={onClose} type="button"><ArrowLeft size={15} />返回</button>
-          <select aria-label="设置页面" onChange={(event) => setActive(event.target.value as SettingsSection)} value={active}>
-            {sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}
+          <select aria-label="设置页面" onChange={(event) => {
+            const next = event.target.value as SettingsSection;
+            if (next === "evals" && onOpenEvals) onOpenEvals();
+            else setActive(next);
+          }} value={active}>
+            {sections.filter((section) => section.id !== "evals" || showEvals).map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}
           </select>
           <SlidersHorizontal size={15} />
         </div>

@@ -6,11 +6,11 @@
 
 ## 背景
 
-桌面端历史上把 DeepSeek API Key 写入 Electron `safeStorage`，独立 Runtime 又支持通过进程环境接收已解析密钥。智谱配置和通用模型设置则存放于 `~/.deepseeker/config.json`。如果各模块分别读取 `.env.local`、桌面状态和 JSON 配置，会出现多个互相覆盖的事实来源。
+桌面端历史上把 DeepSeek API Key 写入 Electron `safeStorage`，独立 Runtime 又支持通过进程环境接收已解析密钥。智谱配置和通用模型设置则存放于 `~/.deepcreator/config.json`。如果各模块分别读取 `.env.local`、桌面状态和 JSON 配置，会出现多个互相覆盖的事实来源。
 
 ## 决策
 
-1. `~/.deepseeker/config.json` 是用户可移植配置的规范来源；项目工作区内不得保存用户 API Key。
+1. `~/.deepcreator/config.json` 是用户可移植配置的规范来源；项目工作区内不得保存用户 API Key。
 2. Electron `safeStorage` 仅作为现有 DeepSeek 密钥的加密兼容来源，直到独立 `SecretPort` 完成迁移；它不得承载模型、语言、上下文或权限等普通配置。
 3. Runtime worker 接收的环境变量是桌面主进程向子进程传递已解析密钥的进程边界协议，不是新的持久化配置来源。
 4. 配置读取、默认值合并和兼容迁移集中在配置适配器与宿主入口中。可复用的 Runtime 组装函数和 Application 不得自行读取配置文件或 `process.env`；宿主入口只负责一次性解析并注入已解析值。

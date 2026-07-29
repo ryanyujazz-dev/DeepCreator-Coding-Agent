@@ -1,0 +1,17 @@
+diff --git a/diagnostics/ci-build.log b/diagnostics/ci-build.log
+new file mode 100644
+--- /dev/null
++++ b/diagnostics/ci-build.log
+@@ -0,0 +1,12 @@
++CI environment
++node: v20.19.1
++npm: 10.8.2
++
++$ npm run build
++server/infra/database.ts(18,25): error TS2339: Property 'DatabaseSync' does not exist on type 'typeof import("node:sqlite")'.
++server/infra/database.ts(47,18): error TS2694: Namespace '"node:sqlite"' has no exported member 'StatementSync'.
++
++npm ERR! Lifecycle script `build` failed with error
++npm ERR! code 2
++npm ERR! workspace deepcreator-codeagent@0.1.0
++npm ERR! command failed

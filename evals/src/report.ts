@@ -121,7 +121,7 @@ export function renderMarkdown(summary: EvalExperimentSummary): string {
   );
   const attribution = markdownTable(["归因层", "数量", "占比", "失败代码"], attributionRows(summary.results));
   const comparison = markdownTable(["指标", "基线", "候选", "变化"], promptComparisonRows(aggregate));
-  return `# DeepSeeker Agent Eval Report\n\n` +
+  return `# DeepCreator Agent Eval Report\n\n` +
     `- 实验：${summary.experimentId}\n` +
     `- 生成时间：${summary.generatedAt}\n` +
     `- 运行数量：${summary.results.length}\n\n` +

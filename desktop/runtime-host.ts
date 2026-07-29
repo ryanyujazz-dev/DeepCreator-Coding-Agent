@@ -68,9 +68,10 @@ export class RuntimeHost {
   private prepareDataDirectory(): string {
     const target = path.join(app.getPath("userData"), "runtime");
     mkdirSync(target, { recursive: true });
-    const legacy = path.join(app.getAppPath(), ".deepseeker");
-    if (!existsSync(path.join(target, "runtime.sqlite")) && existsSync(path.join(legacy, "runtime.sqlite"))) {
-      cpSync(legacy, target, { recursive: true, errorOnExist: false, force: false });
+    const candidates = [path.join(app.getAppPath(), ".deepcreator"), path.join(app.getAppPath(), ".deepseeker")];
+    const source = candidates.find((candidate) => existsSync(path.join(candidate, "runtime.sqlite")));
+    if (!existsSync(path.join(target, "runtime.sqlite")) && source) {
+      cpSync(source, target, { recursive: true, errorOnExist: false, force: false });
     }
     return target;
   }
@@ -94,11 +95,13 @@ export class RuntimeHost {
         RUNTIME_AUTH_TOKEN: token,
         RUNTIME_DATA_DIR: this.prepareDataDirectory(),
         RUNTIME_FRONTEND_URL: this.frontendUrl,
+        RUNTIME_EVAL_REPOSITORY_ROOT: app.getAppPath(),
+        RUNTIME_EVALS_ENABLED: !app.isPackaged && this.frontendUrl !== "file://" ? "1" : "0",
         RUNTIME_MIGRATIONS_DIR: migrations,
         RUNTIME_WORKSPACE_ROOT: app.getPath("home"),
         DEEPSEEK_LOCALE: systemLocale
       },
-      serviceName: "DeepSeeker Runtime",
+      serviceName: "DeepCreator Runtime",
       stdio: "pipe"
     });
     this.process = child;

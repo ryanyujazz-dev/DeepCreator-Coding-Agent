@@ -243,7 +243,7 @@ function buildSessionLayer(
     locale: context.locale,
     date: new Date().toISOString().slice(0, 10),
     model: input.model,
-    app: "DeepSeeker CodeAgent"
+    app: "DeepCreator CodeAgent"
   };
   const guidanceText = (input.rules ?? emptyRuleSource).render(guidance, "stable");
   const memory = input.memoryIndex?.trim() || "No curated memory facts are active.";

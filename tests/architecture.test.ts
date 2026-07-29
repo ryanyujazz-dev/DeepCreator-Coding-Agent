@@ -160,10 +160,10 @@ test("keeps frontend entry, features, and shared UI in explicit layers", () => {
 test("routes renderer host capabilities through the platform boundary", () => {
   const rendererFiles = filesBelow("src").filter((file) => !file.includes(`${path.sep}platform${path.sep}`));
   const renderer = sourceOf(rendererFiles);
-  assert.doesNotMatch(renderer, /window\.deepseeker/);
+  assert.doesNotMatch(renderer, /window\.deepcreator/);
   assert.doesNotMatch(renderer, /window\.localStorage/);
   const desktop = readFileSync(path.join(root, "src/platform/desktop.ts"), "utf8");
-  assert.match(desktop, /window\.deepseeker/);
+  assert.match(desktop, /window\.deepcreator/);
 });
 
 test("keeps heavyweight renderer capabilities behind lazy boundaries", () => {

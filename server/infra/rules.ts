@@ -121,15 +121,15 @@ function escapeXmlText(value: string): string {
 
 function sessionStartGuidance(projectRoot: string): ResolvedRule[] {
   const candidates: Array<[string, Parameters<typeof configuredGuidance>[1]]> = [
-    [path.join(homedir(), ".deepseeker", "GUIDANCE.md"), { activationReason: "个人稳定规范", loadPolicy: "session_start", origin: "personal", precedenceRank: 100, reach: "global", trust: "user_owned" }],
-    [path.join(homedir(), ".deepseeker", "INSTRUCTIONS.md"), { activationReason: "个人兼容规范", loadPolicy: "session_start", origin: "personal", precedenceRank: 105, reach: "global", trust: "user_owned" }],
-    [path.join(projectRoot, "DEEPSEEKER.md"), { activationReason: "项目共享规范", loadPolicy: "session_start", origin: "project", precedenceRank: 200, reach: "project", trust: "trusted_project" }],
-    [path.join(projectRoot, ".deepseeker", "GUIDANCE.md"), { activationReason: "项目配置规范", loadPolicy: "session_start", origin: "workspace", precedenceRank: 210, reach: "project", trust: "trusted_project" }],
-    [path.join(projectRoot, ".deepseeker", "INSTRUCTIONS.md"), { activationReason: "项目兼容规范", loadPolicy: "session_start", origin: "workspace", precedenceRank: 215, reach: "project", trust: "trusted_project" }],
-    [path.join(projectRoot, "DEEPSEEKER.local.md"), { activationReason: "本地项目规范", loadPolicy: "session_start", origin: "local", precedenceRank: 300, reach: "project", trust: "user_owned" }]
+    [path.join(homedir(), ".deepcreator", "GUIDANCE.md"), { activationReason: "个人稳定规范", loadPolicy: "session_start", origin: "personal", precedenceRank: 100, reach: "global", trust: "user_owned" }],
+    [path.join(homedir(), ".deepcreator", "INSTRUCTIONS.md"), { activationReason: "个人兼容规范", loadPolicy: "session_start", origin: "personal", precedenceRank: 105, reach: "global", trust: "user_owned" }],
+    [path.join(projectRoot, "DEEPCREATOR.md"), { activationReason: "项目共享规范", loadPolicy: "session_start", origin: "project", precedenceRank: 200, reach: "project", trust: "trusted_project" }],
+    [path.join(projectRoot, ".deepcreator", "GUIDANCE.md"), { activationReason: "项目配置规范", loadPolicy: "session_start", origin: "workspace", precedenceRank: 210, reach: "project", trust: "trusted_project" }],
+    [path.join(projectRoot, ".deepcreator", "INSTRUCTIONS.md"), { activationReason: "项目兼容规范", loadPolicy: "session_start", origin: "workspace", precedenceRank: 215, reach: "project", trust: "trusted_project" }],
+    [path.join(projectRoot, "DEEPCREATOR.local.md"), { activationReason: "本地项目规范", loadPolicy: "session_start", origin: "local", precedenceRank: 300, reach: "project", trust: "user_owned" }]
   ];
   const results = candidates.flatMap(([sourceFile, defaults]) => configuredGuidance(sourceFile, defaults) ?? []);
-  for (const sourceFile of collectMarkdown(path.join(projectRoot, ".deepseeker", "guidance"))) {
+  for (const sourceFile of collectMarkdown(path.join(projectRoot, ".deepcreator", "guidance"))) {
     const rule = configuredGuidance(sourceFile, {
       activationReason: "项目扩展规范",
       loadPolicy: "session_start",
@@ -159,7 +159,7 @@ function pathGuidance(projectRoot: string, activePaths: string[]): ResolvedRule[
   const results: ResolvedRule[] = [];
   for (const directory of [...directories].sort((left, right) => left.split(path.sep).length - right.split(path.sep).length)) {
     const subtree = `${path.relative(root, directory).split(path.sep).join("/")}/**`;
-    for (const [name, rank, origin] of [["DEEPSEEKER.md", 340, "path"], ["DEEPSEEKER.local.md", 350, "local"]] as const) {
+    for (const [name, rank, origin] of [["DEEPCREATOR.md", 340, "path"], ["DEEPCREATOR.local.md", 350, "local"]] as const) {
       const rule = configuredGuidance(path.join(directory, name), {
         activationReason: "首次访问子目录",
         loadPolicy: "on_path_access",
@@ -173,8 +173,8 @@ function pathGuidance(projectRoot: string, activePaths: string[]): ResolvedRule[
     }
   }
   const pathRuleFiles = [
-    ...collectMarkdown(path.join(projectRoot, ".deepseeker", "rules")),
-    ...collectMarkdown(path.join(projectRoot, ".deepseeker", "guidance"))
+    ...collectMarkdown(path.join(projectRoot, ".deepcreator", "rules")),
+    ...collectMarkdown(path.join(projectRoot, ".deepcreator", "guidance"))
   ];
   for (const sourceFile of [...new Set(pathRuleFiles)]) {
     const raw = readGuidance(sourceFile);

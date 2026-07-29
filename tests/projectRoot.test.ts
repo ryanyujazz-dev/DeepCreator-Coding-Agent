@@ -6,7 +6,7 @@ import test from "node:test";
 import { resolveProjectRoot } from "../server/infra/projectRoot";
 
 test("uses the longest existing leading directory for a new session", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-root-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-root-"));
   const project = path.join(directory, "project with spaces");
   mkdirSync(project);
   try {
@@ -27,7 +27,7 @@ test("uses the longest existing leading directory for a new session", async () =
 });
 
 test("rejects an explicit project directory that does not exist", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-explicit-root-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-explicit-root-"));
   try {
     await assert.rejects(
       resolveProjectRoot({

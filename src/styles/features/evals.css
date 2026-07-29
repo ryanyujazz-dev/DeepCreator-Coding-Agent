@@ -1,0 +1,497 @@
+/* Developer-only evaluation workspace. It deliberately reuses the application
+   shell, conversation canvas, composer and surface panel primitives. */
+.eval-shell {
+  height: calc(100vh - var(--layout-topbar-height));
+  background: var(--app-canvas);
+}
+
+.eval-sidebar .sidebar-brand-row > svg {
+  color: var(--color-text-subtle);
+}
+
+.eval-case-search {
+  margin: 0 10px 14px;
+}
+
+.eval-case-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+/* Evaluation rows have no floating action buttons. The shared sidebar hover
+   rule reserves 58px for those actions, which would shift scores and chevrons. */
+.eval-sidebar .thread-row-shell:hover .eval-case-row,
+.eval-sidebar .thread-row-shell:has(:focus-visible) .eval-case-row {
+  padding-right: 9px;
+}
+
+.eval-dataset-row {
+  grid-template-columns: 16px minmax(0, 1fr) 38px;
+}
+
+.eval-case-availability {
+  width: 38px;
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.eval-result-row {
+  grid-template-columns: 16px minmax(0, 1fr) 14px;
+}
+
+.eval-case-row > .eval-case-status {
+  display: grid;
+  width: 16px;
+  place-items: center;
+  color: var(--color-text-subtle);
+}
+
+.eval-case-status.is-preparing,
+.eval-case-status.is-running_agent,
+.eval-case-status.is-verifying,
+.eval-case-status.is-judging {
+  color: var(--theme-blue);
+}
+
+.eval-case-status.is-completed {
+  color: var(--color-success);
+}
+
+.eval-case-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.eval-case-copy small {
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: 0.04em;
+}
+
+.eval-case-row strong {
+  align-self: center;
+  font-size: var(--type-meta-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-case-row strong.is-pass,
+.eval-verification-list .is-pass {
+  color: var(--color-success);
+}
+
+.eval-case-row strong.is-fail,
+.eval-verification-list .is-fail {
+  color: var(--color-danger);
+}
+
+.eval-case-group {
+  display: grid;
+}
+
+.eval-result-trailing {
+  display: grid;
+  width: 14px;
+  align-items: center;
+}
+
+.eval-case-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-subtle);
+  opacity: 0;
+  transition: opacity 120ms ease, transform 140ms ease;
+}
+
+.eval-case-parent-row:hover .eval-case-chevron,
+.eval-case-parent-row:focus-visible .eval-case-chevron,
+.eval-case-parent-row[aria-expanded="true"] .eval-case-chevron {
+  opacity: 1;
+}
+
+.eval-case-parent-row[aria-expanded="true"] .eval-case-chevron {
+  transform: rotate(90deg);
+}
+
+.eval-run-history {
+  display: grid;
+  max-height: 329px;
+  margin: 2px 0 5px 14px;
+  padding-left: 5px;
+  overflow-y: auto;
+  border-left: 1px solid var(--app-border);
+  align-content: start;
+  gap: 1px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.eval-history-shell.thread-row-shell {
+  min-height: 32px;
+}
+
+.eval-history-row.thread-row {
+  width: calc(100% - 12px);
+  min-height: 32px;
+  margin-inline: 6px;
+  padding-left: 9px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+}
+
+.eval-history-row .eval-case-copy small {
+  letter-spacing: 0;
+}
+
+.eval-history-stage {
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.eval-sidebar-summary > div:nth-child(2) {
+  display: grid;
+  gap: 1px;
+}
+
+.eval-sidebar-summary span {
+  color: var(--color-text-subtle);
+  font-size: 10px;
+}
+
+.eval-workspace .thread-title {
+  max-width: min(720px, 62vw);
+}
+
+.eval-composer-stack .composer textarea.is-readonly-prompt {
+  padding-top: 42px;
+  cursor: default;
+}
+
+.eval-prompt-label {
+  position: absolute;
+  z-index: 8;
+  top: 13px;
+  right: 20px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.eval-prompt-label span,
+.eval-prompt-label strong {
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.eval-prompt-label strong {
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-subtle);
+}
+
+.eval-observer {
+  grid-template-rows: 42px auto auto auto minmax(0, 1fr);
+  background: color-mix(in srgb, var(--color-surface) 98%, transparent);
+}
+
+.eval-observer-summary {
+  display: flex;
+  min-width: 0;
+  padding: 16px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--app-border);
+  gap: 12px;
+}
+
+.eval-observer-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.eval-observer-summary span {
+  color: var(--color-text-subtle);
+  font-size: var(--type-meta-size);
+}
+
+.eval-observer-summary strong {
+  color: var(--color-text);
+  font-size: 19px;
+  font-weight: 620;
+}
+
+.eval-result-badge {
+  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.eval-result-badge.is-pass {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.eval-result-badge.is-fail {
+  background: color-mix(in srgb, var(--color-danger) 11%, transparent);
+  color: var(--color-danger);
+}
+
+.eval-observer-config {
+  display: grid;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--app-border);
+  gap: 8px;
+}
+
+.eval-observer-config label,
+.eval-observer-config > div {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+}
+
+.eval-observer-config select {
+  height: 28px;
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+}
+
+.eval-observer-config strong {
+  color: var(--color-text);
+  font-size: var(--type-meta-size);
+}
+
+.eval-observer-tabs {
+  display: flex;
+  padding: 7px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--app-border);
+  gap: 3px;
+}
+
+.eval-observer-tabs button {
+  display: inline-flex;
+  min-height: 28px;
+  padding: 0 8px;
+  align-items: center;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.eval-observer-tabs button:hover,
+.eval-observer-tabs button.is-active {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.eval-observer-body {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: color-mix(in srgb, var(--color-text) 18%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.eval-stage-state {
+  display: grid;
+  padding: 24px 18px;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 9px;
+}
+
+.eval-stage-state .session-running {
+  position: static;
+}
+
+.eval-stage-state strong {
+  color: var(--color-text);
+  font-size: var(--type-body-size);
+}
+
+.eval-stage-state p {
+  margin: 0;
+  grid-column: 2;
+  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+  line-height: 1.55;
+}
+
+.eval-score-list {
+  display: grid;
+  padding: 18px;
+  gap: 16px;
+}
+
+.eval-score-row {
+  display: grid;
+  gap: 7px;
+}
+
+.eval-score-row > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+}
+
+.eval-score-row strong {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-score-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-subtle);
+}
+
+.eval-score-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--theme-blue);
+}
+
+.eval-attribution-card,
+.eval-finding {
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-row);
+  background: var(--color-surface-subtle);
+}
+
+.eval-attribution-card span,
+.eval-finding span {
+  color: var(--color-text-subtle);
+  font-size: 10px;
+}
+
+.eval-attribution-card strong,
+.eval-finding strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--color-text);
+  font-size: var(--type-control-size);
+}
+
+.eval-attribution-card p,
+.eval-finding p {
+  margin: 7px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+  line-height: 1.55;
+}
+
+.eval-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.eval-metric-grid > div {
+  display: grid;
+  padding: 10px;
+  border-radius: var(--radius-small);
+  background: var(--color-surface-subtle);
+  gap: 3px;
+}
+
+.eval-metric-grid span {
+  color: var(--color-text-subtle);
+  font-size: 10px;
+}
+
+.eval-metric-grid strong {
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 620;
+}
+
+.eval-verification-list {
+  display: grid;
+  padding: 10px;
+  gap: 4px;
+}
+
+.eval-verification-list > div {
+  display: grid;
+  padding: 10px 8px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  border-radius: var(--radius-small);
+  gap: 8px;
+}
+
+.eval-verification-list > div:hover {
+  background: var(--color-hover);
+}
+
+.eval-verification-list span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.eval-verification-list strong,
+.eval-verification-list b {
+  color: var(--color-text);
+  font-size: var(--type-meta-size);
+}
+
+.eval-verification-list small {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+}
+
+.eval-diff-view {
+  display: grid;
+  min-height: 100%;
+  grid-template-rows: auto minmax(320px, 1fr);
+}
+
+.eval-diff-view > select {
+  height: 32px;
+  margin: 8px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+}
+
+@media (max-width: 760px) {
+  .eval-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .eval-shell .eval-sidebar {
+    display: none;
+  }
+
+  .eval-observer {
+    width: min(100%, 440px) !important;
+  }
+}

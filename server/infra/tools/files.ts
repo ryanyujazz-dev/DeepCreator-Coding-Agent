@@ -4,7 +4,7 @@ import { ensureInsideRoot, isSensitivePath } from "./security";
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
-  ".deepseeker",
+  ".deepcreator",
   ".playwright-cli",
   ".pytest_cache",
   ".venv",

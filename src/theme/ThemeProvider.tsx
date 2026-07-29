@@ -28,7 +28,7 @@ import {
 import { browserPlatform } from "../platform/browser";
 import { desktopBridge } from "../platform/desktop";
 
-const CACHE_KEY = "deepseeker.themeCache.v1";
+const CACHE_KEY = "deepcreator.themeCache.v1";
 const EXECUTION_MUTED_LIGHT_REFERENCE = "#8e969b";
 const EXECUTION_MUTED_LIGHT_CANVAS = "#fbfbfa";
 
@@ -245,7 +245,7 @@ async function browserImport(file: File, baseTheme: ThemePack): Promise<ThemePac
   if (file.size > 512 * 1024) throw new Error("主题文件超过 512KB。");
   const parsed = JSON.parse(await file.text()) as unknown;
   if (!parsed || typeof parsed !== "object" || !("schemaVersion" in parsed)) {
-    throw new Error("浏览器开发模式仅支持 DeepSeeker 主题 JSON；VS Code JSONC 请在桌面端导入。");
+    throw new Error("浏览器开发模式仅支持 DeepCreator 主题 JSON；VS Code JSONC 请在桌面端导入。");
   }
   const theme = validateThemePack(parsed);
   return validateThemePack({
@@ -366,7 +366,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const url = URL.createObjectURL(new Blob([`${JSON.stringify(theme, null, 2)}\n`], { type: "application/json" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${theme.name}.deepseeker-theme.json`;
+    anchor.download = `${theme.name}.deepcreator-theme.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   }, [desktop, themes]);

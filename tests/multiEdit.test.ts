@@ -20,7 +20,7 @@ import { executeTool } from "../server/infra/tools";
 // ─────────────────────────────────────────────────────────────────────────────
 
 function setupWorkspace(): string {
-  return mkdtempSync(path.join(tmpdir(), "deepseeker-multi-edit-"));
+  return mkdtempSync(path.join(tmpdir(), "deepcreator-multi-edit-"));
 }
 
 test("multi_edit: applies all edits successfully", async () => {

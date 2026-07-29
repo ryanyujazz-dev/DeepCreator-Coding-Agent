@@ -1,4 +1,4 @@
-# ADR 003: DeepSeeker Context Operating System
+# ADR 003: DeepCreator Context Operating System
 
 ## Status
 
@@ -8,7 +8,7 @@ This document incorporates and supersedes the former ADR 002, "Layered Prompt an
 
 ## Purpose
 
-DeepSeeker needs a context system that can support long-running coding work without turning every model request into an ever-growing prompt dump. The system must:
+DeepCreator needs a context system that can support long-running coding work without turning every model request into an ever-growing prompt dump. The system must:
 
 - preserve DeepSeek prefix-cache hits;
 - keep tool-call trajectories valid across model requests;
@@ -42,7 +42,7 @@ The goal is not to copy the visible context list from another product. The goal 
 
 ## Competitive conclusions
 
-DeepSeeker adopts the following useful ideas:
+DeepCreator adopts the following useful ideas:
 
 - Codex-style directory-scoped project guidance, with deeper guidance applying to a narrower subtree.
 - Claude Code-style progressive disclosure for path guidance, skills, and long-tail tools.
@@ -50,7 +50,7 @@ DeepSeeker adopts the following useful ideas:
 - Codex-style evidence-driven completion and deterministic execution policy.
 - Provider-native tool calls instead of text, XML, or DSML tool protocols.
 
-DeepSeeker intentionally does not adopt:
+DeepCreator intentionally does not adopt:
 
 - unrestricted free-form auto-memory injected into every session;
 - rebuilding the front of the prompt whenever a path rule activates;
@@ -94,7 +94,7 @@ CorePrompt must not contain project paths, current plan state, workspace deltas,
 
 ### Rules
 
-Resolves soft instructions from user and project sources. A guidance unit uses DeepSeeker-owned fields:
+Resolves soft instructions from user and project sources. A guidance unit uses DeepCreator-owned fields:
 
 ```ts
 type GuidanceUnit = {
@@ -211,7 +211,7 @@ No ordinary model request may insert dynamic state before an already persisted c
 
 ### `system`
 
-DeepSeeker sends exactly one leading `system` message per request. It contains CorePrompt only.
+DeepCreator sends exactly one leading `system` message per request. It contains CorePrompt only.
 
 Repository content is never merged into this message. This avoids granting a cloned repository system-level authority and keeps the longest-lived cache prefix stable.
 
@@ -281,7 +281,7 @@ Path guidance and full skill instructions are appended where they activate:
 ```xml
 <context_update
   kind="path_guidance"
-  source=".deepseeker/guidance/backend.md"
+  source=".deepcreator/guidance/backend.md"
   reason="first_matching_path_access"
   revision="sha256:...">
   ...guidance body...
@@ -396,13 +396,13 @@ This avoids duplicate plan maintenance and prevents dynamic state from invalidat
 
 The stable snapshot may resolve:
 
-- `~/.deepseeker/GUIDANCE.md`;
-- project-root `DEEPSEEKER.md`;
-- project-root `.deepseeker/GUIDANCE.md`;
-- project-root `DEEPSEEKER.local.md`;
-- unscoped Markdown files under `.deepseeker/guidance/`.
+- `~/.deepcreator/GUIDANCE.md`;
+- project-root `DEEPCREATOR.md`;
+- project-root `.deepcreator/GUIDANCE.md`;
+- project-root `DEEPCREATOR.local.md`;
+- unscoped Markdown files under `.deepcreator/guidance/`.
 
-The file names remain DeepSeeker-owned and are not required to mirror Codex or Claude Code.
+The file names remain DeepCreator-owned and are not required to mirror Codex or Claude Code.
 
 ### Path-scoped guidance
 
@@ -416,7 +416,7 @@ After compaction, Compactor carries the active workset. Rules reactivates only g
 
 ### Interaction lanes
 
-DeepSeeker chooses a request lane before calling the provider:
+DeepCreator chooses a request lane before calling the provider:
 
 - `conversation`: no tools for greetings, explanations, and ordinary discussion;
 - `agent`: stable core coding tool catalog;
@@ -430,7 +430,7 @@ The agent lane keeps a small stable catalog for filesystem inspection, search, m
 
 ### Deferred capabilities
 
-MCP and other long-tail capabilities are discovered through stable meta-tools such as capability search and capability invocation. DeepSeeker does not place hundreds of changing schemas at the front of every request.
+MCP and other long-tail capabilities are discovered through stable meta-tools such as capability search and capability invocation. DeepCreator does not place hundreds of changing schemas at the front of every request.
 
 ### Skills
 
@@ -438,7 +438,7 @@ Small skill indexes may appear in SessionContext. Full skill instructions are ap
 
 ## Memory model
 
-DeepSeeker does not initially adopt unrestricted model-authored free-form auto-memory.
+DeepCreator does not initially adopt unrestricted model-authored free-form auto-memory.
 
 Persistent memory uses curated facts:
 
@@ -590,7 +590,7 @@ The accepted implementation applies the following changes:
 
 ### Stage 2: Rules
 
-- DeepSeeker-owned Rules fields and trusted source discovery are implemented.
+- DeepCreator-owned Rules fields and trusted source discovery are implemented.
 - YAML frontmatter and glob selectors use maintained libraries.
 - Lazy ContextUpdate persistence and mutation preflight are implemented.
 

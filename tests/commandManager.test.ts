@@ -9,7 +9,7 @@ import {
 } from "../server/infra/commandManager";
 
 function fixture(): string {
-  return mkdtempSync(path.join(tmpdir(), "deepseeker-managed-command-"));
+  return mkdtempSync(path.join(tmpdir(), "deepcreator-managed-command-"));
 }
 
 test("yields a live command and settles it exactly once when stopped", async () => {

@@ -6,7 +6,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     extraResource: ["server/infra/migrations"],
-    name: "DeepSeeker",
+    name: "DeepCreator",
     osxSign: {
       identity: "-",
       identityValidation: false,

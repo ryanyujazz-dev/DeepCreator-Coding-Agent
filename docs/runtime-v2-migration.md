@@ -6,7 +6,7 @@ Implemented on the `main` branch after baseline commit `195477a`.
 
 ## Result
 
-DeepSeeker now uses one concise product language:
+DeepCreator now uses one concise product language:
 
 ```text
 Session -> Run -> Activity
@@ -19,7 +19,7 @@ Session -> Run -> Activity
 - `Activity` is one visible or auditable occurrence.
 - `Event` is an immutable ordered fact.
 
-The canonical contract is `deepseeker.events/v2`. New code writes V2 only.
+The canonical contract is `deepcreator.events/v2`. New code writes V2 only.
 
 ## Module Map
 
@@ -46,7 +46,7 @@ bootstrap / transport / infra -> app -> domain / contracts
 
 ## Persistence
 
-`.deepseeker/runtime.sqlite` is the only authority.
+`.deepcreator/runtime.sqlite` is the only authority.
 
 - Ordered SQL files in `server/infra/migrations` own schema evolution.
 - `EventStore` commits an Event and its reduced Session projection in one transaction.
@@ -99,7 +99,7 @@ Ordinary reasoning is not rendered or persisted as public state. Provider-requir
 
 ## V1 Compatibility
 
-`shared/legacy/decoder.ts` is the only active source allowed to understand `deepseeker.flow/v1` names such as `sessionKey`, `cycleKey`, `signalKey`, and `cycle.executing`.
+`shared/legacy/decoder.ts` is the only active source allowed to understand `deepcreator.flow/v1` names such as `sessionKey`, `cycleKey`, `signalKey`, and `cycle.executing`.
 
 At startup, V1 JSONL is imported only when SQLite contains no Events for that Session. Imported facts are normalized into V2 before reduction. The Runtime never dual-writes V1 and V2 and never prefers V1 over committed SQLite history.
 

@@ -11,6 +11,7 @@ export type RuntimeConfig = {
   defaultModel: string;
   hasApiKey: boolean;
   eventContract: string;
+  evalsEnabled?: boolean;
   models: ModelOption[];
   planEntry: PlanEntry;
   workspaceRoot: string;

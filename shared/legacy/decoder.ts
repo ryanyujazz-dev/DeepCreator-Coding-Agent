@@ -1,6 +1,6 @@
 import { EVENT_VERSION, Event, EventType, Session, Task } from "../contracts/runtime";
 import { eventSchema } from "../schemas/event";
-import { LEGACY_EVENT_VERSION, LegacyEvent } from "./v1";
+import { LEGACY_EVENT_VERSION, LegacyEvent, PREVIOUS_EVENT_VERSION } from "./v1";
 
 const TYPE_MAP: Record<string, EventType | undefined> = {
   "session.registered": "session.created",
@@ -175,16 +175,17 @@ export function decodeLegacyEvent(input: unknown): Event | undefined {
 export function decodeEvent(input: unknown): Event | undefined {
   if (!input || typeof input !== "object") return undefined;
   const event = input as { contract?: string; data?: unknown; type?: string; version?: string };
-  if (event.version === EVENT_VERSION) {
+  if (event.version === EVENT_VERSION || event.version === PREVIOUS_EVENT_VERSION) {
+    const normalizedEvent = event.version === PREVIOUS_EVENT_VERSION ? { ...event, version: EVENT_VERSION } : event;
     if (event.type === "plan.changed") {
-      const parsed = eventSchema.safeParse({ ...event, data: mapTasks(event.data), type: "tasks.changed" });
+      const parsed = eventSchema.safeParse({ ...normalizedEvent, data: mapTasks(event.data), type: "tasks.changed" });
       return parsed.success ? parsed.value : undefined;
     }
     if (event.type === "tasks.changed") {
-      const parsed = eventSchema.safeParse({ ...event, data: mapTasks(event.data) });
+      const parsed = eventSchema.safeParse({ ...normalizedEvent, data: mapTasks(event.data) });
       return parsed.success ? parsed.value : undefined;
     }
-    const parsed = eventSchema.safeParse(event);
+    const parsed = eventSchema.safeParse(normalizedEvent);
     return parsed.success ? parsed.value : undefined;
   }
   return decodeLegacyEvent(input);

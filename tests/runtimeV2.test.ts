@@ -31,7 +31,7 @@ import { emptyRuleSource } from "../shared/contracts/rules";
 import { Provider } from "../shared/contracts/provider";
 import { EVENT_VERSION, Event, EventPayloadMap, EventType, Session, SessionInput } from "../shared/contracts/runtime";
 import { createSession, reduceEvent } from "../shared/domain/reducer";
-import { decodeLegacyEvent } from "../shared/legacy/decoder";
+import { decodeEvent, decodeLegacyEvent } from "../shared/legacy/decoder";
 import { decodeLegacyContextEntry } from "../shared/legacy/context";
 import { RunTimeline } from "../src/components/RunTimeline";
 
@@ -93,6 +93,16 @@ test("decodes a real V1 session into the V2 contract", () => {
   assert.equal((decoded?.data as SessionInput).accessMode, "smart_approval");
 });
 
+test("normalizes events persisted before the product rename", () => {
+  const previous = {
+    ...event(1, "session.created", registration),
+    version: "deepseeker.events/v2"
+  };
+  const decoded = decodeEvent(previous);
+  assert.equal(decoded?.version, EVENT_VERSION);
+  assert.equal(decoded?.type, "session.created");
+});
+
 test("normalizes V1 context identities before provider serialization", () => {
   const raw = {
     createdAt,
@@ -110,7 +120,7 @@ test("normalizes V1 context identities before provider serialization", () => {
   assert.equal(decoded.runId, "cycle_legacy");
   assert.equal(decoded.toolCalls?.[0].callId, "call_legacy");
 
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-context-v1-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-context-v1-"));
   const database = new Database(path.join(directory, "runtime.sqlite"));
   try {
     database.raw.prepare(`INSERT INTO context_entries
@@ -127,7 +137,7 @@ test("normalizes V1 context identities before provider serialization", () => {
 });
 
 test("loads V1 JSONL and deterministically settles an interrupted run", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-legacy-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-legacy-"));
   try {
     const signals = path.join(directory, "signals");
     mkdirSync(signals);
@@ -154,7 +164,7 @@ test("loads V1 JSONL and deterministically settles an interrupted run", () => {
 });
 
 test("commits an Event and its projection atomically", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-atomic-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-atomic-"));
   const database = new Database(path.join(directory, "runtime.sqlite"));
   try {
     const sessions = new SessionStore(database);
@@ -172,7 +182,7 @@ test("commits an Event and its projection atomically", () => {
 });
 
 test("replays ordered offsets and deduplicates repeated events", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-offset-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-offset-"));
   const database = new Database(path.join(directory, "runtime.sqlite"));
   try {
     const sessions = new SessionStore(database);
@@ -193,7 +203,7 @@ test("replays ordered offsets and deduplicates repeated events", () => {
 });
 
 test("runs ordered migrations idempotently", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-migrate-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-migrate-"));
   const file = path.join(directory, "runtime.sqlite");
   try {
     const first = new Database(file);
@@ -212,7 +222,7 @@ test("runs ordered migrations idempotently", () => {
 });
 
 test("projects reasoning through a dedicated Run event without leaking provider field names", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-provider-boundary-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-provider-boundary-"));
   try {
     writeFileSync(path.join(directory, "sample.txt"), "sample\n");
     const store = new RuntimeStore(directory);
@@ -274,7 +284,7 @@ test("projects reasoning through a dedicated Run event without leaking provider 
 });
 
 test("serves the V2 REST contract and registers the SSE transport", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-http-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-http-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   const provider: Provider = {
@@ -399,7 +409,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
 });
 
 test("steers an active HTTP Run into model context and the top-level conversation flow", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-steer-e2e-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-steer-e2e-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   const requests: Parameters<Provider["stream"]>[0][] = [];
@@ -553,7 +563,7 @@ test("steers an active HTTP Run into model context and the top-level conversatio
 });
 
 test("cancel endpoint waits until the interrupted run has closed its context", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-cancel-drain-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-cancel-drain-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   let cleanupFinished = false;

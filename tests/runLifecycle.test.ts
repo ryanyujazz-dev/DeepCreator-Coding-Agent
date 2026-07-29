@@ -9,7 +9,7 @@ import { RuntimeStore } from "../server/infra/runtimeStore";
 import { testSystem } from "./support/system";
 
 test("does not leave a managed command activity running after agent completion", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-background-run-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-background-run-"));
   const store = new RuntimeStore(directory);
   try {
     store.createSession({
@@ -62,7 +62,7 @@ test("does not leave a managed command activity running after agent completion",
 });
 
 test("finishes a suspended thinking activity exactly once", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-suspended-thinking-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-suspended-thinking-"));
   const store = new RuntimeStore(directory);
   try {
     store.createSession({
@@ -124,7 +124,7 @@ test("finishes a suspended thinking activity exactly once", () => {
 });
 
 test("cancelling an activity and then cancelling its run writes one terminal event", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-double-cancel-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-double-cancel-"));
   const store = new RuntimeStore(directory);
   try {
     store.createSession({
@@ -189,7 +189,7 @@ test("cancelling an activity and then cancelling its run writes one terminal eve
 });
 
 test("persists one interrupted result for every unfinished tool call", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-interrupted-tools-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-interrupted-tools-"));
   const store = new RuntimeStore(directory);
   try {
     store.createSession({
@@ -253,7 +253,7 @@ test("persists one interrupted result for every unfinished tool call", () => {
 });
 
 test("startup recovery closes tool calls left open by a Runtime restart", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-restart-tools-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-restart-tools-"));
   const first = new RuntimeStore(directory);
   first.createSession({
     compactThresholdTokens: 850_000,
@@ -292,7 +292,7 @@ test("startup recovery closes tool calls left open by a Runtime restart", () => 
 });
 
 test("startup repairs tool calls missing from an already terminal historical run", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-terminal-tools-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-terminal-tools-"));
   const first = new RuntimeStore(directory);
   first.createSession({
     compactThresholdTokens: 850_000,

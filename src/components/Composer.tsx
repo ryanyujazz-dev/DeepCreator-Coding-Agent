@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, Trash2, X } from "lucide-react";
-import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, FollowUp, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { ModelOption } from "../../shared/contracts/provider";
 import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
@@ -34,6 +34,8 @@ export function Composer({
   resetKey,
   pendingPlan,
   pendingQuestion,
+  presetPrompt,
+  promptReadOnly = false,
   accessMode,
   mode
 }: {
@@ -58,6 +60,8 @@ export function Composer({
   onSteerFollowUp: (followUpId: string) => void;
   pendingPlan?: Plan;
   pendingQuestion?: Question;
+  presetPrompt?: string;
+  promptReadOnly?: boolean;
   resetKey: string | number;
   accessMode: AccessMode;
   mode: Mode;
@@ -78,13 +82,12 @@ export function Composer({
     const next = Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, el.scrollHeight));
     el.style.height = `${next}px`;
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     autoGrow();
-  }, [draft, autoGrow]);
-  useEffect(() => {
-    setDraft("");
-    if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
-  }, [resetKey]);
+  }, [draft, resetKey, autoGrow]);
+  useLayoutEffect(() => {
+    setDraft(presetPrompt ?? "");
+  }, [presetPrompt, resetKey]);
   const [accessMenuOpen, setAccessMenuOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
@@ -144,8 +147,10 @@ export function Composer({
     try {
       const succeeded = await onSubmit(prompt);
       if (!succeeded) return;
-      setDraft("");
-      if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+      if (!promptReadOnly) {
+        setDraft("");
+        if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+      }
     } finally {
       setSubmitting(false);
     }
@@ -258,7 +263,7 @@ export function Composer({
   }
   return (
     <>{queuedRows}<form aria-busy={submitting} className="composer" onSubmit={submit}>
-      <textarea aria-label="输入任务" disabled={isWaiting || submitting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "输入后按 Enter 加入队列" : submitting ? "正在创建任务" : "随心输入")} ref={textareaRef} value={draft} />
+      <textarea aria-label={promptReadOnly ? "评测任务（只读）" : "输入任务"} aria-readonly={promptReadOnly} className={promptReadOnly ? "is-readonly-prompt" : undefined} disabled={isWaiting || submitting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "输入后按 Enter 加入队列" : submitting ? "正在创建任务" : "随心输入")} readOnly={promptReadOnly} ref={textareaRef} value={draft} />
       <div className="composer-row">
         <div className="composer-left">
           <div className="add-selector">
@@ -366,8 +371,10 @@ export function Composer({
               </FloatingSurface>
             )}
           </div>
-          <IconButton className="plain-icon" disabled={isWaiting || submitting} label="语音输入"><Mic size={16} /></IconButton>
+          <IconButton className="plain-icon" disabled={isWaiting || submitting || promptReadOnly} label="语音输入"><Mic size={16} /></IconButton>
           {isRunning && !draft.trim() ? (
+            <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton>
+          ) : promptReadOnly && isRunning ? (
             <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton>
           ) : (
             <IconButton

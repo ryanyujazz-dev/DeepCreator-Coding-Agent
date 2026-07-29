@@ -1,18 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
-import { Session } from "../../shared/contracts/runtime";
+import { QuestionPrompt, Session } from "../../shared/contracts/runtime";
 import { startRuntime } from "../../server/bootstrap/runtime";
-import { DeepSeekProvider } from "../../server/infra/deepseek";
 import { loadUserConfig } from "../../server/infra/userConfig";
-import { ZhipuProvider } from "../../server/infra/zhipu";
 import { quoteRuntimeShellArgument } from "../../server/infra/shell";
 import { runShell } from "../../server/infra/tools/shellExecution";
-import { runFixtureAssertions } from "./assertions";
-import { ContentJudge, HeuristicContentJudge, ProviderContentJudge } from "./contentJudge";
 import { findCase, loadDataset, loadFixture } from "./dataset";
-import { evaluateRun } from "./evaluator";
-import { writeReports } from "./report";
-import { EvalExperimentSummary, EvalResult } from "./types";
+import { finalizeExistingEvalRun } from "./finalize";
+import { EvalExperimentSummary, EvalFixtureManifest, EvalResult } from "./types";
 
 export type EvalRunOptions = {
   attempt: number;
@@ -47,7 +42,7 @@ async function prepareWorktree(repositoryRoot: string, workspaceRoot: string, re
   if (!setupPatch) return;
   const patchResult = await runShell(workspaceRoot, `git apply --whitespace=nowarn -- ${quoteRuntimeShellArgument(setupPatch)}`);
   if (patchResult.exitCode !== 0) throw new Error(`无法应用 Fixture Patch：${patchResult.output}`);
-  const commit = await runShell(workspaceRoot, "git add -A && git -c user.name='DeepSeeker Eval' -c user.email='eval@deepseeker.local' commit -m 'eval: prepare fixture'");
+  const commit = await runShell(workspaceRoot, "git add -A && git -c user.name='DeepCreator Eval' -c user.email='eval@deepcreator.local' commit -m 'eval: prepare fixture'");
   if (commit.exitCode !== 0) throw new Error(`无法提交 Fixture 基线：${commit.output}`);
 }
 
@@ -57,44 +52,62 @@ async function removeWorktree(repositoryRoot: string, workspaceRoot: string): Pr
   await runShell(repositoryRoot, "git worktree prune");
 }
 
-function contentJudgeFor(kind: EvalRunOptions["judge"], model?: string): ContentJudge {
-  if (kind === "heuristic") return new HeuristicContentJudge();
-  const config = loadUserConfig();
-  const selected = model ?? (/^glm[-.]/i.test(config.model) ? "glm-5-turbo" : "deepseek-v4-flash");
-  if (/^glm[-.]/i.test(selected)) {
-    if (!config.zhipuApiKey) throw new Error("Provider Judge 需要智谱 API Key。");
-    return new ProviderContentJudge(new ZhipuProvider(config.zhipuApiKey), selected);
+function answerFor(prompt: QuestionPrompt, strategy: NonNullable<EvalFixtureManifest["interactions"]>["answerQuestions"]): string {
+  if (strategy === "diagnosis_only") {
+    const diagnosis = prompt.options?.find((option) => /(?:暂不|不修改|仅.*诊断|只.*诊断)/.test(option));
+    return diagnosis ?? "暂不修改，只保留诊断结论。";
   }
-  if (!config.apiKey) throw new Error("Provider Judge 需要 DeepSeek API Key。");
-  return new ProviderContentJudge(new DeepSeekProvider(config.apiKey), selected);
+  return prompt.options?.[0] ?? "继续。";
 }
 
-async function waitForTerminal(baseUrl: string, sessionId: string, timeoutMs: number): Promise<Session> {
+export async function resolveWaitingInteraction(
+  baseUrl: string,
+  session: Session,
+  interactions: EvalFixtureManifest["interactions"]
+): Promise<boolean> {
+  const run = session.runs.at(-1);
+  if (!run || run.status !== "waiting") return false;
+  const plan = [...session.plans].reverse().find((candidate) => candidate.runId === run.runId && candidate.status === "proposed");
+  if (plan && interactions?.autoApprovePlan) {
+    await requestJson(`${baseUrl}/api/sessions/${encodeURIComponent(session.sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}/resolve`, {
+      body: JSON.stringify({ accessMode: "full_access", decision: "start_work" }),
+      method: "POST"
+    });
+    return true;
+  }
+  const question = [...session.questions].reverse().find((candidate) => candidate.runId === run.runId && candidate.status === "pending");
+  if (question && interactions?.answerQuestions) {
+    const answers = Object.fromEntries(question.prompts.map((prompt) => [
+      prompt.questionId,
+      answerFor(prompt, interactions.answerQuestions)
+    ]));
+    await requestJson(`${baseUrl}/api/sessions/${encodeURIComponent(session.sessionId)}/questions/${encodeURIComponent(question.interactionId)}/answer`, {
+      body: JSON.stringify({ answers }),
+      method: "POST"
+    });
+    return true;
+  }
+  return false;
+}
+
+async function waitForTerminal(
+  baseUrl: string,
+  sessionId: string,
+  timeoutMs: number,
+  interactions?: EvalFixtureManifest["interactions"]
+): Promise<Session> {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     const response = await requestJson<{ session: Session }>(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`);
     const run = response.session.runs.at(-1);
     if (run && ["completed", "failed", "cancelled"].includes(run.status)) return response.session;
     if (run?.status === "waiting") {
-      throw new Error("Eval Run 正在等待用户审批或回答。当前 MVP 不自动替用户作出产品决策，请使用 Work 模式 Case 或手动导入 Trace 评分。");
+      if (await resolveWaitingInteraction(baseUrl, response.session, interactions)) continue;
+      throw new Error("Eval Run 正在等待用户审批或回答，但 Fixture 没有配置对应的交互策略。");
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Eval Run 超过 ${Math.ceil(timeoutMs / 1_000)} 秒仍未结束。`);
-}
-
-function mergeExperimentResult(outputRoot: string, experimentId: string, result: EvalResult): EvalExperimentSummary {
-  const reportDirectory = path.join(outputRoot, "reports", safeSegment(experimentId));
-  const summaryPath = path.join(reportDirectory, "summary.json");
-  const previous = existsSync(summaryPath)
-    ? JSON.parse(readFileSync(summaryPath, "utf8")) as EvalExperimentSummary
-    : { experimentId, generatedAt: new Date().toISOString(), results: [] };
-  const identity = `${result.caseId}:${result.model}:${result.promptVersion}:${result.attempt}`;
-  const results = previous.results.filter((item) => `${item.caseId}:${item.model}:${item.promptVersion}:${item.attempt}` !== identity);
-  results.push(result);
-  const summary = { experimentId, generatedAt: new Date().toISOString(), results };
-  writeReports(summary, reportDirectory);
-  return summary;
 }
 
 export async function runEvalCase(options: EvalRunOptions): Promise<{ attemptDirectory: string; result: EvalResult; summary: EvalExperimentSummary }> {
@@ -140,34 +153,28 @@ export async function runEvalCase(options: EvalRunOptions): Promise<{ attemptDir
     });
     const runId = started.session.runs.at(-1)?.runId;
     if (!runId) throw new Error("Runtime 没有返回 runId。");
-    const session = await waitForTerminal(baseUrl, sessionId, fixture.timeoutMs ?? 10 * 60_000);
+    const session = await waitForTerminal(baseUrl, sessionId, fixture.timeoutMs ?? 10 * 60_000, fixture.interactions);
     const run = session.runs.find((candidate) => candidate.runId === runId);
     if (!run) throw new Error(`无法读取 Eval Run：${runId}`);
     const eventResponse = await requestJson<{ events: import("../../shared/contracts/runtime").Event[] }>(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/events?afterOffset=0`);
     await runtime.close();
     runtime = undefined;
-    const assertions = await runFixtureAssertions(fixture, workspaceRoot, run);
-    const diff = await runShell(workspaceRoot, "git diff --binary --no-ext-diff");
-    const diffOutput = diff.output.trim() === "命令执行完成，无输出。" ? "" : diff.output;
-    writeFileSync(path.join(attemptDirectory, "trace.jsonl"), eventResponse.events.map((event) => JSON.stringify(event)).join("\n") + "\n", "utf8");
-    writeFileSync(path.join(attemptDirectory, "run.json"), JSON.stringify(run, null, 2) + "\n", "utf8");
-    writeFileSync(path.join(attemptDirectory, "diff.patch"), diffOutput + (diffOutput ? "\n" : ""), "utf8");
-    writeFileSync(path.join(attemptDirectory, "verification.json"), JSON.stringify(assertions, null, 2) + "\n", "utf8");
-    const result = await evaluateRun({
-      assertions,
+    const completed = await finalizeExistingEvalRun({
       attempt: options.attempt,
-      contentJudge: contentJudgeFor(options.judge, options.judgeModel),
-      dataset,
-      evalCase,
+      attemptDirectory,
+      caseId: options.caseId,
       events: eventResponse.events,
+      experimentId: options.experimentId,
+      judge: options.judge,
+      judgeModel: options.judgeModel,
       model: options.model,
       promptVersion: options.promptVersion,
+      repositoryRoot: options.repositoryRoot,
       run,
-      sessionId
+      sessionId,
+      workspaceRoot
     });
-    writeFileSync(path.join(attemptDirectory, "result.json"), JSON.stringify(result, null, 2) + "\n", "utf8");
-    const summary = mergeExperimentResult(outputRoot, options.experimentId, result);
-    return { attemptDirectory, result, summary };
+    return { attemptDirectory, ...completed };
   } finally {
     await runtime?.close().catch(() => undefined);
     if (prepared && !options.keepWorkspace) await removeWorktree(options.repositoryRoot, workspaceRoot);

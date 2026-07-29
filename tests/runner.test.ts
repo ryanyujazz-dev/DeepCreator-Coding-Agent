@@ -10,7 +10,7 @@ import { RuntimeStore } from "../server/infra/runtimeStore";
 import { toolHost } from "../server/infra/tools";
 
 test("applies a queued steer before accepting a terminal model response", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-run-steer-"));
   try {
     let turn = 0;
     const registry = new RunRegistry();
@@ -64,7 +64,7 @@ test("applies a queued steer before accepting a terminal model response", async 
 });
 
 test("preempts an in-flight model request and continues with the steer as user input", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-model-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-run-steer-preempt-model-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   let turn = 0;
@@ -122,7 +122,7 @@ test("preempts an in-flight model request and continues with the steer as user i
 });
 
 test("preempts a parallel tool step, closes every tool call, then applies the steer", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-tools-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-run-steer-preempt-tools-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   const calls = [
@@ -210,7 +210,7 @@ test("preempts a parallel tool step, closes every tool call, then applies the st
 });
 
 test("preempts a tool waiting for approval and closes its call before continuing", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-approval-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-run-steer-preempt-approval-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   let turn = 0;
@@ -289,7 +289,7 @@ test("preempts a tool waiting for approval and closes its call before continuing
 });
 
 test("persists a non-thinking reasoning summary before the Run finishes", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-reasoning-summary-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-reasoning-summary-"));
   try {
     let summaryRequests = 0;
     const provider: Provider = {
@@ -358,7 +358,7 @@ test("persists a non-thinking reasoning summary before the Run finishes", async 
 });
 
 test("recovers a transient provider failure before any stream fragment", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-"));
   try {
     let attempts = 0;
     const provider: Provider = {
@@ -407,7 +407,7 @@ test("recovers a transient provider failure before any stream fragment", async (
 });
 
 test("keeps model content user-visible when a protocol correction follows", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-visible-protocol-content-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-visible-protocol-content-"));
   try {
     let turn = 0;
     const provider: Provider = {
@@ -465,7 +465,7 @@ test("keeps model content user-visible when a protocol correction follows", asyn
 });
 
 test("rejects incomplete task updates without replacing readable labels", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-complete-task-labels-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-complete-task-labels-"));
   try {
     let turn = 0;
     let sawMissingLabelError = false;
@@ -560,7 +560,7 @@ test("rejects incomplete task updates without replacing readable labels", async 
 });
 
 test("flushes short content before a following tool call finishes streaming", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-content-boundary-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-content-boundary-"));
   try {
     writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
     let turn = 0;
@@ -655,7 +655,7 @@ test("flushes short content before a following tool call finishes streaming", as
 });
 
 test("flushes short content after a bounded delay while the provider remains open", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-content-latency-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-content-latency-"));
   try {
     const provider: Provider = {
       capabilities: {
@@ -718,7 +718,7 @@ test("flushes short content after a bounded delay while the provider remains ope
 });
 
 test("persists semantic tool facts while provider schemas stay presentation-free", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-tool-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-tool-"));
   try {
     writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
     let turn = 0;
@@ -802,7 +802,7 @@ test("persists semantic tool facts while provider schemas stay presentation-free
 });
 
 test("retains started ToolState when tool execution fails", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-tool-failure-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-tool-failure-"));
   try {
     let turn = 0;
     const provider: Provider = {
@@ -858,7 +858,7 @@ test("retains started ToolState when tool execution fails", async () => {
 });
 
 test("buffers mutation arguments and publishes only authoritative file diffs before settlement", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-mutation-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-mutation-"));
   try {
     const eventToolHost = {
       ...toolHost,
@@ -957,7 +957,7 @@ test("buffers mutation arguments and publishes only authoritative file diffs bef
 });
 
 test("does not accept final content while a managed command is running", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-gate-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-gate-"));
   const store = new RuntimeStore(directory);
   let commandChecks = 0;
   let correctionSeen = false;
@@ -1036,7 +1036,7 @@ test("does not accept final content while a managed command is running", async (
 });
 
 test("command control calls update the original activity without creating a slot", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-control-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-control-"));
   const store = new RuntimeStore(directory);
   let turns = 0;
   const controlToolHost = {
@@ -1155,7 +1155,7 @@ test("command control calls update the original activity without creating a slot
 });
 
 test("command settlement is idempotent when callback and return path observe the same terminal state", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-settlement-race-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-settlement-race-"));
   const store = new RuntimeStore(directory);
   let turns = 0;
   const racingToolHost = {
@@ -1267,7 +1267,7 @@ test("command settlement is idempotent when callback and return path observe the
 });
 
 test("an interrupted tool-call step is closed before the next conversation", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-interrupted-step-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-interrupted-step-"));
   const store = new RuntimeStore(directory);
   const calls = [
     { argumentsText: "{}", callId: "call_interrupted_a", index: 0, name: "list_files" },
@@ -1388,7 +1388,7 @@ test("an interrupted tool-call step is closed before the next conversation", asy
 });
 
 test("requires final task maintenance after the last work tool before accepting a final answer", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-final-task-maintenance-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-final-task-maintenance-"));
   const store = new RuntimeStore(directory);
   try {
     writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");

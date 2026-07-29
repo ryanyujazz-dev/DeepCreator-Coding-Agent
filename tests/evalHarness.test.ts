@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Activity, emptyChanges, EVENT_VERSION, Event, Run } from "../shared/contracts/runtime";
+import { Activity, emptyChanges, EVENT_VERSION, Event, Run, Session } from "../shared/contracts/runtime";
 import { HeuristicContentJudge } from "../evals/src/contentJudge";
 import { findCase, loadDataset, loadFixture } from "../evals/src/dataset";
 import { renderCsv, renderHtml, renderMarkdown } from "../evals/src/report";
+import { resolveWaitingInteraction } from "../evals/src/runner";
 import { EvalExperimentSummary, EvalResult } from "../evals/src/types";
 
 const now = "2026-07-27T00:00:00.000Z";
@@ -81,10 +82,61 @@ test("Eval dataset exposes twenty unique cases and ready fixtures total thirty o
   const dataset = loadDataset();
   assert.equal(dataset.cases.length, 20);
   assert.equal(new Set(dataset.cases.map((item) => item.caseId)).size, 20);
-  assert.equal(findCase(dataset, "CAE-003").fixture.status, "ready");
-  for (const caseId of ["CAE-001", "CAE-003"]) {
+  const ready = dataset.cases.filter((item) => item.fixture.status === "ready");
+  assert.equal(ready.length, 8);
+  assert.equal(new Set(ready.map((item) => item.scenario)).size, 8);
+  for (const caseId of ["CAE-001", "CAE-003", "CAE-007", "CAE-011", "CAE-013", "CAE-015", "CAE-017", "CAE-019"]) {
     const fixture = loadFixture(caseId);
     assert.equal(fixture.assertions.reduce((total, assertion) => total + assertion.points, 0), 30);
+  }
+});
+
+test("Eval Runner approves only a proposed plan when the Fixture authorizes it", async () => {
+  const requests: Array<{ body: unknown; url: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push({ body: JSON.parse(String(init?.body)), url: String(input) });
+    return new Response(JSON.stringify({ session: {} }), { headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const resolved = await resolveWaitingInteraction("http://runtime", {
+      plans: [{ planId: "plan_1", revision: 2, runId: "run_1", status: "proposed" }],
+      questions: [],
+      runs: [{ runId: "run_1", status: "waiting" }],
+      sessionId: "session_1"
+    } as unknown as Session, { autoApprovePlan: true });
+    assert.equal(resolved, true);
+    assert.match(requests[0].url, /plans\/plan_1\/revisions\/2\/resolve$/);
+    assert.deepEqual(requests[0].body, { accessMode: "full_access", decision: "start_work" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Eval Runner answers diagnosis-only questions without authorizing a mutation", async () => {
+  const requests: Array<{ body: unknown; url: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push({ body: JSON.parse(String(init?.body)), url: String(input) });
+    return new Response(JSON.stringify({ session: {} }), { headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const resolved = await resolveWaitingInteraction("http://runtime", {
+      plans: [],
+      questions: [{
+        interactionId: "question_1",
+        prompts: [{ label: "下一步", options: ["升级依赖", "暂不修改，仅保留诊断"], prompt: "请选择", questionId: "next" }],
+        runId: "run_1",
+        status: "pending"
+      }],
+      runs: [{ runId: "run_1", status: "waiting" }],
+      sessionId: "session_1"
+    } as unknown as Session, { answerQuestions: "diagnosis_only" });
+    assert.equal(resolved, true);
+    assert.match(requests[0].url, /questions\/question_1\/answer$/);
+    assert.deepEqual(requests[0].body, { answers: { next: "暂不修改，仅保留诊断" } });
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

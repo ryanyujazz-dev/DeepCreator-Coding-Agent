@@ -12,6 +12,7 @@ import {
   WorkspaceResponse
 } from "../contracts/api";
 import { EventStream, Session, SessionSummary } from "../contracts/runtime";
+import { EvalCasesResponse, EvalRunRecord, EvalRunResponse, EvalRunsResponse } from "../contracts/evals";
 import { eventSchema } from "./event";
 
 type RecordValue = Record<string, unknown>;
@@ -138,6 +139,7 @@ export function decodeRuntimeConfig(value: unknown): RuntimeConfig {
   string(item.defaultModel, "$config.defaultModel");
   boolean(item.hasApiKey, "$config.hasApiKey");
   string(item.eventContract, "$config.eventContract");
+  if (item.evalsEnabled !== undefined) boolean(item.evalsEnabled, "$config.evalsEnabled");
   string(item.planEntry, "$config.planEntry");
   string(item.workspaceRoot, "$config.workspaceRoot");
   array(item.models, "$config.models").forEach((entry, index) => {
@@ -162,6 +164,55 @@ export function decodeRuntimeBalance(value: unknown): RuntimeBalance {
     number(balance.toppedUpBalance, `$balance.balanceInfos[${index}].toppedUpBalance`);
   });
   return item as RuntimeBalance;
+}
+
+function evalRunRecord(value: unknown, path: string): EvalRunRecord {
+  const item = record(value, path);
+  number(item.attempt, `${path}.attempt`);
+  string(item.caseId, `${path}.caseId`);
+  string(item.createdAt, `${path}.createdAt`);
+  string(item.evalRunId, `${path}.evalRunId`);
+  string(item.experimentId, `${path}.experimentId`);
+  string(item.judge, `${path}.judge`);
+  string(item.model, `${path}.model`);
+  string(item.promptVersion, `${path}.promptVersion`);
+  string(item.stage, `${path}.stage`);
+  optionalString(item.error, `${path}.error`);
+  optionalString(item.finishedAt, `${path}.finishedAt`);
+  optionalString(item.judgeModel, `${path}.judgeModel`);
+  optionalString(item.runId, `${path}.runId`);
+  optionalString(item.sessionId, `${path}.sessionId`);
+  if (item.result !== undefined) record(item.result, `${path}.result`);
+  return item as EvalRunRecord;
+}
+
+export function decodeEvalCasesResponse(value: unknown): EvalCasesResponse {
+  const item = record(value, "$evalCases");
+  const cases = array(item.cases, "$evalCases.cases");
+  cases.forEach((value, index) => {
+    const candidate = record(value, `$evalCases.cases[${index}]`);
+    string(candidate.caseId, `$evalCases.cases[${index}].caseId`);
+    string(candidate.title, `$evalCases.cases[${index}].title`);
+    string(candidate.scenario, `$evalCases.cases[${index}].scenario`);
+    string(candidate.status, `$evalCases.cases[${index}].status`);
+    string(candidate.userRequest, `$evalCases.cases[${index}].userRequest`);
+    string(candidate.initialMode, `$evalCases.cases[${index}].initialMode`);
+    number(candidate.idealStepCount, `$evalCases.cases[${index}].idealStepCount`);
+    array(candidate.allowedTools, `$evalCases.cases[${index}].allowedTools`);
+  });
+  return item as EvalCasesResponse;
+}
+
+export function decodeEvalRunsResponse(value: unknown): EvalRunsResponse {
+  const item = record(value, "$evalRuns");
+  array(item.runs, "$evalRuns.runs").forEach((run, index) => evalRunRecord(run, `$evalRuns.runs[${index}]`));
+  return item as EvalRunsResponse;
+}
+
+export function decodeEvalRunResponse(value: unknown): EvalRunResponse {
+  const item = record(value, "$evalRun");
+  evalRunRecord(item.run, "$evalRun.run");
+  return item as EvalRunResponse;
 }
 
 export function decodeSessionsResponse(value: unknown): SessionsResponse {

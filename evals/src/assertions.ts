@@ -27,6 +27,11 @@ async function evaluateAssertion(
   if (assertion.kind === "run_completed") {
     passed = run.status === "completed";
     detail = `Run 状态为 ${run.status}。`;
+  } else if (assertion.kind === "run_answer_contains") {
+    passed = run.answer.includes(assertion.text);
+    detail = passed
+      ? `最终回答包含 ${JSON.stringify(assertion.text)}。`
+      : `最终回答不包含 ${JSON.stringify(assertion.text)}。`;
   } else if (assertion.kind === "command") {
     const result = await runShell(workspaceRoot, assertion.command);
     passed = result.exitCode === assertion.expectedExitCode;

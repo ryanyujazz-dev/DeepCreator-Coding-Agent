@@ -43,4 +43,4 @@ const bridge: DesktopBridge = {
   }
 };
 
-contextBridge.exposeInMainWorld("deepseeker", bridge);
+contextBridge.exposeInMainWorld("deepcreator", bridge);

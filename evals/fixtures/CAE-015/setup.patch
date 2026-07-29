@@ -1,0 +1,62 @@
+diff --git a/docs/tool-reference.md b/docs/tool-reference.md
+new file mode 100644
+--- /dev/null
++++ b/docs/tool-reference.md
+@@ -0,0 +1,12 @@
++# 工具使用参考
++
++> 本页是旧版本清单，需要以当前工具注册代码为准完成更新。
++
++| 工具 | 类别 | 用途 | 关键参数 | 权限要求 |
++| --- | --- | --- | --- | --- |
++| `read_file` | 读取 | 读取文件 | `path` | 只读 |
++| `write_file` | 编辑 | 写入文件 | `path`、`content` | 工作区写入 |
++
++## 尚未核对的规划项
++
++旧文档曾提到 `database_query`，但尚未确认它是否已经注册，不能直接写成当前能力。
+diff --git a/eval-fixture/verify-tool-reference.mjs b/eval-fixture/verify-tool-reference.mjs
+new file mode 100644
+--- /dev/null
++++ b/eval-fixture/verify-tool-reference.mjs
+@@ -0,0 +1,40 @@
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++
++const registry = readFileSync("server/infra/tools/registry.ts", "utf8");
++const document = readFileSync("docs/tool-reference.md", "utf8");
++const registryNames = [...registry.matchAll(/^\s+name: "([a-z_]+)",$/gm)].map((match) => match[1]).sort();
++const rows = document.split("\n").flatMap((line) => {
++  const match = line.match(/^\|\s*`([a-z_]+)`\s*\|(.+)\|\s*$/);
++  if (!match) return [];
++  const cells = match[2].split("|").map((cell) => cell.trim());
++  return [{ cells, name: match[1] }];
++});
++const documentedNames = rows.map((row) => row.name).sort();
++
++assert.deepEqual(documentedNames, registryNames, "documented tool set must exactly match toolRegistry");
++assert.equal(new Set(documentedNames).size, documentedNames.length, "tool rows must not be duplicated");
++assert.doesNotMatch(document, /`database_query`/, "unregistered roadmap tool is documented as a capability");
++
++const allowedPermissions = new Set([
++  "只读",
++  "控制操作",
++  "工作区写入",
++  "工作区删除",
++  "命令执行",
++  "网络访问"
++]);
++for (const row of rows) {
++  assert.equal(row.cells.length, 4, `${row.name} must have category, purpose, parameters, and permission`);
++  const [category, purpose, parameters, permission] = row.cells;
++  assert.ok(category.length >= 2, `${row.name} category is missing`);
++  assert.ok(purpose.length >= 4, `${row.name} purpose is too vague`);
++  assert.ok(parameters.length >= 1, `${row.name} parameters are missing`);
++  assert.ok(allowedPermissions.has(permission), `${row.name} permission is invalid: ${permission}`);
++}
++
++const headings = new Set([...document.matchAll(/^##\s+(.+)$/gm)].map((match) => match[1]));
++for (const required of ["读取与搜索", "文件编辑", "命令与网络", "控制与协作"]) {
++  assert.ok(headings.has(required), `missing category section: ${required}`);
++}
++console.log(`verified ${rows.length} documented tools`);

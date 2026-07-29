@@ -1,0 +1,33 @@
+{
+  "caseId": "CAE-015",
+  "status": "ready",
+  "base": {
+    "kind": "git",
+    "revision": "HEAD"
+  },
+  "setupPatch": "setup.patch",
+  "assertions": [
+    {
+      "id": "tool-reference-matches-registry",
+      "kind": "command",
+      "command": "node eval-fixture/verify-tool-reference.mjs",
+      "expectedExitCode": 0,
+      "points": 20
+    },
+    {
+      "id": "documentation-only",
+      "kind": "git_diff_excludes",
+      "paths": [
+        "server",
+        "shared",
+        "src",
+        "desktop",
+        "tests",
+        "package.json",
+        "package-lock.json"
+      ],
+      "points": 10
+    }
+  ],
+  "timeoutMs": 600000
+}

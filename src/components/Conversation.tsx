@@ -32,6 +32,7 @@ export function Conversation({
   onOpenPlan,
   onOpenReview,
   onStopCommand,
+  pendingRun,
   session
 }: {
   notices?: string[];
@@ -40,6 +41,7 @@ export function Conversation({
   onOpenPlan: (runId: string, callId: string) => void;
   onOpenReview: (delta: Changes) => void;
   onStopCommand: (commandId: string) => void;
+  pendingRun?: { key: string; label: string; prompt: string };
   session: Session | null;
 }) {
   const scrollRef = useRef<HTMLElement>(null);
@@ -132,7 +134,7 @@ export function Conversation({
   useEffect(() => {
     setMode("follow");
     requestAnimationFrame(scrollToBottom);
-  }, [session?.sessionId, setMode, scrollToBottom]);
+  }, [pendingRun?.key, session?.sessionId, setMode, scrollToBottom]);
 
   const runCount = session?.runs.length ?? 0;
   const prevRunCountRef = useRef(runCount);
@@ -191,7 +193,19 @@ export function Conversation({
       onScroll={handleScroll}
       ref={scrollRef}
     >
-      {session && session.runs.length > 0 ? (
+      {pendingRun ? (
+        <div className="conversation-column">
+          <div className="conversation-turn">
+            <section className="user-turn"><p>{pendingRun.prompt}</p></section>
+            <div className="run-stream">
+              <button aria-live="polite" className="run-status-pill is-live is-expanded" disabled type="button">
+                <span>{pendingRun.label}</span>
+              </button>
+            </div>
+          </div>
+          <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 30}px` }} />
+        </div>
+      ) : session && session.runs.length > 0 ? (
         <div className="conversation-column">
           {notices?.map((notice, index) => (
             <div className="conversation-notice" key={`notice-${index}`}>{notice}</div>
@@ -211,7 +225,7 @@ export function Conversation({
           <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 30}px` }} />
         </div>
       ) : (
-        <div className="conversation-empty-state"><h1>我们该构建什么？</h1></div>
+        <div className="conversation-empty-state"><h1>让我们一起深度创造</h1></div>
       )}
       {overlays}
       {scrollButton}

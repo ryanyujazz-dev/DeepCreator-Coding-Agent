@@ -1,0 +1,37 @@
+{
+  "caseId": "CAE-011",
+  "status": "ready",
+  "base": {
+    "kind": "git",
+    "revision": "HEAD"
+  },
+  "setupPatch": "setup.patch",
+  "assertions": [
+    {
+      "id": "multi-edit-suite",
+      "kind": "command",
+      "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/multiEdit.test.ts",
+      "expectedExitCode": 0,
+      "points": 15
+    },
+    {
+      "id": "atomicity-regression-added",
+      "kind": "file_contains",
+      "path": "tests/multiEdit.test.ts",
+      "text": "rolls back all changes when one edit fails (atomicity)",
+      "points": 5
+    },
+    {
+      "id": "tests-only-diff",
+      "kind": "git_diff_excludes",
+      "paths": [
+        "server",
+        "shared",
+        "src",
+        "desktop"
+      ],
+      "points": 10
+    }
+  ],
+  "timeoutMs": 600000
+}

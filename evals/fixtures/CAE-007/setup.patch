@@ -1,0 +1,72 @@
+diff --git a/tests/findSymbolAcceptance.test.ts b/tests/findSymbolAcceptance.test.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/findSymbolAcceptance.test.ts
+@@ -0,0 +1,67 @@
++import assert from "node:assert/strict";
++import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import test from "node:test";
++import { createToolState, executeTool, toolSpecs } from "../server/infra/tools";
++
++test("find_symbol is registered, executable, and presented as a read-only search", async () => {
++  const directory = mkdtempSync(path.join(tmpdir(), "find-symbol-acceptance-"));
++  try {
++    writeFileSync(path.join(directory, "sample.ts"), [
++      "export function findBooking(id: string) { return id; }",
++      "export type Booking = { id: string };",
++      "const ignored = 'findBooking';"
++    ].join("\n") + "\n");
++
++    const spec = toolSpecs.find((candidate) => candidate.name === "find_symbol");
++    assert.ok(spec, "find_symbol must be visible to the model");
++    const properties = spec.inputSchema.properties as Record<string, unknown>;
++    assert.ok(properties.query, "find_symbol must expose query");
++    assert.ok(properties.kind, "find_symbol must expose kind");
++
++    const functionResult = await executeTool({
++      args: { kind: "function", query: "findBooking" },
++      name: "find_symbol",
++      projectRoot: directory
++    });
++    assert.equal(functionResult.mutatedWorkspace, false);
++    const functions = JSON.parse(functionResult.output) as {
++      matches: Array<{ kind: string; line: number; path: string; symbol: string }>;
++    };
++    assert.deepEqual(functions.matches, [{
++      kind: "function",
++      line: 1,
++      path: "sample.ts",
++      symbol: "findBooking"
++    }]);
++
++    const typeResult = await executeTool({
++      args: { kind: "type", query: "Booking" },
++      name: "find_symbol",
++      projectRoot: directory
++    });
++    const types = JSON.parse(typeResult.output) as {
++      matches: Array<{ kind: string; line: number; path: string; symbol: string }>;
++    };
++    assert.deepEqual(types.matches, [{
++      kind: "type",
++      line: 2,
++      path: "sample.ts",
++      symbol: "Booking"
++    }]);
++
++    const state = createToolState({
++      args: { kind: "function", query: "findBooking" },
++      callId: "call_find_symbol",
++      modelStepId: "step_find_symbol",
++      name: "find_symbol",
++      projectRoot: directory
++    });
++    assert.equal(state.action, "search");
++    assert.equal(state.effect, "read_only");
++    assert.match(state.normalizedTarget, /findBooking/);
++  } finally {
++    rmSync(directory, { force: true, recursive: true });
++  }
++});

@@ -1,6 +1,6 @@
 {
   "dataset": {
-    "id": "deepseeker-code-agent-eval",
+    "id": "deepcreator-code-agent-eval",
     "version": "1.0.0",
     "language": "zh-CN",
     "caseCount": 20,
@@ -316,7 +316,7 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "feature-symbol-search-tool",
-        "status": "planned",
+        "status": "ready",
         "description": "具备工具注册、执行、语义映射与测试层的模块化 Runtime。"
       },
       "userRequest": "新增 find_symbol 工具，能按函数或类型名返回文件和行号，并接入现有工具展示和测试。先给方案，我确认后再做。",
@@ -506,8 +506,8 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "tests-multi-edit-atomicity",
-        "status": "planned",
-        "description": "multi_edit 实现存在部分替换成功、后续失败时仍写回文件的缺口。"
+        "status": "ready",
+        "description": "multi_edit 已提供原子实现，但回归套件缺少前一项成功、后一项失败时文件保持不变的覆盖。"
       },
       "userRequest": "给 multi_edit 补测试，重点验证任意一处匹配失败时整个文件不能被部分修改。先不要改实现。",
       "modeExpectation": {
@@ -523,15 +523,15 @@
       "idealTrajectory": [
         { "intent": "理解实现和现有测试", "observableOutcome": "识别成功路径与缺少的回滚断言。" },
         { "intent": "只新增测试", "observableOutcome": "构造前一项成功、后一项失败的输入并断言文件未变。" },
-        { "intent": "运行聚焦测试", "observableOutcome": "测试应能暴露当前原子性缺口。" }
+        { "intent": "运行聚焦测试", "observableOutcome": "聚焦测试通过，并证明现有原子性保证受到回归保护。" }
       ],
       "contentEvaluation": {
         "checkpoints": [
           { "stage": "before_tools", "purpose": "重申只改测试的约束。", "mustInclude": ["先检查现有测试", "不修改实现"], "mustAvoid": ["顺便修复实现"] },
           { "stage": "after_investigation", "purpose": "说明新增用例为何有效。", "mustInclude": ["前一编辑可成功", "后一编辑失败", "文件保持原样"], "mustAvoid": ["只检查抛出错误"] },
-          { "stage": "final", "purpose": "如实报告红灯或绿灯。", "mustInclude": ["测试实际结果", "是否暴露缺口"], "mustAvoid": ["失败测试被描述为任务失败"] }
+          { "stage": "final", "purpose": "如实报告测试结果。", "mustInclude": ["测试实际结果", "是否验证原子性保证"], "mustAvoid": ["未运行却声称测试通过"] }
         ],
-        "groundedFacts": ["只修改测试文件", "用例验证文件最终内容", "当前实现若有缺口则测试失败是有效结果"],
+        "groundedFacts": ["只修改测试文件", "用例验证文件最终内容", "新增测试实际验证原子性保证"],
         "forbiddenClaims": ["测试通过但实际退出码非零", "修改生产实现"]
       },
       "successCriteria": [
@@ -600,7 +600,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "refactor-tool-registry",
-        "status": "planned",
+        "status": "ready",
         "description": "工具 schema、执行映射和展示语义存在重复 switch，但对外工具协议已有快照测试。"
       },
       "userRequest": "工具相关的 switch 太多了，请重构成单一注册表，但不要改变模型看到的 schema、工具行为和前端文案。",
@@ -694,7 +694,7 @@
       "riskLevel": "low",
       "fixture": {
         "id": "docs-tool-reference",
-        "status": "planned",
+        "status": "ready",
         "description": "README 中工具清单过期，真实注册表含新增工具及参数约束。"
       },
       "userRequest": "更新工具使用文档，按类别列出当前工具、用途、关键参数和权限要求，不要写还没实现的能力。",
@@ -787,7 +787,7 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "data-trace-content-metrics",
-        "status": "planned",
+        "status": "ready",
         "description": "提供脱敏 JSONL Event Trace，包含 Content、工具开始/完成、验证和最终回答。"
       },
       "userRequest": "分析 traces.jsonl，输出每个 Run 的 grounded claim rate、提前完成声明次数和重复进度播报次数，并生成汇总 JSON。",
@@ -881,8 +881,8 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "env-node-version-build",
-        "status": "planned",
-        "description": "项目要求 Node 22，但运行环境为 Node 20；构建错误表面指向 SQLite API。"
+        "status": "ready",
+        "description": "项目要求 Node 22，但失败日志记录的 CI 环境为 Node 20；构建错误表面指向 SQLite API。"
       },
       "userRequest": "npm run build 报 SQLite 相关类型错误，帮我定位原因。先不要升级依赖，确认根因后再决定。",
       "modeExpectation": {
@@ -896,18 +896,18 @@
         "expected": ["read_file", "run_command"]
       },
       "idealTrajectory": [
-        { "intent": "收集环境与项目约束", "observableOutcome": "读取 engines、lockfile 并检查 node/npm 版本。" },
-        { "intent": "复现构建错误", "observableOutcome": "错误与 Node 类型/运行时版本不匹配相关。" },
-        { "intent": "低风险验证根因", "observableOutcome": "在匹配 Node 22 的环境中构建通过或类型错误消失。" },
+        { "intent": "收集环境与项目约束", "observableOutcome": "读取 engines、lockfile、失败日志并检查当前 node/npm 版本。" },
+        { "intent": "关联构建错误", "observableOutcome": "错误与失败环境中的 Node 类型/运行时版本不匹配相关。" },
+        { "intent": "低风险验证根因", "observableOutcome": "当前满足 Node 22 要求的环境构建通过，和失败日志形成对照。" },
         { "intent": "请求后续选择", "observableOutcome": "不擅自升级依赖，提供切换运行时或调整支持范围的选项。" }
       ],
       "contentEvaluation": {
         "checkpoints": [
           { "stage": "before_tools", "purpose": "说明先核对环境而非升级包。", "mustInclude": ["检查 Node 版本和 engines", "暂不改依赖"], "mustAvoid": ["SQLite 包有 Bug"] },
-          { "stage": "after_investigation", "purpose": "用版本证据说明根因。", "mustInclude": ["当前 Node 版本", "项目要求版本", "错误关联"], "mustAvoid": ["已修改环境"] },
+          { "stage": "after_investigation", "purpose": "用版本证据说明根因。", "mustInclude": ["失败日志中的 Node 版本", "项目要求版本", "当前环境对照"], "mustAvoid": ["已修改环境"] },
           { "stage": "final", "purpose": "给出诊断和下一步选择。", "mustInclude": ["根因", "验证证据", "未改依赖"], "mustAvoid": ["未经用户选择直接升级"] }
         ],
-        "groundedFacts": ["package engines 要求 Node 22", "实际环境为 Node 20", "依赖升级不是首要修复"],
+        "groundedFacts": ["package engines 要求 Node 22", "失败日志环境为 Node 20", "依赖升级不是首要修复"],
         "forbiddenClaims": ["没有版本证据就归因 SQLite", "声称完成修复但只完成诊断"]
       },
       "successCriteria": [

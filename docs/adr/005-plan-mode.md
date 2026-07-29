@@ -6,7 +6,7 @@ Accepted and implemented (2026-07-18)
 
 ## Executive summary
 
-DeepSeeker needs a Plan Mode, but not merely a prompt that asks the model to "think first". A useful Plan Mode is a product contract enforced by the Runtime:
+DeepCreator needs a Plan Mode, but not merely a prompt that asks the model to "think first". A useful Plan Mode is a product contract enforced by the Runtime:
 
 1. the user or model can deliberately enter a planning state;
 2. the agent may inspect the project and ask questions, but cannot mutate the workspace;
@@ -14,13 +14,13 @@ DeepSeeker needs a Plan Mode, but not merely a prompt that asks the model to "th
 4. only an explicit user decision can authorize the transition from planning to implementation;
 5. the approved plan becomes implementation context without being confused with the execution task list.
 
-The recommended design borrows the strongest ideas from Codex, Claude Code, Gemini CLI, and Cursor while fitting DeepSeeker's existing `Session -> Run -> Activity -> Event` architecture and DeepSeek's prefix-cache behavior.
+The recommended design borrows the strongest ideas from Codex, Claude Code, Gemini CLI, and Cursor while fitting DeepCreator's existing `Session -> Run -> Activity -> Event` architecture and DeepSeek's prefix-cache behavior.
 
 The key product decision is:
 
 > Plan Mode is a governed workflow, not a writing style and not a renamed task list.
 
-DeepSeeker should therefore separate three concepts:
+DeepCreator should therefore separate three concepts:
 
 - `Mode`: whether the agent is planning or implementing;
 - `Plan`: the versioned proposal reviewed by the user;
@@ -30,7 +30,7 @@ This separation is the foundation for predictable behavior, honest UI, safe tool
 
 ## Why this matters now
 
-DeepSeeker already supports multi-turn Sessions, streamed Runs, structured tool calls, approvals, context compaction, file review, and multi-surface UI. The next product risk is no longer whether the model can edit a file. It is whether users can trust the agent with larger, ambiguous, and expensive changes.
+DeepCreator already supports multi-turn Sessions, streamed Runs, structured tool calls, approvals, context compaction, file review, and multi-surface UI. The next product risk is no longer whether the model can edit a file. It is whether users can trust the agent with larger, ambiguous, and expensive changes.
 
 Without a real Plan Mode, a coding agent tends to fail in four ways:
 
@@ -51,7 +51,7 @@ Codex treats planning as a collaboration mode rather than as ordinary assistant 
 
 The useful lesson is that a plan must be implementable by another engineer without rediscovering major decisions. A list such as "inspect code, modify files, run tests" is not a plan; it is generic process narration.
 
-What DeepSeeker should adopt:
+What DeepCreator should adopt:
 
 - explicit mode semantics;
 - research before proposal;
@@ -59,7 +59,7 @@ What DeepSeeker should adopt:
 - a structured, reviewable plan artifact;
 - strict separation between planning and execution progress.
 
-What DeepSeeker should not copy literally:
+What DeepCreator should not copy literally:
 
 - provider-specific message conventions;
 - product wording or field names;
@@ -71,7 +71,7 @@ Claude Code exposes Plan as a permission mode. While active, the agent can inspe
 
 Claude's strongest contribution is the coupling of planning to authorization. The safety boundary is not left to a sentence in the system prompt. Planning changes what operations are permitted.
 
-What DeepSeeker should adopt:
+What DeepCreator should adopt:
 
 - Runtime-enforced read-only planning;
 - explicit enter and submit transitions;
@@ -79,7 +79,7 @@ What DeepSeeker should adopt:
 - an editable plan surface rather than a transient chat-only answer;
 - continuation of the same work after approval.
 
-What DeepSeeker should improve:
+What DeepCreator should improve:
 
 - keep Plan Mode independent from the general access profile;
 - model the transition as durable Events so restart and replay are deterministic;
@@ -89,7 +89,7 @@ What DeepSeeker should improve:
 
 Gemini CLI also implements planning as an operational policy. Its Plan Mode supports read-only research, user questions, a temporary Markdown plan artifact, explicit approval, and a transition to implementation. The policy engine, not model compliance alone, prevents disallowed tools. Gemini also demonstrates that planning and execution may use different model routing without changing the user-facing workflow.
 
-What DeepSeeker should adopt:
+What DeepCreator should adopt:
 
 - a policy layer above ordinary access permissions;
 - a first-class question interaction during planning;
@@ -97,7 +97,7 @@ What DeepSeeker should adopt:
 - provider and model routing as an implementation detail;
 - extensible hooks around plan submission and approval.
 
-What DeepSeeker should defer:
+What DeepCreator should defer:
 
 - automatic use of separate planning and execution models until quality and cache measurements justify it;
 - a plugin-facing planning API before the core lifecycle is stable.
@@ -108,7 +108,7 @@ Cursor presents Plan Mode as a low-friction product workflow: research the codeb
 
 Cursor's strongest contribution is discoverability. Users do not need to understand internal permission architecture to benefit. Plan Mode appears as a product choice at the moment of composition, and the plan becomes a visible working object.
 
-What DeepSeeker should adopt:
+What DeepCreator should adopt:
 
 - entry from the composer's `+` menu;
 - a persistent visible mode indicator after selection;
@@ -116,7 +116,7 @@ What DeepSeeker should adopt:
 - a suggested-planning path for complex requests;
 - a direct "start implementation" action.
 
-What DeepSeeker should avoid:
+What DeepCreator should avoid:
 
 - opaque automatic switching that leaves the user unsure whether changes can occur;
 - using heuristics alone as the authority for mode changes.
@@ -131,13 +131,13 @@ The products differ in presentation, but their strongest implementations converg
 4. **Implementation requires a transition.** A user decision separates proposal from side effects.
 5. **Complexity can trigger a suggestion.** The model may recommend planning, but should not silently seize control of the workflow.
 
-This convergence is more important than any one competitor's exact UI or tool schema. DeepSeeker should implement these principles using its own concise domain language and event-driven Runtime.
+This convergence is more important than any one competitor's exact UI or tool schema. DeepCreator should implement these principles using its own concise domain language and event-driven Runtime.
 
 ## Product position
 
 ### The user promise
 
-When Plan Mode is active, DeepSeeker promises:
+When Plan Mode is active, DeepCreator promises:
 
 - it will understand before changing;
 - it will show the decisions that matter;
@@ -357,7 +357,7 @@ This prevents a misleading timeline where planning appears to have protected a w
 
 ### Recommended policy levels
 
-DeepSeeker should support three product policies:
+DeepCreator should support three product policies:
 
 ```ts
 type PlanEntry = "manual" | "suggest" | "auto";
@@ -711,7 +711,7 @@ Rejected as the default because surface-level heuristics cannot reliably underst
 
 ## Decision
 
-DeepSeeker will implement Plan Mode as a first-class, Runtime-enforced workflow integrated with the existing event protocol, Tool Pipeline, context operating system, and Surface UI.
+DeepCreator will implement Plan Mode as a first-class, Runtime-enforced workflow integrated with the existing event protocol, Tool Pipeline, context operating system, and Surface UI.
 
 The default entry policy will be `suggest`. The user remains the authority for approving implementation. The model may research, ask, propose, and revise; the Runtime enforces allowed operations and records transitions; the user authorizes the move from proposal to work.
 
@@ -746,6 +746,6 @@ Verification covers policy precedence, conservative command classification, sugg
 - [Gemini CLI Plan Mode](https://geminicli.com/docs/cli/plan-mode/)
 - [Gemini CLI planning tools](https://geminicli.com/docs/tools/planning/)
 - [Cursor Plan Mode](https://cursor.com/blog/plan-mode)
-- [ADR 003: DeepSeeker Context Operating System](./003-context-operating-system.md)
+- [ADR 003: DeepCreator Context Operating System](./003-context-operating-system.md)
 - [ADR 004: Clean Runtime Architecture V2](./004-clean-runtime-architecture.md)
-- [DeepSeeker Naming Conventions](../naming-conventions.md)
+- [DeepCreator Naming Conventions](../naming-conventions.md)

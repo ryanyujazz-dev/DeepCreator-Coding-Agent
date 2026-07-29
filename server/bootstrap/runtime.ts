@@ -24,12 +24,20 @@ import { nodeSystem } from "../infra/system";
 import { createHttp } from "../transport/http";
 import { ModelOption, ProviderFamily } from "../../shared/contracts/provider";
 import { DelegationCoordinator } from "../app/delegationCoordinator";
+import { DeveloperEvalService } from "../transport/http";
+import { EventPort, SessionPort } from "../app/runtimeRepo";
 
 export type RuntimeOptions = {
   apiKey?: string;
   authToken?: string;
   dataDirectory: string;
   defaultModel?: string;
+  evalServiceFactory?: (deps: {
+    repositoryRoot: string;
+    startRun: StartRun;
+    store: EventPort & SessionPort;
+  }) => Promise<DeveloperEvalService>;
+  evalRepositoryRoot?: string;
   frontendUrl?: string;
   host?: string;
   migrationDirectory?: string;
@@ -121,7 +129,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     const isMock = family === "mock" || options.runtimeMode === "mock" || (!apiKey && !zhipuApiKey);
     if (isMock) return { model: "mock-agent", provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
     if (family === "zhipu") {
-      if (!zhipuApiKey) throw new Error(`模型 ${model} 需要智谱 API Key，但未配置。请在 ~/.deepseeker/config.json 设置 zhipuApiKey。`);
+      if (!zhipuApiKey) throw new Error(`模型 ${model} 需要智谱 API Key，但未配置。请在 ~/.deepcreator/config.json 设置 zhipuApiKey。`);
       return { model, provider: zhipuProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.zhipu };
     }
     if (family === "deepseek") {
@@ -159,6 +167,11 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   });
   const followUps = new FollowUpService({ registry, startRun, store, system });
   followUps.recover();
+  const evals = options.evalServiceFactory ? await options.evalServiceFactory({
+    repositoryRoot: path.resolve(options.evalRepositoryRoot ?? options.workspaceRoot),
+    startRun,
+    store
+  }) : undefined;
   const app = createHttp({
     cancelRun: new CancelRun(registry, commandManager),
     config: {
@@ -166,12 +179,14 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
       context,
       dataDirectory: path.resolve(options.dataDirectory),
       defaultModel,
+      evalsEnabled: Boolean(evals),
       frontendUrl: options.frontendUrl ?? "http://127.0.0.1:5173/",
       hasApiKey: Boolean(apiKey) || Boolean(zhipuApiKey),
       models: MODEL_REGISTRY,
       workspaceRoot: path.resolve(options.workspaceRoot)
     },
     contextQueries,
+    evals,
     followUps,
     launcher,
     providerFor,
@@ -189,6 +204,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     app.server.closeAllConnections();
     await registry.cancelAllAndWait();
     await commandManager.stopAll();
+    evals?.close();
     followUps.close();
     await app.close().catch(() => undefined);
     store.close();

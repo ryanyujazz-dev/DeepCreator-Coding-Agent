@@ -9,7 +9,7 @@ import { executeTool } from "../server/infra/tools";
 //              安全(敏感路径/越界)、无匹配、取消、只读语义。
 
 function setupProject(): string {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-glob-"));
   mkdirSync(path.join(directory, "src", "components"), { recursive: true });
   mkdirSync(path.join(directory, "src", "sub"), { recursive: true });
   mkdirSync(path.join(directory, "dist"), { recursive: true });
@@ -78,7 +78,7 @@ test("glob: detail=true 返回 size/mtime", async () => {
 });
 
 test("glob: limit 截断", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-limit-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-glob-limit-"));
   try {
     for (let i = 0; i < 5; i++) {
       writeFileSync(path.join(directory, `f${i}.ts`), `file ${i}\n`);
@@ -137,7 +137,7 @@ test("glob: 无匹配返回友好提示", async () => {
 });
 
 test("glob: 响应 AbortSignal", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-abort-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-glob-abort-"));
   try {
     for (let i = 0; i < 20; i++) {
       writeFileSync(path.join(directory, `f${i}.ts`), `f${i}\n`);
@@ -161,7 +161,7 @@ test("glob: 响应 AbortSignal", async () => {
 // === mtime 排序测试(对齐 Claude Code Glob 工具行为) ===
 
 test("glob: 按 mtime 倒序排列(最近改过的文件在前)", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-mtime-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-glob-mtime-"));
   try {
     // 造 3 个文件,手动设置不同 mtime(单位:秒)
     // old.ts -> 1 小时前, mid.ts -> 1 分钟前, new.ts -> 现在
@@ -186,7 +186,7 @@ test("glob: 按 mtime 倒序排列(最近改过的文件在前)", async () => {
 });
 
 test("glob: limit 在全量匹配后选出最近修改的文件", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-latest-limit-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-glob-latest-limit-"));
   try {
     const now = Date.now() / 1000;
     writeFileSync(path.join(directory, "a-old.ts"), "old\n");
@@ -204,7 +204,7 @@ test("glob: limit 在全量匹配后选出最近修改的文件", async () => {
 });
 
 test("glob: 命中数刚好等于 limit 时不误报截断", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-exact-limit-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-glob-exact-limit-"));
   try {
     writeFileSync(path.join(directory, "only.ts"), "only\n");
     const result = await executeTool({ args: { pattern: "*.ts", limit: 1 }, name: "glob", projectRoot: directory });
@@ -215,7 +215,7 @@ test("glob: 命中数刚好等于 limit 时不误报截断", async () => {
 });
 
 test("glob: detail 模式也按 mtime 倒序", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-glob-detail-mtime-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-glob-detail-mtime-"));
   try {
     const now = Date.now() / 1000;
     writeFileSync(path.join(directory, "a.ts"), "a\n");

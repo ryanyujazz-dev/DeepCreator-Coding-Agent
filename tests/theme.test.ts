@@ -37,9 +37,9 @@ test("validates and clones complete light and dark theme variants", () => {
 });
 
 test("keeps built-in themes on one shared elevation baseline", () => {
-  const [deepseeker, github] = BUILTIN_THEMES;
-  assert.equal(github.variants.light.contrast, deepseeker.variants.light.contrast);
-  assert.equal(github.variants.dark.contrast, deepseeker.variants.dark.contrast);
+  const [deepcreator, github] = BUILTIN_THEMES;
+  assert.equal(github.variants.light.contrast, deepcreator.variants.light.contrast);
+  assert.equal(github.variants.dark.contrast, deepcreator.variants.dark.contrast);
 });
 
 test("keeps dark semantic grays perceptually paired with the light baseline", () => {
@@ -58,12 +58,12 @@ test("keeps dark semantic grays perceptually paired with the light baseline", ()
 });
 
 test("compensates shadow strength when the canvas and chrome are visually close", () => {
-  const [deepseeker, github] = BUILTIN_THEMES;
-  const deepseekerShadows = shadowCssVariables(deepseeker.variants.light);
+  const [deepcreator, github] = BUILTIN_THEMES;
+  const deepcreatorShadows = shadowCssVariables(deepcreator.variants.light);
   const githubShadows = shadowCssVariables(github.variants.light);
-  assert.equal(deepseekerShadows["--shadow-soft-color"], "rgb(20 31 43 / 9.0%)");
+  assert.equal(deepcreatorShadows["--shadow-soft-color"], "rgb(20 31 43 / 9.0%)");
   assert.equal(githubShadows["--shadow-soft-color"], "rgb(20 31 43 / 9.0%)");
-  assert.equal(deepseekerShadows["--shadow-canvas-soft-color"], "rgb(20 31 43 / 9.0%)");
+  assert.equal(deepcreatorShadows["--shadow-canvas-soft-color"], "rgb(20 31 43 / 9.0%)");
   assert.equal(githubShadows["--shadow-canvas-soft-color"], "rgb(20 31 43 / 13.1%)");
 });
 
@@ -90,7 +90,12 @@ test("normalizes preferences and migrates legacy theme packs", () => {
   assert.deepEqual(normalizeThemePreference({ mode: "unexpected", themeId: "" }), {
     codeThemeId: undefined,
     mode: "system",
-    themeId: "deepseeker"
+    themeId: "deepcreator"
+  });
+  assert.deepEqual(normalizeThemePreference({ codeThemeId: "deepseeker", themeId: "deepseeker" }), {
+    codeThemeId: "deepcreator",
+    mode: "system",
+    themeId: "deepcreator"
   });
 
   const legacy = structuredClone(BUILTIN_THEMES[0]) as unknown as Record<string, unknown>;
@@ -107,8 +112,8 @@ test("normalizes preferences and migrates legacy theme packs", () => {
   assert.match(migrated.variants.light.typography.uiFont, /HarmonyOS Sans/);
 });
 
-test("imports DeepSeeker themes as non-destructive custom previews", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-theme-"));
+test("imports DeepCreator themes as non-destructive custom previews", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-theme-"));
   const file = path.join(directory, "native.json");
   writeFileSync(file, JSON.stringify(BUILTIN_THEMES[1]));
   const imported = importThemeFile(file, BUILTIN_THEMES[0], "light");
@@ -119,7 +124,7 @@ test("imports DeepSeeker themes as non-destructive custom previews", () => {
 });
 
 test("imports VS Code JSONC colors, tokens, and relative includes", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-vscode-theme-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-vscode-theme-"));
   const nested = path.join(directory, "base");
   mkdirSync(nested);
   writeFileSync(path.join(nested, "base.jsonc"), `{
@@ -154,7 +159,7 @@ test("imports VS Code JSONC colors, tokens, and relative includes", () => {
 });
 
 test("rejects VS Code includes that escape the selected theme directory", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-vscode-escape-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-vscode-escape-"));
   writeFileSync(path.join(directory, "outside.json"), "{}");
   const nested = path.join(directory, "nested");
   mkdirSync(nested);
