@@ -116,7 +116,7 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 按 capabilityId 启用长尾能力
     name: "invoke_capability",
-    description: "根据 capabilityId 启用已经发现的长尾能力。对于 Skill，完整 SKILL.md 会作为独立 ContextUpdate 注入，必须读取并遵循。\n\n适用场景：已经通过 search_capabilities 找到相关能力，需要其完整指令或工具访问权限。\n\n不适用场景：尚未搜索，应先调用 search_capabilities；该能力已经加载到当前上下文。\n\n示例：\n  invoke_capability(capabilityId=\"skill:pdf\")\n  invoke_capability(capabilityId=\"mcp:github\", arguments={owner: \"octocat\", repo: \"Hello-World\"})",
+    description: "根据 capabilityId 启用已经发现的长尾能力。对于 Skill，完整 SKILL.md 会作为独立 ContextUpdate 注入，必须读取并遵循；若会话保留的是该 Skill 的旧内容哈希，Runtime 会按 Skill 名称解析到当前启用版本。\n\n适用场景：已经通过 search_capabilities 找到相关能力，需要其完整指令或工具访问权限。\n\n不适用场景：尚未搜索，应先调用 search_capabilities；该能力已经加载到当前上下文。\n\n示例：\n  invoke_capability(capabilityId=\"skill:pdf\")\n  invoke_capability(capabilityId=\"mcp:github\", arguments={owner: \"octocat\", repo: \"Hello-World\"})",
     inputSchema: objectSchema({
       capabilityId: { type: "string", description: "search_capabilities 返回的能力标识符，例如 'skill:pdf' 或 'mcp:github'" },
       arguments: { type: "object", additionalProperties: true, description: "可选，传递给该能力的参数" }
@@ -129,6 +129,70 @@ export const toolRegistry: ToolRegistration[] = [
       action: "inspect",
       targetKind: "workspace",
       resolveTarget: (args) => String(args.capabilityId ?? "capability")
+    }
+  },
+  {
+    name: "read_skill_resource",
+    description: "读取已启用 Skill 的 references/ 内文本资料。路径始终限制在该 Skill 的 references 目录中。\n\n适用场景：SKILL.md 明确指向平台说明、检查清单或其他按需资料。\n\n不适用场景：读取项目文件应使用 read_file；读取 assets/ 应使用 materialize_skill_asset。",
+    inputSchema: objectSchema({
+      capabilityId: { type: "string", description: "Skill capabilityId，例如 'skill:release-electron:abcd1234'" },
+      path: { type: "string", description: "references/ 下的相对文本路径" },
+      maxChars: { type: "number", description: "最多读取字符数，默认 80000，最大 200000" }
+    }, ["capabilityId", "path"]),
+    presentation: {
+      groupMode: "consecutive",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "read_only",
+      importance: "routine",
+      action: "inspect",
+      targetKind: "file",
+      resolveTarget: (args) => `${String(args.capabilityId ?? "skill")}/references/${String(args.path ?? "")}`
+    }
+  },
+  {
+    name: "preview_skill_install",
+    description: "为当前工作区中的 Skill 文件夹、.deepcreator-skill 包，或公开 GitHub Release 生成安全安装预览。返回发布者、版本、文件、权限、脚本、SHA-256，以及下一步 install_skill 必须原样使用的 installRequest。此工具只生成临时预览，不安装任何内容。\n\n适用场景：用户要求安装刚创建或下载的 Skill；调用 install_skill 之前。\n\n不适用场景：仅创建或打包但用户没有要求安装；已经拥有仍有效的 installRequest。\n\n重要：本地 source 必须位于当前工作区内，可使用相对路径；不要猜测用户主目录或直接写入 .deepcreator/skills。scope 必须明确选择。project 在正式项目中表示当前项目，在 scratch 工作区中只表示当前临时任务；global 表示当前用户的所有项目。",
+    inputSchema: objectSchema({
+      source: { type: "string", description: "当前项目内的 Skill 文件夹或安装包路径，或公开 GitHub 仓库/Release HTTPS 地址" },
+      scope: { type: "string", enum: ["project", "global"], description: "安装范围；project 表示当前项目或当前临时任务，global 表示该用户的所有项目" }
+    }, ["source", "scope"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "read_only",
+      importance: "notable",
+      action: "inspect",
+      targetKind: "workspace",
+      resolveTarget: (args) => String(args.source ?? "Skill package"),
+      resolveSemantics: (args) => /^https:\/\//i.test(String(args.source ?? "")) ? { targetKind: "network" } : {}
+    }
+  },
+  {
+    name: "install_skill",
+    description: "使用 preview_skill_install 返回的 installRequest 发起 Skill 安装。Runtime 会再次校验预览 ID、名称、发布者、版本、权限、脚本、来源和完整 SHA-256；任何字段或暂存内容变化都会拒绝安装。无论当前访问模式如何，此工具都会暂停并要求用户逐次确认，确认后才原子安装。\n\n适用场景：用户明确要求安装，且刚刚获得有效 installRequest。\n\n不适用场景：尚未预览；只需打包；用户拒绝安装。\n\n重要：必须逐字段原样传入 installRequest，不得修改、概括或自行补值。不要直接复制到用户目录来绕过信任确认。",
+    inputSchema: objectSchema({
+      displayName: { type: "string", description: "安全预览返回的显示名称" },
+      name: { type: "string", description: "安全预览返回的 Skill 名称" },
+      permissions: { type: "array", items: { type: "string" }, description: "安全预览返回的完整权限列表" },
+      previewId: { type: "string", description: "安全预览的临时 ID" },
+      publisher: { type: "string", description: "安全预览返回的发布者" },
+      revisionHash: { type: "string", description: "安全预览返回的完整 SHA-256 内容哈希" },
+      scope: { type: "string", enum: ["project", "global"], description: "安全预览选定的安装范围" },
+      scripts: { type: "array", items: { type: "string" }, description: "安全预览返回的脚本 ID 列表" },
+      source: { type: "string", description: "安全预览返回的来源标签或 Release 地址" },
+      version: { type: "string", description: "安全预览返回的版本" }
+    }, ["displayName", "name", "permissions", "previewId", "publisher", "revisionHash", "scope", "scripts", "source", "version"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "workspace_write",
+      importance: "critical",
+      action: "external",
+      targetKind: "workspace",
+      resolveTarget: (args) => `${String(args.name ?? "Skill")} (${String(args.scope ?? "project")})`,
+      resolveSemantics: (args) => args.scope === "global"
+        ? { effect: "external_side_effect", targetKind: "workspace" }
+        : { effect: "workspace_write", targetKind: "workspace" }
     }
   },
   {
@@ -413,6 +477,45 @@ export const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    name: "materialize_skill_asset",
+    description: "把已启用 Skill 的 assets/ 中单个文件复制到当前工作区。复制会作为普通工作区修改被追踪。\n\n适用场景：Skill 提供模板、配置样例或静态资源，并明确要求将其落到项目中。\n\n不适用场景：只需阅读 references/；目标已存在且用户没有授权覆盖。",
+    inputSchema: objectSchema({
+      capabilityId: { type: "string", description: "Skill 能力标识 capabilityId" },
+      path: { type: "string", description: "assets/ 下的相对文件路径" },
+      target: { type: "string", description: "工作区内的目标相对路径" },
+      overwrite: { type: "boolean", description: "目标存在时是否覆盖，默认 false" }
+    }, ["capabilityId", "path", "target"]),
+    presentation: {
+      groupMode: "workspace_delta",
+      detail: COLLAPSED_FILE_DETAIL,
+      effect: "workspace_write",
+      importance: "notable",
+      action: "modify",
+      targetKind: "file",
+      resolveTarget: (args, projectRoot) => args.target
+        ? workspaceRelativeTarget(projectRoot, String(args.target))
+        : ""
+    }
+  },
+  {
+    name: "run_skill_script",
+    description: "运行已受信任 Skill 在 skill.json 中声明的 .mjs 脚本。脚本工作目录固定为项目根目录，并复用 run_command 的 commandId、等待、停止、取消、输出裁剪和变更采集生命周期。\n\n适用场景：已加载的 Skill 明确要求执行其声明脚本。\n\n不适用场景：legacy Skill、未受信任 Skill、manifest 未声明的文件，或普通项目命令。\n\n重要：脚本以当前系统用户权限运行，但不会继承模型 API Key、Runtime Token 或 GitHub Token。仍在运行时必须使用 wait_command 或 stop_command 管理原 commandId。",
+    inputSchema: objectSchema({
+      capabilityId: { type: "string", description: "Skill 能力标识 capabilityId" },
+      scriptId: { type: "string", description: "skill.json scripts 中声明的脚本标识" },
+      args: { type: "array", items: { type: "string" }, description: "传递给脚本的字符串参数数组" }
+    }, ["capabilityId", "scriptId"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "process_side_effect",
+      importance: "notable",
+      action: "execute",
+      targetKind: "process",
+      resolveTarget: (args) => `${String(args.capabilityId ?? "skill")}:${String(args.scriptId ?? "script")}`
+    }
+  },
+  {
     // 等待托管命令
     name: "wait_command",
     description: "等待仍在运行的托管命令。返回自上次轮询以来的 stdout、stderr 增量输出，并最多阻塞 60 秒；命令退出时会提前返回。\n\n适用场景：run_command 因命令运行超过 60 秒而返回 commandId；需要收集更多输出或确认命令是否完成。\n\n不适用场景：命令已经退出，结果已经直接返回；希望停止命令而不是等待，应使用 stop_command。\n\n重要：不要重新运行原命令来轮询，这会创建重复的托管对象。始终对现有 commandId 使用 wait_command。\n\n示例：\n  wait_command(commandId=\"cmd_a1b2c3\")",
@@ -512,7 +615,7 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 执行期任务清单(对标 Claude Code TodoWrite / Codex update_plan)
     name: "update_tasks",
-    description: "创建或替换当前 Run 的执行任务列表。这是整体任务清单、当前任务以及 pending、running、completed、blocked 状态的唯一维护渠道。调用本工具后，界面会将任务进度直接呈现给用户；不要在调用工具时的回答内容中再次汇报任务计划进度，也不要重复播报任务完成、当前任务、下一任务、阶段切换或执行批次。\n\n适用场景：任务包含三个或更多跨文件、跨阶段的独立步骤，例如“在代码库中重命名符号”可拆为读取用法、修改导入、修改调用点和运行类型检查；希望在工作过程中向用户展示进度；复杂缺陷修复包含多个调查步骤。\n\n不适用场景：简单问答或单文件编辑，应直接完成；只有一至两个步骤；当前处于计划模式，应使用 submit_plan。\n\n重要：这是独立控制工具。复杂任务开始时调用 update_tasks 列出步骤，状态变化时提交包含全部步骤的完整列表。任何时刻必须只保留一个 'running' 任务；已经完成的步骤保留为 'completed'，受阻步骤标记为 'blocked'。如果已经建立任务清单，所有工作和验证结束后，必须在最后一个工作工具调用之后再次调用本工具，提交不含 pending 或 running 的最终完整列表。最终维护必须是独立的 assistant step，同一响应不要输出面向用户的最终回答；收到工具结果后的下一轮再给出最终回答。本工具不用于计划审批。\n\n示例，为“增加深色模式”建立高质量任务列表：\n  update_tasks(tasks=[\n    {taskId:'t1', label:'读取现有主题系统', status:'running'},\n    {taskId:'t2', label:'增加深色调色板 CSS 变量', status:'pending'},\n    {taskId:'t3', label:'在设置中接入主题开关', status:'pending'},\n    {taskId:'t4', label:'通过构建和手动检查验证', status:'pending'}\n  ])",
+    description: "创建或替换当前 Run 的执行任务列表。这是整体任务清单、当前任务以及 pending、running、completed、blocked 状态的唯一维护渠道。调用本工具后，界面会将任务进度直接呈现给用户；不要在调用工具时的回答内容中再次汇报任务计划进度，也不要重复播报任务完成、当前任务、下一任务、阶段切换或执行批次。\n\n适用场景：任务包含三个或更多跨文件、跨阶段的独立步骤，例如“在代码库中重命名符号”可拆为读取用法、修改导入、修改调用点和运行类型检查；希望在工作过程中向用户展示进度；复杂缺陷修复包含多个调查步骤。\n\n不适用场景：简单问答或单文件编辑，应直接完成；只有一至两个步骤；当前处于计划模式，应使用 submit_plan。\n\n重要：本工具不是独占控制工具，可以与读取、搜索、编辑、命令或验证工具放在同一个 tool_calls 中。复杂任务开始时调用 update_tasks 列出步骤，状态变化时提交包含全部步骤的完整列表。任何时刻必须只保留一个 'running' 任务；已经完成的步骤保留为 'completed'，受阻步骤标记为 'blocked'。如果已经建立任务清单，所有工作和验证结束后，必须在最后一个工作工具调用之后再次调用本工具，提交不含 pending 或 running 的最终完整列表；与最后一批工作工具一起调用时，应把 update_tasks 放在这些工具之后。同一响应不要输出面向用户的最终回答；收到工具结果后的下一轮再给出最终回答。本工具不用于计划审批。\n\n示例，为“增加深色模式”建立高质量任务列表：\n  update_tasks(tasks=[\n    {taskId:'t1', label:'读取现有主题系统', status:'running'},\n    {taskId:'t2', label:'增加深色调色板 CSS 变量', status:'pending'},\n    {taskId:'t3', label:'在设置中接入主题开关', status:'pending'},\n    {taskId:'t4', label:'通过构建和手动检查验证', status:'pending'}\n  ])",
     inputSchema: objectSchema(
       {
         tasks: {

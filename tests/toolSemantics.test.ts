@@ -107,6 +107,16 @@ test("classifies command permission and mutation semantics from parsed arguments
     toolName: "run_command"
   });
   assert.equal(destructive?.risk, "high");
+
+  const skillScript = approvalFor({
+    args: { capabilityId: "skill:create-skill:abc123", scriptId: "pack-skill" },
+    runId: "run_1",
+    grants: [],
+    profile: "smart_approval",
+    toolName: "run_skill_script"
+  });
+  assert.equal(skillScript?.capability, "shell_execute");
+  assert.equal(skillScript?.risk, "high");
 });
 
 test("yields long commands for follow-up control and preserves nonzero exits", async () => {

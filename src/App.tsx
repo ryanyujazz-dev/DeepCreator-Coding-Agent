@@ -391,12 +391,15 @@ export function App() {
           style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
           <SettingsWorkspace
+            currentProjectRoot={session?.projectRoot}
+            currentWorkspaceKind={session?.workspaceKind}
             onClose={() => setWorkspaceView("conversation")}
             onOpenEvals={() => setWorkspaceView("evals")}
             onWidthChange={setSidebarWidth}
             onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
             showEvals={Boolean(DeveloperEvalWorkspace && config?.evalsEnabled)}
             sidebarWidth={sidebarWidth}
+            visible={workspaceView === "settings"}
           />
         </div>
         {DeveloperEvalWorkspace && config?.evalsEnabled && (

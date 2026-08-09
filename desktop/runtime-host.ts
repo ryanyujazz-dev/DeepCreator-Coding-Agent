@@ -96,21 +96,29 @@ export class RuntimeHost {
     const migrations = app.isPackaged
       ? path.join(process.resourcesPath, "migrations")
       : path.join(app.getAppPath(), "server/infra/migrations");
+    const builtinSkills = app.isPackaged
+      ? path.join(process.resourcesPath, "skills")
+      : path.join(app.getAppPath(), "skills");
     // 每次 spawn 时读取 Electron 当前系统语言，确保模型获得真实的桌面环境 locale。
     const systemLocale = app.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
     const child = utilityProcess.fork(path.join(__dirname, "runtime-worker.js"), [], {
       env: {
         ...process.env,
+        DEEPCREATOR_APP_VERSION: app.getVersion(),
         DEEPSEEK_API_KEY: this.store.apiKey(),
         ZHIPU_API_KEY: this.store.zhipuApiKey(),
         DEEPSEEK_MODEL: this.store.settings().defaultModel,
         DEEPSEEK_MODEL_PROTOCOLS: JSON.stringify(this.store.settings().modelProtocols),
         RUNTIME_AUTH_TOKEN: token,
+        RUNTIME_BUILTIN_SKILLS_DIR: builtinSkills,
         RUNTIME_DATA_DIR: this.prepareDataDirectory(),
         RUNTIME_FRONTEND_URL: this.frontendUrl,
+        RUNTIME_GLOBAL_SKILLS_DIR: path.join(app.getPath("home"), ".deepcreator", "skills"),
         RUNTIME_EVAL_REPOSITORY_ROOT: app.getAppPath(),
         RUNTIME_EVALS_ENABLED: !app.isPackaged && this.frontendUrl !== "file://" ? "1" : "0",
         RUNTIME_MIGRATIONS_DIR: migrations,
+        RUNTIME_SKILL_REGISTRY_FILE: path.join(app.getPath("home"), ".deepcreator", "skill-registry.json"),
+        RUNTIME_SKILL_PREVIEW_DIR: path.join(app.getPath("userData"), "skill-agent-previews"),
         RUNTIME_WORKSPACE_ROOT: app.getPath("home"),
         DEEPSEEK_LOCALE: systemLocale
       },

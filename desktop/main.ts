@@ -1,7 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
-import { writeFileSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DesktopSettingsInput } from "../shared/contracts/desktop";
+import { SkillInstallInput, SkillTargetInput } from "../shared/contracts/skill";
 import { ThemeImportInput, ThemePack, ThemePreference, WindowChromeTheme } from "../shared/contracts/theme";
 import { DEFAULT_THEME_ID, isHexColor } from "../shared/themeCatalog";
 import { migratePreviousDesktopData } from "./brandMigration";
@@ -9,6 +10,7 @@ import { RuntimeHost } from "./runtime-host";
 import { DesktopStore } from "./store";
 import { importThemeFile } from "./themeImport";
 import { ThemeStore } from "./themeStore";
+import { SkillStore } from "./skillStore";
 import { ensureUserConfig } from "../server/infra/userConfig";
 
 // ADR-009: 普通配置统一从 ~/.deepcreator/config.json 读取；密钥由宿主边界解析。
@@ -18,6 +20,7 @@ console.log("[desktop] main started");
 let mainWindow: BrowserWindow | null = null;
 let runtime: RuntimeHost;
 let store: DesktopStore;
+let skills: SkillStore;
 let themes: ThemeStore;
 let gracefulQuit = false;
 
@@ -28,6 +31,20 @@ const TITLEBAR_OVERLAY_COLOR = "#00000000";
 
 function trusted(event: Electron.IpcMainInvokeEvent): void {
   if (!mainWindow || event.sender.id !== mainWindow.webContents.id) throw new Error("Untrusted desktop IPC sender.");
+}
+
+function trustedProjectRoot(projectRoot?: string): string | undefined {
+  if (!projectRoot) return undefined;
+  const resolved = path.resolve(projectRoot);
+  if (store.recentProjects().some((project) => project.path === resolved)) return resolved;
+  try {
+    const scratchRoot = realpathSync(path.join(app.getPath("userData"), "runtime", "scratch-workspaces"));
+    const target = realpathSync(resolved);
+    if (target === scratchRoot || target.startsWith(`${scratchRoot}${path.sep}`)) return target;
+  } catch {
+    // Fall through to the trusted-root error.
+  }
+  throw new Error("只能管理最近项目或当前临时任务中的 Skill。");
 }
 
 function registerIpc(): void {
@@ -95,6 +112,50 @@ function registerIpc(): void {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`配置已保存，但 Runtime 重新启动失败：${detail}`);
     }
+  });
+  ipcMain.handle("desktop:skills:list", (event, projectRoot?: string) => {
+    trusted(event);
+    return skills.list(trustedProjectRoot(projectRoot));
+  });
+  ipcMain.handle("desktop:skills:preview-local", async (event) => {
+    trusted(event);
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      filters: [{ extensions: ["deepcreator-skill", "zip"], name: "DeepCreator Skill" }],
+      properties: ["openFile", "openDirectory"],
+      title: "选择 Skill 文件夹或安装包"
+    });
+    return result.canceled || !result.filePaths[0] ? null : skills.previewLocal(result.filePaths[0]);
+  });
+  ipcMain.handle("desktop:skills:preview-github", (event, url: string) => {
+    trusted(event);
+    return skills.previewGitHub(String(url));
+  });
+  ipcMain.handle("desktop:skills:install", async (event, input: SkillInstallInput) => {
+    trusted(event);
+    const normalized = { ...input, projectRoot: trustedProjectRoot(input.projectRoot) };
+    const result = skills.install(normalized);
+    await runtime.restart();
+    return result;
+  });
+  ipcMain.handle("desktop:skills:set-enabled", async (event, input: SkillTargetInput & { enabled: boolean }) => {
+    trusted(event);
+    const result = skills.setEnabled({ ...input, projectRoot: trustedProjectRoot(input.projectRoot) });
+    await runtime.restart();
+    return result;
+  });
+  ipcMain.handle("desktop:skills:remove", async (event, input: SkillTargetInput) => {
+    trusted(event);
+    const result = await skills.remove({ ...input, projectRoot: trustedProjectRoot(input.projectRoot) });
+    await runtime.restart();
+    return result;
+  });
+  ipcMain.handle("desktop:skills:check-updates", (event, projectRoot?: string) => {
+    trusted(event);
+    return skills.checkUpdates(trustedProjectRoot(projectRoot));
+  });
+  ipcMain.handle("desktop:skills:update", (event, input: SkillTargetInput) => {
+    trusted(event);
+    return skills.update({ ...input, projectRoot: trustedProjectRoot(input.projectRoot) });
   });
   ipcMain.handle("desktop:themes:list", (event) => {
     trusted(event);
@@ -222,6 +283,14 @@ else {
     migratePreviousDesktopData();
     store = new DesktopStore();
     themes = new ThemeStore();
+    skills = new SkillStore({
+      appVersion: app.getVersion(),
+      builtinDirectory: app.isPackaged ? path.join(process.resourcesPath, "skills") : path.join(app.getAppPath(), "skills"),
+      globalDirectory: path.join(app.getPath("home"), ".deepcreator", "skills"),
+      previewDirectory: path.join(app.getPath("userData"), "skill-previews"),
+      registryFile: path.join(app.getPath("home"), ".deepcreator", "skill-registry.json"),
+      trash: (target) => shell.trashItem(target)
+    });
     runtime = new RuntimeHost(store, MAIN_WINDOW_VITE_DEV_SERVER_URL ?? "file://");
     registerIpc();
     mainWindow = createWindow();

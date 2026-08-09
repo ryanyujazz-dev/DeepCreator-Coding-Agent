@@ -1,4 +1,5 @@
 import path from "node:path";
+import { homedir } from "node:os";
 import { RunRegistry } from "../app/runRegistry";
 import { RunLauncher, RunLaunchPort } from "../app/runLauncher";
 import { Runner } from "../app/runner";
@@ -8,7 +9,7 @@ import { FollowUpService } from "../app/followUps";
 import { SessionService } from "../app/sessionService";
 import { StartRun } from "../app/startRun";
 import { WorkspaceQueries } from "../app/workspaceQueries";
-import { capabilitySource } from "../infra/capabilities";
+import { createCapabilitySource } from "../infra/capabilities";
 import { contextConfig } from "../infra/contextConfig";
 import { DeepSeekProvider } from "../infra/deepseek";
 import { ZhipuProvider } from "../infra/zhipu";
@@ -16,7 +17,9 @@ import { MockProvider } from "../infra/mock";
 import { resolveProjectRoot } from "../infra/projectRoot";
 import { ruleSource } from "../infra/rules";
 import { RuntimeStore } from "../infra/runtimeStore";
-import { toolHost } from "../infra/tools";
+import { createToolHost } from "../infra/tools";
+import { SkillCatalog } from "../infra/skillCatalog";
+import { SkillStore } from "../infra/skillStore";
 import { commandManager } from "../infra/commandManager";
 import { workspaceQueryPort } from "../infra/workspace";
 import { ensureScratchWorkspace } from "../infra/sessionWorkspace";
@@ -29,8 +32,10 @@ import { ContextPort, EventPort, SessionPort } from "../app/runtimeRepo";
 import { SystemPort } from "../app/systemPort";
 
 export type RuntimeOptions = {
+  appVersion?: string;
   apiKey?: string;
   authToken?: string;
+  builtinSkillDirectory?: string;
   dataDirectory: string;
   defaultModel?: string;
   evalServiceFactory?: (deps: {
@@ -42,11 +47,14 @@ export type RuntimeOptions = {
   }) => Promise<DeveloperEvalService>;
   evalRepositoryRoot?: string;
   frontendUrl?: string;
+  globalSkillDirectory?: string;
   host?: string;
   migrationDirectory?: string;
   modelProtocols?: Record<string, ModelProtocol>;
   port?: number;
   runtimeMode?: string;
+  skillRegistryFile?: string;
+  skillPreviewDirectory?: string;
   workspaceRoot: string;
   zhipuApiKey?: string;
 };
@@ -136,10 +144,29 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   const defaultModel = options.defaultModel ?? "deepseek-v4-flash";
   const apiKey = options.apiKey ?? "";
   const context = contextConfig();
+  const dataDirectory = path.resolve(options.dataDirectory);
+  const globalSkillDirectory = path.resolve(options.globalSkillDirectory ?? path.join(homedir(), ".deepcreator", "skills"));
+  const skillRegistryFile = path.resolve(options.skillRegistryFile ?? path.join(path.dirname(globalSkillDirectory), "skill-registry.json"));
+  const skillCatalog = new SkillCatalog({
+    appVersion: options.appVersion,
+    builtinDirectory: options.builtinSkillDirectory,
+    globalDirectory: globalSkillDirectory,
+    registryFile: skillRegistryFile
+  });
+  const skillStore = new SkillStore({
+    appVersion: options.appVersion ?? "0.1.0",
+    builtinDirectory: options.builtinSkillDirectory,
+    globalDirectory: globalSkillDirectory,
+    previewDirectory: path.resolve(options.skillPreviewDirectory ?? path.join(dataDirectory, "skill-previews")),
+    registryFile: skillRegistryFile,
+    trash: async () => { throw new Error("Runtime 安装服务不提供卸载操作。"); }
+  });
+  const capabilities = createCapabilitySource(skillCatalog);
+  const tools = createToolHost(skillCatalog, skillStore);
   const system = nodeSystem;
-  const store = new RuntimeStore(path.resolve(options.dataDirectory), options.migrationDirectory, system);
+  const store = new RuntimeStore(dataDirectory, options.migrationDirectory, system);
   const registry = new RunRegistry(system);
-  const runner = new Runner(toolHost, ruleSource, capabilitySource, context);
+  const runner = new Runner(tools, ruleSource, capabilities, context);
   // Provider 单例化:DeepSeekProvider/ZhipuProvider 无状态,缓存后避免每次 providerFor 都 new,
   // 未来也可在单例上加余额缓存/限流等有状态能力。MockProvider 同理。
   const deepseekProvider = new DeepSeekProvider(apiKey);
@@ -182,13 +209,13 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     workspaceRoot: path.resolve(options.workspaceRoot)
   });
   const contextQueries = new ContextQueries({
-    capabilities: capabilitySource,
+    capabilities,
     context,
     defaultModel,
     rules: ruleSource,
     store,
     system,
-    tools: toolHost.specs,
+    tools: tools.specs,
     workspaceRoot: path.resolve(options.workspaceRoot)
   });
   const followUps = new FollowUpService({ registry, startRun, store, system });

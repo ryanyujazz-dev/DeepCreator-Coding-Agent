@@ -10,7 +10,13 @@ import {
   DisplaySegment,
   ToolAggregate
 } from "./types";
-import { activityTitle, toolDisplayTarget, toolTarget } from "./activityPresentation";
+import {
+  activityTitle,
+  isSkillActivity,
+  skillActivityLabel,
+  toolDisplayTarget,
+  toolTarget
+} from "./activityPresentation";
 import {
   dominantHeadlineKind,
   headlineKindForTool,
@@ -77,6 +83,8 @@ function createDraft(activity: Activity): SegmentDraft {
 }
 
 function toolStartLabel(activity: Activity): string {
+  const skillLabel = skillActivityLabel(activity);
+  if (skillLabel) return skillLabel;
   const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
   let action = "正在执行";
   if (activity.tool?.toolName === "apply_patch") return "正在应用补丁";
@@ -348,6 +356,17 @@ export function projectDisplayTimeline(
     }
     if (activity.kind === "thinking") {
       ensureSegment(activity).transients.push({ activity, index });
+      continue;
+    }
+    if (isSkillActivity(activity)) {
+      // Skill activity is a first-level execution fact. It closes the aggregate
+      // before it and cannot absorb ordinary tools that start after it.
+      if (current) current.transientBoundary = current.transients.length;
+      current = undefined;
+      const skillSegment = createDraft(activity);
+      skillSegment.transients.push({ activity, index });
+      entries.push({ draft: skillSegment, type: "display_segment" });
+      current = undefined;
       continue;
     }
     if (toolCategory(activity)) {
