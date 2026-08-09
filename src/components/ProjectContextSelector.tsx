@@ -116,18 +116,20 @@ export function ProjectContextSelector({
         <span>{label}</span>
       </button>
       {open && (
-        <FloatingSurface aria-label="选择任务工作区" className="project-context-popover" ref={menuRef} role="dialog">
-          <label className="project-context-search">
-            <Search size={15} />
-            <input
-              aria-label="搜索项目"
-              autoFocus
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              placeholder="搜索项目"
-              value={query}
-            />
-          </label>
+        <FloatingSurface aria-label="选择任务工作区" className="composer-popover project-context-popover" ref={menuRef} role="dialog">
+          {selection.kind === "project" && (
+            <label className="project-context-search">
+              <Search size={15} />
+              <input
+                aria-label="搜索项目"
+                autoFocus
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="搜索项目"
+                value={query}
+              />
+            </label>
+          )}
           <div className="project-context-options">
             {filteredProjects.map((project) => {
               const selected = selection.kind === "project" && selection.projectRoot === project.path;

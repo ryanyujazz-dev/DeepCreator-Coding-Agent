@@ -33,6 +33,39 @@
   border-radius: var(--composer-bar-radius);          /* 固定 R:拉伸前后半径一致 */
 }
 
+/* 新任务的工作区 head 是输入条背后的上盖。它向下藏入 composer 一个半径，
+   下沿停在输入条横向中线；总高比输入条多 4px，故顶部上移且露出 30px。
+   上方两角沿用输入条的 26px 半径，下方两角保持直角。
+   高特异性同时覆盖 legacy 的桌面 / 760px 边距规则。 */
+.composer-stack.has-project-context {
+  --composer-bar-radius: 26px;
+}
+
+.composer-stack.has-project-context > .project-context-shelf {
+  height: calc(2 * var(--composer-bar-radius) + var(--space-1));
+  min-height: calc(2 * var(--composer-bar-radius) + var(--space-1));
+  margin: 0 0 calc(0px - var(--composer-bar-radius));
+  padding: 0 20px var(--composer-bar-radius);
+  align-items: center;
+  border-radius: var(--composer-bar-radius) var(--composer-bar-radius) 0 0;
+}
+
+.composer-stack.has-project-context > .project-context-shelf > .project-context-trigger {
+  height: 22px;
+  padding: var(--space-0-5) var(--space-1);
+  gap: var(--space-1-5);
+}
+
+.composer-stack.has-project-context > .project-context-shelf > .project-context-trigger > span {
+  font-size: var(--type-meta-size);
+  line-height: var(--type-meta-line-height);
+}
+
+.composer-stack.has-project-context > .project-context-shelf > .project-context-trigger > svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* textarea:占满左侧剩余空间。1 行内容盒 = line-height(22)+padding(6+6)= 34px,
    正好填满 1 行 bar 的内容盒(2R − 8 − 8 − 2 边框 = 34)。钉 line-height 让 autoGrow 算得准。
    min-height:unset 抵消基类 .composer textarea(0,1,1 @ styles.css:469)的 min-height:78px
@@ -159,4 +192,130 @@
 }
 .composer-foot .branch-menu button.is-selected > svg {
   color: var(--theme-blue);
+}
+
+/* 输入区的项目、添加、权限、分支与模型列表共享同一浮层语言。各菜单保留自身宽度与
+   信息密度，但外壳、标题、行圆角、状态颜色和弹出间距必须一致。 */
+.composer-stack .composer-popover.ui-floating-surface {
+  bottom: calc(100% + 10px);
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-floating);
+  color: var(--color-text);
+}
+
+.composer-stack .composer-menu {
+  gap: 2px;
+}
+
+.composer-stack .composer-menu > header {
+  min-height: 28px;
+  padding: 5px 10px 3px;
+  color: var(--color-text-subtle);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: var(--type-label-line-height);
+  text-transform: none;
+}
+
+.composer-stack .composer-menu button,
+.composer-stack .project-context-option,
+.composer-stack .project-context-actions button {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.composer-stack .add-menu > button,
+.composer-stack .branch-menu button,
+.composer-stack .project-context-option,
+.composer-stack .project-context-actions button {
+  min-height: 38px;
+  padding: 0 10px;
+  gap: 8px;
+  font-size: var(--type-control-size);
+  line-height: var(--type-control-line-height);
+}
+
+.composer-stack .permission-menu button,
+.composer-stack .model-option {
+  min-height: 52px;
+  padding: 7px 10px;
+  gap: 9px;
+}
+
+.composer-stack .permission-menu strong,
+.composer-stack .model-option-label {
+  color: var(--color-text);
+  font-size: var(--type-control-size);
+  font-weight: 640;
+  line-height: var(--type-control-line-height);
+}
+
+.composer-stack .permission-menu small,
+.composer-stack .model-option-desc {
+  color: var(--color-text-subtle);
+  font-size: var(--type-label-size);
+  font-weight: 520;
+  line-height: var(--type-label-line-height);
+}
+
+.composer-stack :is(
+  .composer-menu button,
+  .project-context-option,
+  .project-context-actions button
+):is(:hover, :focus-visible),
+.composer-stack :is(
+  .composer-menu button,
+  .project-context-option,
+  .project-context-actions button
+).is-selected,
+.composer-stack .project-context-option[aria-current="true"] {
+  outline: 0;
+  background: var(--color-hover);
+  color: var(--theme-blue-dark);
+}
+
+.composer-stack :is(
+  .composer-menu button,
+  .project-context-option,
+  .project-context-actions button
+).is-selected > svg:last-child,
+.composer-stack .project-context-option[aria-current="true"] > svg:last-child {
+  color: var(--theme-blue);
+}
+
+.composer-stack .model-menu {
+  right: 0;
+  left: auto;
+}
+
+.composer-stack .project-context-popover {
+  padding: 6px;
+}
+
+.composer-stack .project-context-search {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: var(--color-surface-subtle);
+}
+
+.composer-stack .project-context-search:focus-within {
+  background: var(--color-surface-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-blue) 42%, transparent);
+}
+
+.composer-stack .project-context-options {
+  margin: 4px 0 6px;
+  padding: 0;
+}
+
+.composer-stack .project-context-actions {
+  padding-top: 6px;
+  border-top-color: var(--color-border);
 }

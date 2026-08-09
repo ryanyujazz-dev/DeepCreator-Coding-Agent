@@ -8,8 +8,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const styles = readFileSync(path.join(root, "src/styles.css"), "utf8");
 const applicationSurfaces = readFileSync(path.join(root, "src/styles/features/application-surfaces.css"), "utf8");
 const authStyles = readFileSync(path.join(root, "src/styles/features/auth.css"), "utf8");
+const composerBarStyles = readFileSync(path.join(root, "src/styles/features/composer-bar.css"), "utf8");
 const followUpStyles = readFileSync(path.join(root, "src/styles/features/follow-ups.css"), "utf8");
 const updateStyles = readFileSync(path.join(root, "src/styles/features/updates.css"), "utf8");
+const composer = readFileSync(path.join(root, "src/components/Composer.tsx"), "utf8");
+const projectContextSelector = readFileSync(path.join(root, "src/components/ProjectContextSelector.tsx"), "utf8");
 
 test("keeps one semantic token source and the licensed HarmonyOS font", () => {
   assert.equal(styles.match(/^:root\s*\{/gm)?.length, 1);
@@ -104,6 +107,22 @@ test("anchors the scroll-to-bottom control to the responsive composer center", (
   const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
   assert.match(conversation, /setComposerPortalTarget\(parent\.querySelector<HTMLElement>\("\.composer-stack"\)\)/);
   assert.match(conversation, /createPortal\([\s\S]*className="scroll-to-bottom-button"[\s\S]*composerPortalTarget/s);
+});
+
+test("aligns the project context cap bottom to the composer centerline with a four-pixel lift", () => {
+  assert.match(composerBarStyles, /\.composer-stack\.has-project-context\s*\{[^}]*--composer-bar-radius:\s*26px/s);
+  assert.match(composerBarStyles, /\.composer-stack\.has-project-context > \.project-context-shelf\s*\{[^}]*height:\s*calc\(2 \* var\(--composer-bar-radius\) \+ var\(--space-1\)\);[^}]*margin:\s*0 0 calc\(0px - var\(--composer-bar-radius\)\);[^}]*padding:\s*0 20px var\(--composer-bar-radius\);[^}]*border-radius:\s*var\(--composer-bar-radius\) var\(--composer-bar-radius\) 0 0/s);
+  assert.match(composerBarStyles, /\.project-context-shelf > \.project-context-trigger\s*\{[^}]*height:\s*22px;[^}]*padding:\s*var\(--space-0-5\) var\(--space-1\);[^}]*gap:\s*var\(--space-1-5\)/s);
+  assert.match(composerBarStyles, /\.project-context-trigger > span\s*\{[^}]*font-size:\s*var\(--type-meta-size\);[^}]*line-height:\s*var\(--type-meta-line-height\)/s);
+  assert.match(composerBarStyles, /\.project-context-trigger > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px/s);
+});
+
+test("gives every composer popover one shared surface and keeps the model menu on canvas", () => {
+  assert.match(projectContextSelector, /className="composer-popover project-context-popover"/);
+  assert.match(projectContextSelector, /selection\.kind === "project" && \(\s*<label className="project-context-search">/s);
+  assert.match(composer, /className="composer-popover composer-menu (?:add|permission|branch|model)-menu"/);
+  assert.match(composerBarStyles, /\.composer-stack \.composer-popover\.ui-floating-surface\s*\{[^}]*bottom:\s*calc\(100% \+ 10px\);[^}]*padding:\s*6px;[^}]*border-radius:\s*var\(--radius-surface\);[^}]*box-shadow:\s*var\(--shadow-floating\)/s);
+  assert.match(composerBarStyles, /\.composer-stack \.model-menu\s*\{[^}]*right:\s*0;[^}]*left:\s*auto/s);
 });
 
 test("floats the composer and reserves its bottom offset plus 60px in the conversation flow", () => {
