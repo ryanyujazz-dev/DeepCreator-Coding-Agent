@@ -50,5 +50,6 @@ jobs:
           path: artifacts
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.zip
+          files: artifacts/**/*.zip
+          fail_on_unmatched_files: true
           generate_release_notes: true

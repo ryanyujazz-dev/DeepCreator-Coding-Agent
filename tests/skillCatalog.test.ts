@@ -1,3 +1,4 @@
+import AdmZip from "adm-zip";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -208,6 +209,38 @@ test("SkillStore rejects staged content that changes after the trusted preview",
       () => store.install({ previewId: preview.previewId, scope: "global", trusted: true }),
       /安全预览后发生变化/
     );
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("SkillStore rejects linked local sources and ZIP parent path segments", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "deepcreator-skill-source-boundary-"));
+  try {
+    const source = createSkill({ name: "boundary-skill", parent: path.join(root, "source") });
+    const previewDirectory = path.join(root, "previews");
+    const store = new SkillStore({
+      appVersion: "0.1.0",
+      builtinDirectory: path.join(root, "builtin"),
+      globalDirectory: path.join(root, "home", ".deepcreator", "skills"),
+      previewDirectory,
+      registryFile: path.join(root, "home", ".deepcreator", "skill-registry.json"),
+      trash: async () => undefined
+    });
+
+    if (process.platform !== "win32") {
+      const linkedSource = path.join(root, "linked-skill");
+      symlinkSync(source, linkedSource, "dir");
+      assert.throws(() => store.previewLocal(linkedSource), /不能是符号链接/);
+    }
+
+    const archive = new AdmZip();
+    archive.addFile("SKILL.md", Buffer.from("---\nname: boundary-skill\ndescription: boundary\n---\n"));
+    archive.getEntries()[0].entryName = "nested/../SKILL.md";
+    const packagePath = path.join(root, "boundary.deepcreator-skill");
+    archive.writeZip(packagePath);
+    assert.throws(() => store.previewLocal(packagePath), /不能包含 \.\./);
+    assert.deepEqual(readdirSync(previewDirectory), []);
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

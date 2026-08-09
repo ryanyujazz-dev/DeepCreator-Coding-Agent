@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -108,6 +109,7 @@ function sourceFiles(directory: string): Array<{ path: string; size: number }> {
 
 function normalizeArchivePath(raw: string): string {
   if (!raw || raw.includes("\\") || raw.startsWith("/") || /^[A-Za-z]:/.test(raw)) throw new Error(`ZIP 路径无效：${raw}`);
+  if (raw.split("/").includes("..")) throw new Error(`ZIP 路径不能包含 ..：${raw}`);
   const normalized = path.posix.normalize(raw).replace(/^\.\//, "");
   if (!normalized || normalized === ".." || normalized.startsWith("../") || path.posix.isAbsolute(normalized)) {
     throw new Error(`ZIP 路径越界：${raw}`);
@@ -169,16 +171,23 @@ export class SkillStore {
   previewLocal(sourcePath: string): SkillInstallPreview {
     const source = path.resolve(sourcePath);
     if (!existsSync(source)) throw new Error("所选 Skill 不存在。");
-    const sourceInfo = statSync(source);
+    const sourceInfo = lstatSync(source);
+    if (sourceInfo.isSymbolicLink()) throw new Error("Skill 安装源不能是符号链接。");
     if (!sourceInfo.isDirectory() && !sourceInfo.isFile()) throw new Error("Skill 必须是文件夹或 ZIP 包。");
+    if (sourceInfo.isDirectory()) sourceFiles(source);
+    if (sourceInfo.isFile() && sourceInfo.size > MAX_ARCHIVE_BYTES) throw new Error("Skill 包不能超过 20 MiB。");
     const staging = this.createStaging();
-    if (sourceInfo.isDirectory()) {
-      cpSync(source, staging, { errorOnExist: false, recursive: true, verbatimSymlinks: true });
+    try {
+      if (sourceInfo.isDirectory()) {
+        cpSync(source, staging, { errorOnExist: false, recursive: true, verbatimSymlinks: true });
+      } else {
+        this.extractZip(readFileSync(source), staging);
+      }
       return this.buildPreview(normalizeSkillRoot(staging), { kind: "local", label: path.basename(source) }, path.dirname(staging));
+    } catch (error) {
+      rmSync(path.dirname(staging), { force: true, recursive: true });
+      throw error;
     }
-    if (sourceInfo.size > MAX_ARCHIVE_BYTES) throw new Error("Skill 包不能超过 20 MiB。");
-    this.extractZip(readFileSync(source), staging);
-    return this.buildPreview(normalizeSkillRoot(staging), { kind: "local", label: path.basename(source) }, path.dirname(staging));
   }
 
   async previewGitHub(rawUrl: string): Promise<SkillInstallPreview> {
@@ -189,12 +198,17 @@ export class SkillStore {
     if ((asset.size ?? 0) > MAX_ARCHIVE_BYTES) throw new Error("Skill 包不能超过 20 MiB。");
     const data = await this.download(asset.browser_download_url);
     const staging = this.createStaging();
-    this.extractZip(data, staging);
-    return this.buildPreview(normalizeSkillRoot(staging), {
-      kind: "github",
-      releaseUrl: release.html_url ?? rawUrl,
-      repository: `${repository.owner}/${repository.repository}`
-    }, path.dirname(staging));
+    try {
+      this.extractZip(data, staging);
+      return this.buildPreview(normalizeSkillRoot(staging), {
+        kind: "github",
+        releaseUrl: release.html_url ?? rawUrl,
+        repository: `${repository.owner}/${repository.repository}`
+      }, path.dirname(staging));
+    } catch (error) {
+      rmSync(path.dirname(staging), { force: true, recursive: true });
+      throw error;
+    }
   }
 
   install(input: SkillInstallInput): SkillSummary[] {
@@ -277,8 +291,9 @@ export class SkillStore {
     if (input.scope === "builtin") throw new Error("内置 Skill 不能卸载。");
     const projectRoot = this.projectRoot(input.scope, input.projectRoot);
     const parent = input.scope === "global" ? this.options.globalDirectory : path.join(projectRoot, ".deepcreator", "skills");
-    const target = path.join(parent, input.name);
-    if (!isInside(parent, target) || !existsSync(target)) throw new Error(`未找到 Skill：${input.name}`);
+    const installed = this.catalog.all(projectRoot).find((skill) => skill.origin === input.scope && skill.name === input.name);
+    if (!installed || path.dirname(installed.directory) !== path.resolve(parent)) throw new Error(`未找到 Skill：${input.name}`);
+    const target = installed.directory;
     await this.options.trash(target);
     const registry = this.catalog.registry();
     delete registry.installs?.[recordKey(input.scope, input.name, projectRoot)];
@@ -342,8 +357,8 @@ export class SkillStore {
   }
 
   private buildPreview(directory: string, source: SkillInstallSource, cleanupDirectory: string): SkillInstallPreview {
-    const inspected = this.catalog.inspect(directory);
     const files = sourceFiles(directory);
+    const inspected = this.catalog.inspect(directory);
     const previewId = randomUUID();
     const preview: SkillInstallPreview = {
       description: inspected.description,

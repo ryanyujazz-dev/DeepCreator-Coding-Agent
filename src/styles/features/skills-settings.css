@@ -612,6 +612,7 @@
   white-space: nowrap;
 }
 
+.skill-preview-hash,
 .skill-preview-permissions,
 .skill-preview-scripts {
   display: grid;
@@ -620,6 +621,17 @@
   color: var(--color-text);
   font-size: var(--type-control-size);
   gap: 8px;
+}
+
+.skill-preview-hash {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+}
+
+.skill-preview-hash code {
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
 }
 
 .skill-preview-permissions > div {

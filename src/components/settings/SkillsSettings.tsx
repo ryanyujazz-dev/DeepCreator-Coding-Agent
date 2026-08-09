@@ -320,6 +320,7 @@ export function SkillsSettings({
             <IconButton disabled={busy} label="关闭安装预览" onClick={() => setPreview(null)}><X size={17} /></IconButton>
           </header>
           <div className="skill-preview-summary"><span>发布者<strong>{preview.publisher}</strong></span><span>文件<strong>{preview.files.length} 个</strong></span><span>脚本<strong>{preview.scripts.length} 个</strong></span><span>最低版本<strong>{preview.minDeepCreatorVersion}</strong></span></div>
+          <div className="skill-preview-hash"><strong>SHA-256 内容哈希</strong><code title={preview.revisionHash}>{preview.revisionHash}</code></div>
           <div className="skill-preview-permissions"><strong>权限</strong><div>{preview.permissions.map((permission) => <span key={permission}>{PERMISSION_LABELS[permission]}</span>)}</div></div>
           {preview.scripts.length > 0 && <div className="skill-preview-scripts"><strong>声明脚本</strong>{preview.scripts.map((script) => <div key={script.id}><code>{script.id}</code><span>{script.description}</span></div>)}</div>}
           <footer>

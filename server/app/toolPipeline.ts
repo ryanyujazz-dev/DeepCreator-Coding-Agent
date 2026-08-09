@@ -309,10 +309,12 @@ export class ToolPipeline {
       }
 
       // execute
+      const startsManagedCommand = call.name === "run_command" || call.name === "run_skill_script";
       const mutatesWorkspace = prepared.effect === "workspace_write"
-        || (call.name === "run_command" && !analyzeCommand(String(args.command ?? "")).readOnly);
+        || (call.name === "run_command" && !analyzeCommand(String(args.command ?? "")).readOnly)
+        || call.name === "run_skill_script";
       if (mutatesWorkspace) workspaceRelease = await workspaceMutationCoordinator.acquire(input.projectRoot, input.signal);
-      if (call.name === "run_command") {
+      if (startsManagedCommand) {
         this.host.retain(input.baseline);
         retainedCommandBaseline = true;
       }
@@ -320,11 +322,11 @@ export class ToolPipeline {
         activityId,
         args,
         name: call.name,
-        onCommandSettled: call.name === "run_command" ? (settled) => {
+        onCommandSettled: startsManagedCommand ? (settled) => {
           void this.settleManagedCommand(input, activityId!, settled, true)
             .finally(() => workspaceMutationCoordinator.releaseCommand(settled.commandId));
         } : undefined,
-        onOutput: call.name === "run_command" ? ({ text }) => {
+        onOutput: startsManagedCommand ? ({ text }) => {
           updateActivity({ activityId: activityId!, runId: input.runId, sessionId: input.sessionId, store: input.store }, { bodyDelta: text });
         } : undefined,
         projectRoot: input.projectRoot,
@@ -336,10 +338,10 @@ export class ToolPipeline {
         workspaceMutationCoordinator.retainForCommand(result.commandId, workspaceRelease);
         workspaceLeaseTransferred = true;
       }
-      if (call.name === "run_command" && result.commandState !== "running") {
+      if (startsManagedCommand && result.commandState !== "running") {
         retainedCommandBaseline = false;
         await this.host.close(input.baseline);
-      } else if (call.name === "run_command") {
+      } else if (startsManagedCommand) {
         retainedCommandBaseline = false;
       }
 
@@ -586,7 +588,7 @@ export class ToolPipeline {
         tool: activity.tool ? { ...activity.tool, resultSummary: result.output.slice(0, 500) } : undefined
       });
       if (!settled) return;
-      const evidence = reduceToolEvidence("run_command", result);
+      const evidence = reduceToolEvidence(activity.tool?.toolName ?? "run_command", result);
       input.store.appendContextEntry({
         kind: "context_update",
         metadata: { commandId: result.commandId, commandState: result.commandState, exitCode: result.exitCode },
