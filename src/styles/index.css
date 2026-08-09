@@ -39,7 +39,7 @@
 /* 对话区:保留一条与原设计一致的细滚动条(被上面 :not 排除,故不冲突) */
 .conversation-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(67, 78, 83, 0.22) transparent;
+  scrollbar-color: color-mix(in srgb, var(--color-text-muted) 22%, transparent) transparent;
 }
 .conversation-scroll::-webkit-scrollbar {
   width: 8px;
@@ -48,9 +48,9 @@
   background: transparent;
 }
 .conversation-scroll::-webkit-scrollbar-thumb {
-  background: rgba(67, 78, 83, 0.28);
+  background: color-mix(in srgb, var(--color-text-muted) 28%, transparent);
   border-radius: 999px;
 }
 .conversation-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(67, 78, 83, 0.45);
+  background: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
 }
