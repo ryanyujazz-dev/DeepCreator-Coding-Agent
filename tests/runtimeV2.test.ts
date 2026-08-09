@@ -317,6 +317,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     startRun,
     store,
     workspace: new WorkspaceQueries(store, {
+      checkout: async () => {},
       collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
@@ -479,6 +480,7 @@ test("steers an active HTTP Run into model context and the top-level conversatio
     startRun,
     store,
     workspace: new WorkspaceQueries(store, {
+      checkout: async () => {},
       collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
@@ -618,6 +620,7 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
     startRun,
     store,
     workspace: new WorkspaceQueries(store, {
+      checkout: async () => {},
       collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
@@ -642,6 +645,92 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
     assert.deepEqual(cancelled.json(), { ok: true, settled: true });
     assert.equal(cleanupFinished, true);
     assert.equal(store.getRun(runId)?.status, "cancelled");
+  } finally {
+    await app.close();
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("checks out a local branch and rejects unknown branches via the HTTP endpoint", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-checkout-"));
+  const store = new RuntimeStore(directory);
+  const registry = new RunRegistry();
+  const provider: Provider = {
+    capabilities: { contextWindowTokens: 1_000_000, supportsParallelToolCalls: true, supportsStrictTools: true, supportsThinking: true, supportsTools: true },
+    async stream() {
+      return { answer: "ok", continuationMessage: { role: "assistant", text: "ok" }, finishCause: "complete", thinking: "", toolCalls: [] };
+    }
+  };
+  const providerFor = () => ({ model: "mock-agent", provider });
+  const launcher = new RunLauncher(providerFor, registry, (input) => runAgent({ ...input, tools: toolHost }), store);
+  const startRun = new StartRun({
+    context: defaultContextConfig,
+    defaultModel: "mock-agent",
+    launcher,
+    store,
+    system: { ...testSystem, createId: (prefix) => `${prefix}_checkout`, now: () => createdAt },
+    workspace: { canonicalize: path.resolve, ensureScratch: (sessionId) => ensureScratchWorkspace(directory, sessionId), resolveProjectRoot: async () => directory },
+    workspaceRoot: directory
+  });
+  let currentBranch = "main";
+  const checkoutCalls: Array<{ branch: string; projectRoot: string }> = [];
+  const app = createHttp({
+    cancelRun: new CancelRun(registry, commandManager),
+    config: { authToken: "runtime-test-token", context: defaultContextConfig, dataDirectory: directory, defaultModel: "mock-agent", frontendUrl: "http://127.0.0.1:5173/", hasApiKey: false, models: [], workspaceRoot: directory },
+    contextQueries: new ContextQueries({ capabilities: emptyCapabilitySource, context: defaultContextConfig, defaultModel: "mock-agent", rules: emptyRuleSource, store, system: { ...testSystem, createId: () => "unused", now: () => createdAt }, tools: toolHost.specs, workspaceRoot: directory }),
+    followUps: new FollowUpService({ registry, startRun, store, system: testSystem }),
+    launcher,
+    providerFor,
+    registry,
+    sessions: new SessionService(store),
+    startRun,
+    store,
+    workspace: new WorkspaceQueries(store, {
+      checkout: async (projectRoot, branch) => { checkoutCalls.push({ branch, projectRoot }); currentBranch = branch; },
+      collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
+      describe: async (projectRoot) => ({ branch: currentBranch, branches: ["main", "feature"], dirtyFiles: 0, exists: true, git: true, name: "workspace", projectRoot }),
+      readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
+    })
+  });
+  const auth = { authorization: "Bearer runtime-test-token" };
+
+  try {
+    const created = await app.inject({
+      headers: auth,
+      method: "POST",
+      payload: { accessMode: "request_approval", model: "mock-agent", prompt: "任意任务" },
+      url: "/api/sessions/session_checkout/runs"
+    });
+    assert.equal(created.statusCode, 200);
+    const runId = (created.json() as { run: { runId: string } }).run.runId;
+    await new Promise<void>((resolve) => { registry.afterRun(runId, resolve); });
+
+    const before = await app.inject({ headers: auth, method: "GET", url: "/api/sessions/session_checkout/workspace" });
+    assert.equal(before.statusCode, 200);
+    assert.equal((before.json() as { workspace: { branch: string } }).workspace.branch, "main");
+    assert.deepEqual((before.json() as { workspace: { branches: string[] } }).workspace.branches, ["main", "feature"]);
+
+    const switched = await app.inject({
+      headers: auth,
+      method: "POST",
+      payload: { branch: "feature" },
+      url: "/api/sessions/session_checkout/checkout"
+    });
+    assert.equal(switched.statusCode, 200);
+    assert.equal((switched.json() as { workspace: { branch: string } }).workspace.branch, "feature");
+    assert.deepEqual((switched.json() as { workspace: { branches: string[] } }).workspace.branches, ["main", "feature"]);
+    assert.deepEqual(checkoutCalls, [{ branch: "feature", projectRoot: directory }]);
+
+    const unknown = await app.inject({
+      headers: auth,
+      method: "POST",
+      payload: { branch: "nope" },
+      url: "/api/sessions/session_checkout/checkout"
+    });
+    assert.equal(unknown.statusCode, 400);
+    assert.equal((unknown.json() as { code: string }).code, "invalid_input");
+    assert.deepEqual(checkoutCalls, [{ branch: "feature", projectRoot: directory }]);
   } finally {
     await app.close();
     store.close();

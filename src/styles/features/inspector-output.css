@@ -1,0 +1,114 @@
+/*
+ * 悬浮面板(Inspector)内容段样式:任务 / 计划 / 输出 / 思考过程。
+ * 复用 styles.css 的 .environment-section / .environment-row / header 骨架,这里补充:
+ * 段标题折叠交互、段分割线(内缩 + 粗细统一)、输出文件行的路径省略与统计。
+ * 纯 token(stylelint color-no-hex 在 src/styles/** 生效)。
+ */
+
+/* 面板边框取消:已有 box-shadow(styles.css:5773)提供浮起感,边框线多余,去掉。*/
+.environment-panel {
+  border: 0;
+}
+
+/* 段分割线:左右内缩 16px(与段水平内边距 styles.css:5778 对齐),粗细统一 1px。
+   用相邻兄弟 ::before —— 每两个相邻段之间恰好一条线,无首尾多余线,且与末段是否为
+   思考过程无关:思考过程为空(无 run)时输出段自然成为末段,也不会多出尾线。
+   撤掉 .environment-section 满宽 border-bottom(styles.css:5779 等)。*/
+.environment-panel .environment-section {
+  position: relative;
+  border-bottom: 0;
+}
+.environment-panel .environment-section + .environment-section::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 0;
+  height: 1px;
+  background: var(--app-border);
+}
+
+/* 段标题:可点击折叠/展开。复用思考过程(.reasoning-toggle)的按钮化标题模式。
+   折叠时去掉 header 下间距(无内容),沿用 styles.css:7680 对思考过程的处理。*/
+.environment-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 25px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+/* 箭头约定(全面板统一):折叠 ▶、展开 ▼。ChevronDown 默认朝下;折叠时旋转 -90° 朝右。*/
+.environment-section-toggle > svg {
+  color: var(--color-text-subtle);
+  transition: transform 160ms ease;
+}
+.environment-section.is-collapsed .environment-section-toggle > svg {
+  transform: rotate(-90deg);
+}
+.environment-section.is-collapsed > header {
+  margin-bottom: 0;
+}
+
+/* 统一思考过程的箭头到同一约定(折叠 ▶、展开 ▼),与任务/计划/输出三段保持一致。
+   覆盖 styles.css:7747 展开态的 rotate(180)、7742 默认态(无旋转朝下 → 折叠时应朝右)。*/
+.reasoning-section .reasoning-toggle > svg {
+  transform: rotate(-90deg);
+}
+.reasoning-section.is-expanded .reasoning-toggle > svg {
+  transform: none;
+}
+
+/* 任务段 header 右侧小字:运行时显示 workLabel(如「正在执行」),muted。*/
+.task-section header small {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+/* 输出段 header:左侧标题 + 右侧「查看差异」链接。*/
+.output-section header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.output-review-link {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--theme-blue);
+  cursor: pointer;
+  font-size: 12px;
+}
+.output-review-link:hover {
+  text-decoration: underline;
+}
+
+/* 输出文件列表:垂直堆叠,行间细缝。复用 .environment-row 做基础行样式。*/
+.output-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.output-file-row {
+  cursor: pointer;
+}
+.output-file-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.output-file-stats {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

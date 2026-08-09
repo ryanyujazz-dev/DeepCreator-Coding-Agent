@@ -47,6 +47,7 @@ export type RuntimeFilePreview = {
 
 export type RuntimeWorkspace = {
   branch?: string;
+  branches?: string[];
   dirtyFiles: number;
   exists: boolean;
   git: boolean;

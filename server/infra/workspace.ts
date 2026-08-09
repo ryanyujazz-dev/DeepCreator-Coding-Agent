@@ -26,15 +26,28 @@ export async function describeWorkspace(projectRoot: string): Promise<WorkspaceI
     return { dirtyFiles: 0, exists: false, git: false, name: path.basename(resolved), projectRoot: resolved };
   }
   const branch = await git(resolved, ["branch", "--show-current"]);
+  const branchList = await git(resolved, ["for-each-ref", "--format=%(refname:short)", "refs/heads/"]);
   const status = await git(resolved, ["status", "--porcelain=v1", "--untracked-files=all"]);
   return {
     branch: branch || undefined,
+    branches: branchList ? branchList.split("\n").filter(Boolean) : undefined,
     dirtyFiles: status ? status.split("\n").filter(Boolean).length : 0,
     exists: true,
     git: status !== undefined,
     name: path.basename(resolved),
     projectRoot: resolved
   };
+}
+
+// 抛错版 git checkout:与上面吞错的 git() 不同,checkout 失败(如工作区有冲突改动、分支不存在)
+// 必须把 stderr 透传给上层,由路由转成 4xx 让客户端提示。execFile 数组参无 shell 注入风险。
+export async function checkoutBranch(projectRoot: string, branch: string): Promise<void> {
+  try {
+    await execFileAsync("git", ["-C", projectRoot, "checkout", branch], { encoding: "utf8", timeout: 10_000 });
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr;
+    throw new Error(stderr?.trim() || (error instanceof Error ? error.message : "git checkout 失败"));
+  }
 }
 
 export async function readWorkspaceFile(projectRoot: string, relativePath: string, maxChars: number): Promise<WorkspaceFile> {
@@ -53,6 +66,7 @@ export async function readWorkspaceFile(projectRoot: string, relativePath: strin
 }
 
 export const workspaceQueryPort: WorkspaceQueryPort = {
+  checkout: checkoutBranch,
   collectHeadChanges: (projectRoot) => collectChanges(projectRoot),
   describe: describeWorkspace,
   readText: readWorkspaceFile

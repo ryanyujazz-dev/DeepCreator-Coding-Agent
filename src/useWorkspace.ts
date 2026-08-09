@@ -8,6 +8,7 @@ import { browserPlatform } from "./platform/browser";
 import { desktopBridge } from "./platform/desktop";
 import { useRuntimeObservers } from "./features/runtime/useRuntimeObservers";
 import { useFollowUps } from "./features/runtime/useFollowUps";
+import { useBranchCheckout } from "./features/runtime/useBranchCheckout";
 
 export function useWorkspace() {
   const desktop = desktopBridge();
@@ -64,17 +65,18 @@ export function useWorkspace() {
 
   useEffect(() => {
     void Promise.all([runtimeApi.config(), refreshSessions()])
-      .then(([runtimeConfig, availableSessions]) => {
+      .then(([runtimeConfig]) => {
         setConfig(runtimeConfig);
         if (!desktop) setDraftWorkspace(projectDraftWorkspace(runtimeConfig.workspaceRoot));
         setConnection("connected");
-        if (availableSessions[0]) void selectSession(availableSessions[0].sessionId);
+        // 启动时不自动恢复最近会话:默认落「新建任务」页(session=null,App.tsx 的 effect
+        // 会设好 draftWorkspace、composer 就绪);会话列表仍由 refreshSessions() 填充,可从侧边栏点开。
       })
       .catch((nextError) => {
         setConnection("offline");
         setError(nextError instanceof Error ? nextError.message : String(nextError));
       });
-  }, [desktop, refreshSessions, selectSession]);
+  }, [desktop, refreshSessions]);
 
   useEffect(() => {
     if (!session?.sessionId) return;
@@ -360,6 +362,7 @@ export function useWorkspace() {
     balance,
     cancelRun,
     changeModel,
+    checkoutBranch: useBranchCheckout({ session, setError, setWorkspace }),
     config,
     connection,
     contextObserver,

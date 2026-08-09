@@ -6,6 +6,7 @@ import {
   accessInputSchema,
   approvalInputSchema,
   commandParamsSchema,
+  checkoutSchema,
   eventQuerySchema,
   fileQuerySchema,
   followUpInputSchema,
@@ -277,6 +278,12 @@ app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/workspace",
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/changes", { schema: sessionParamsSchema }, async (request) => {
   return workspace.changes(request.params.sessionId);
 });
+
+app.post<{ Params: { sessionId: string }; Body: { branch: string } }>(
+  "/api/sessions/:sessionId/checkout",
+  { schema: checkoutSchema },
+  async (request) => ({ workspace: await workspace.checkout(request.params.sessionId, request.body.branch) })
+);
 
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-telemetry", { schema: sessionParamsSchema }, async (request) => {
   return { telemetry: contextQueries.telemetry(request.params.sessionId) };
