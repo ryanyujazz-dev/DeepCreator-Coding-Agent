@@ -36,6 +36,27 @@ test("keeps settings development-only and centers the sidebar Profile avatar", (
   assert.match(authStyles, /\.account-strip \.profile-avatar\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*line-height:\s*1;[^}]*text-align:\s*center;/s);
 });
 
+test("reserves the native traffic-light area only on macOS", () => {
+  const contract = readFileSync(path.join(root, "shared/contracts/desktop.ts"), "utf8");
+  const desktopMain = readFileSync(path.join(root, "desktop/main.ts"), "utf8");
+  const preload = readFileSync(path.join(root, "desktop/preload.ts"), "utf8");
+  const topbar = readFileSync(path.join(root, "src/components/AppTopbar.tsx"), "utf8");
+  assert.match(contract, /DesktopPlatform = "darwin" \| "linux" \| "win32"/);
+  assert.match(preload, /platform: process\.platform === "darwin" \|\| process\.platform === "win32" \? process\.platform : "linux"/);
+  assert.match(topbar, /data-platform=\{platform\}/);
+  assert.match(topbar, /data-window-controls=\{trafficLightsVisible \? "visible" : "hidden"\}/);
+  assert.match(topbar, /desktop\.windowControls\.onState/);
+  assert.match(topbar, /desktop\.windowControls\.getState\(\)/);
+  assert.match(styles, /--layout-macos-window-controls-inset:\s*80px/);
+  assert.match(applicationSurfaces, /\.app-menubar\[data-platform="darwin"\]\[data-window-controls="visible"\]\s*\{[^}]*padding-left:\s*var\(--layout-macos-window-controls-inset\)/s);
+  assert.doesNotMatch(applicationSurfaces, /\.app-menubar\[data-platform="win32"\]/);
+  assert.match(desktopMain, /const TITLEBAR_HEIGHT = 42/);
+  assert.match(desktopMain, /y: \(TITLEBAR_HEIGHT - MACOS_TRAFFIC_LIGHT_DIAMETER\) \/ 2/);
+  assert.match(desktopMain, /titleBarStyle: "hiddenInset" as const,\s*trafficLightPosition: MACOS_TRAFFIC_LIGHT_POSITION/s);
+  assert.match(desktopMain, /window\.on\("enter-full-screen", publishWindowControlsState\)/);
+  assert.match(desktopMain, /window\.on\("leave-full-screen", publishWindowControlsState\)/);
+});
+
 test("binds every execution hierarchy level to shared typography and columns", () => {
   assert.match(styles, /\.tool-step\s*\{[^}]*grid-template-columns:\s*var\(--execution-icon-column\)/s);
   assert.match(styles, /\.operation-call-row[\s\S]*grid-template-columns:\s*var\(--execution-icon-column\)/);

@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electro
 import { realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { AuthDeleteInput, LocalProfileInput } from "../shared/contracts/auth";
-import { DesktopSettingsInput } from "../shared/contracts/desktop";
+import { DesktopSettingsInput, WindowControlsState } from "../shared/contracts/desktop";
 import { SkillInstallInput, SkillTargetInput } from "../shared/contracts/skill";
 import { ThemeImportInput, ThemePack, ThemePreference, WindowChromeTheme } from "../shared/contracts/theme";
 import { DEFAULT_THEME_ID, isHexColor } from "../shared/themeCatalog";
@@ -27,6 +27,12 @@ let gracefulQuit = false;
 // would paint a chrome block over the top-right corner and clip the floating canvas shadow there,
 // making the top bar look disconnected on Windows.
 const TITLEBAR_OVERLAY_COLOR = "#00000000";
+const TITLEBAR_HEIGHT = 42;
+const MACOS_TRAFFIC_LIGHT_DIAMETER = 12;
+const MACOS_TRAFFIC_LIGHT_POSITION = {
+  x: 14,
+  y: (TITLEBAR_HEIGHT - MACOS_TRAFFIC_LIGHT_DIAMETER) / 2
+};
 
 function trusted(event: Electron.IpcMainInvokeEvent): void {
   if (!mainWindow || event.sender.id !== mainWindow.webContents.id) throw new Error("Untrusted desktop IPC sender.");
@@ -50,7 +56,17 @@ function authenticated(): void {
   if (!auth.authenticated()) throw new Error("DeepCreator Profile 尚未准备好。");
 }
 
+function windowControlsState(): WindowControlsState {
+  return {
+    trafficLightsVisible: process.platform === "darwin" && !(mainWindow?.isFullScreen() ?? false)
+  };
+}
+
 function registerIpc(): void {
+  ipcMain.handle("desktop:window-controls:get-state", (event) => {
+    trusted(event);
+    return windowControlsState();
+  });
   ipcMain.handle("desktop:auth:get-state", (event) => { trusted(event); return auth.getState(); });
   ipcMain.handle("desktop:auth:sign-in", (event) => { trusted(event); return auth.signIn(); });
   ipcMain.handle("desktop:auth:cancel-sign-in", (event) => { trusted(event); return auth.cancelSignIn(); });
@@ -79,7 +95,7 @@ function registerIpc(): void {
       mainWindow?.setVibrancy(theme.translucentSidebar ? "sidebar" : null);
     } else if (process.platform === "win32") {
       mainWindow?.setBackgroundMaterial(theme.translucentSidebar ? "mica" : "none");
-      mainWindow?.setTitleBarOverlay({ color: TITLEBAR_OVERLAY_COLOR, height: 42, symbolColor: theme.symbolColor });
+      mainWindow?.setTitleBarOverlay({ color: TITLEBAR_OVERLAY_COLOR, height: TITLEBAR_HEIGHT, symbolColor: theme.symbolColor });
     }
   });
   ipcMain.handle("runtime:connection", (event) => { trusted(event); authenticated(); return runtime.connection(); });
@@ -270,11 +286,14 @@ function createWindow(): BrowserWindow {
     show: false,
     title: "DeepCreator",
     ...(process.platform === "darwin"
-      ? { titleBarStyle: "hiddenInset" as const }
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: MACOS_TRAFFIC_LIGHT_POSITION
+        }
       : {
           titleBarOverlay: {
             color: TITLEBAR_OVERLAY_COLOR,
-            height: 42,
+            height: TITLEBAR_HEIGHT,
             symbolColor: startupVariant.colors.muted
           },
           titleBarStyle: "hidden" as const
@@ -292,6 +311,15 @@ function createWindow(): BrowserWindow {
   if (process.platform === "darwin" && startupVariant.translucentSidebar) window.setVibrancy("sidebar");
   if (process.platform === "win32" && startupVariant.translucentSidebar) window.setBackgroundMaterial("mica");
   if (process.platform !== "darwin") window.removeMenu();
+  if (process.platform === "darwin") {
+    const publishWindowControlsState = () => {
+      window.webContents.send("window-controls:state", {
+        trafficLightsVisible: !window.isFullScreen()
+      });
+    };
+    window.on("enter-full-screen", publishWindowControlsState);
+    window.on("leave-full-screen", publishWindowControlsState);
+  }
   window.once("ready-to-show", () => window.show());
   window.on("close", () => store.saveWindowBounds(window.getBounds()));
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));

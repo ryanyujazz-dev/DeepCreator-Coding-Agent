@@ -104,6 +104,7 @@
   --app-canvas: var(--color-surface);
   --conversation-bg: var(--color-surface);
   --conversation-fade-height: 60px;
+  --layout-macos-window-controls-inset: 80px;
   --layout-topbar-height: 42px;
   --layout-sidebar-width: 272px;
   --layout-conversation-width: 860px;

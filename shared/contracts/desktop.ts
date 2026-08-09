@@ -16,6 +16,12 @@ import { AuthDeleteInput, AuthState, LocalProfileInput } from "./auth";
 
 export type RuntimePhase = "starting" | "ready" | "restarting" | "stopped" | "failed";
 
+export type DesktopPlatform = "darwin" | "linux" | "win32";
+
+export type WindowControlsState = {
+  trafficLightsVisible: boolean;
+};
+
 export type RuntimeConnection = {
   baseUrl: string;
   phase: RuntimePhase;
@@ -55,6 +61,7 @@ export type DesktopSettingsSaveResult = {
 };
 
 export type DesktopBridge = {
+  platform: DesktopPlatform;
   auth: {
     cancelSignIn: () => Promise<AuthState>;
     deleteAccount: (input: AuthDeleteInput) => Promise<AuthState>;
@@ -108,5 +115,9 @@ export type DesktopBridge = {
     list: () => Promise<ThemeSummary[]>;
     remove: (themeId: string) => Promise<ThemeSummary[]>;
     save: (theme: ThemePack) => Promise<ThemePack>;
+  };
+  windowControls: {
+    getState: () => Promise<WindowControlsState>;
+    onState: (listener: (state: WindowControlsState) => void) => () => void;
   };
 };
