@@ -596,7 +596,7 @@ html[data-color-scheme="dark"] :is(
 .surface-segmented button.is-active {
   background: var(--app-canvas);
   color: var(--color-text);
-  box-shadow: 0 1px 2px rgba(38, 46, 48, 0.12);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-text) 12%, transparent);
 }
 
 .surface-markdown-host {
@@ -606,12 +606,12 @@ html[data-color-scheme="dark"] :is(
   overflow-y: auto;
   padding: 16px 20px;
   background: var(--app-canvas);
-  scrollbar-color: rgba(92, 104, 109, 0.24) transparent;
+  scrollbar-color: color-mix(in srgb, var(--color-text-muted) 24%, transparent) transparent;
   scrollbar-width: thin;
 }
 
 .surface-markdown-host::-webkit-scrollbar { width: 8px; }
-.surface-markdown-host::-webkit-scrollbar-thumb { border-radius: 999px; background: rgba(92, 104, 109, 0.22); }
+.surface-markdown-host::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--color-text-muted) 22%, transparent); }
 .surface-markdown-host::-webkit-scrollbar-track { background: transparent; }
 
 .surface-markdown-host .markdown-content {
