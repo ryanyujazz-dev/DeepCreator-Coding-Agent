@@ -55,6 +55,9 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepcreator.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
   const [compactSidebar, setCompactSidebar] = useState(() => resolveCompactSidebar(browserPlatform.viewportWidth(), DEFAULT_SIDEBAR_WIDTH));
   const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false);
+  // 两段式开合动画:Phase 1(0–180ms)侧边栏叠层滑动、网格冻结;Phase 2(180–360ms)翻转 sidebarOpen,
+  // 让 .app-shell 既有的 grid-template-columns 过渡驱动对话列平滑扩张/收缩。null = 静止。
+  const [sidebarAnim, setSidebarAnim] = useState<null | "closing" | "opening">(null);
   const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepcreator.surfaceWidth", DEFAULT_SURFACE_WIDTH));
   const [surfacePanelOpen, setSurfacePanelOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(browserPlatform.viewportWidth);
@@ -241,15 +244,32 @@ export function App() {
       setSidebarOverlayOpen((open) => !open);
       return;
     }
-    setSidebarOpen((open) => !open);
+    // 动画进行中忽略重复点击,避免方向抖动;只设方向,sidebarOpen 由时序 effect 在 180ms 后翻转。
+    if (sidebarAnim) return;
+    setSidebarAnim(sidebarOpen ? "closing" : "opening");
   };
   const sidebarHidden = workspaceView === "conversation" && (compactSidebar ? !sidebarOverlayOpen : !sidebarOpen);
+  // 两段式时序:180ms 时翻转 sidebarOpen(触发 Phase 2 对话列网格过渡);360ms 时清掉动画态,
+  // 侧边栏从叠层落回收起静止态(或展开后的常规流)。卸载/重置时清两个定时器。
+  useEffect(() => {
+    if (!sidebarAnim) return;
+    const flipGrid = window.setTimeout(() => {
+      setSidebarOpen(sidebarAnim === "closing" ? false : true);
+    }, 180);
+    const clearAnim = window.setTimeout(() => {
+      setSidebarAnim(null);
+    }, 360);
+    return () => {
+      window.clearTimeout(flipGrid);
+      window.clearTimeout(clearAnim);
+    };
+  }, [sidebarAnim]);
   return (
     <AppErrorBoundary>
       <div className="app-frame">
         <AppTopbar />
         <div
-          className={`app-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}${sidebarOverlayOpen ? " sidebar-overlay-open" : ""}`}
+          className={`app-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}${sidebarOverlayOpen ? " sidebar-overlay-open" : ""}${sidebarAnim && !compactSidebar ? ` sidebar-animating${sidebarAnim === "closing" ? " sidebar-closing" : " sidebar-opening"}` : ""}`}
           hidden={workspaceView !== "conversation"}
           style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
