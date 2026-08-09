@@ -335,7 +335,6 @@ export function App({ authState }: { authState?: AuthState }) {
                 session={session}
                 taskActive={agentRunning}
                 taskLabel={workLabel}
-                tasks={currentRun?.tasks ?? []}
               />
             )}
             <Conversation notices={modelNotices} onOpenAgent={openAgentSurface} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />

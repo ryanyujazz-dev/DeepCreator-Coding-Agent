@@ -1,10 +1,11 @@
 import { ArrowRightLeft, ChevronDown, ChevronLeft, ChevronRight, FileCode2, FilePenLine, FilePlus2, FileText, Lightbulb, Maximize2, Sparkles, Trash2, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Changes, FileChange, Session, Task } from "../../shared/contracts/runtime";
+import { Changes, FileChange, Session } from "../../shared/contracts/runtime";
 import { ConnectionPhase } from "./ConnectionStatus";
 import { IconButton } from "../shared-ui/ControlPrimitives";
 import { ReasoningTrace } from "./ReasoningTrace";
 import { TaskPanel } from "./TaskPanel";
+import { useTaskHistory } from "../features/runtime/useTaskHistory";
 
 const OUTPUT_OPERATION_ICONS = {
   created: FilePlus2,
@@ -24,8 +25,7 @@ export function Inspector({
   onOpenReview,
   session,
   taskActive,
-  taskLabel,
-  tasks
+  taskLabel
 }: {
   compact: boolean;
   connection: ConnectionPhase;
@@ -35,9 +35,9 @@ export function Inspector({
   session: Session | null;
   taskActive: boolean;
   taskLabel: string;
-  tasks: Task[];
 }) {
   const run = session?.runs.at(-1);
+  const { current, history } = useTaskHistory(session);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<CollapsibleSection, boolean>>({
     task: false,
@@ -104,7 +104,7 @@ export function Inspector({
             </button>
             {taskActive && taskLabel ? <small>{taskLabel}</small> : null}
           </header>
-          {!collapsed.task && <TaskPanel tasks={tasks} />}
+          {!collapsed.task && <TaskPanel current={current} history={history} />}
         </section>
         <section className={`environment-section plan-section ${collapsed.plan ? "is-collapsed" : "is-expanded"}`}>
           <header>

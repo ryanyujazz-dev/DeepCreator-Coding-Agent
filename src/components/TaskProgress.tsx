@@ -56,7 +56,7 @@ export function TaskProgress({
             <span><ListChecks size={14} />执行计划</span>
             <small>{completed}/{tasks.length}</small>
           </header>
-          <TaskPanel tasks={tasks} />
+          <TaskPanel current={tasks} history={[]} />
         </section>
       )}
     </div>
