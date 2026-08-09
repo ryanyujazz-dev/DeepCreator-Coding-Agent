@@ -1,4 +1,4 @@
-import { Bot, CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minus, MoreHorizontal, PanelRight, Plus, X } from "lucide-react";
+import { Bot, CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minimize2, MoreHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Changes, FileChange, Plan, Run, isRunDone } from "../../shared/contracts/runtime";
 import { fileDisplayName } from "../../shared/projections/activityPresentation";
@@ -178,11 +178,20 @@ export function SurfacePane({
   plans: Plan[];
   runs: Run[];
 }) {
-  if (surfaces.length === 0) return null;
-  const surface = surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0];
-  const planRun = surface.kind === "plan" ? runs.find((run) => run.runId === surface.runId) : undefined;
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFullscreen]);
+  const isEmpty = surfaces.length === 0;
+  const surface = isEmpty ? null : surfaces.find((candidate) => candidate.id === activeSurfaceId) ?? surfaces[0];
+  const planRun = surface?.kind === "plan" ? runs.find((run) => run.runId === surface.runId) : undefined;
   return (
-    <aside className={`workspace-surface-panel ${isClosing ? "is-closing" : "is-open"}`} aria-label="工作区侧栏">
+    <aside className={`workspace-surface-panel ${isClosing ? "is-closing" : "is-open"} ${isFullscreen ? "is-fullscreen" : ""}`} aria-label="工作区侧栏">
       <PanelResizeHandle
         ariaLabel="调整右侧栏宽度"
         edge="left"
@@ -195,9 +204,9 @@ export function SurfacePane({
       <header className="surface-tab-strip">
         <div className="surface-tabs">
           {surfaces.map((candidate) => (
-            <div className={`surface-tab ${candidate.id === surface.id ? "is-active" : ""}`} key={candidate.id}>
+            <div className={`surface-tab ${candidate.id === surface?.id ? "is-active" : ""}`} key={candidate.id}>
               <button
-                aria-selected={candidate.id === surface.id}
+                aria-selected={candidate.id === surface?.id}
                 className="surface-tab-main"
                 onClick={() => onSelectSurface(candidate.id)}
                 title={surfaceTitle(candidate)}
@@ -217,32 +226,39 @@ export function SurfacePane({
           ))}
         </div>
         <div className="surface-window-actions">
-          <IconButton label="新建标签"><Plus size={14} /></IconButton>
-          <IconButton label="展开工作区"><Maximize2 size={13} /></IconButton>
-          <IconButton label="最小化工作区"><Minus size={14} /></IconButton>
-          <IconButton label="切换侧栏布局"><PanelRight size={14} /></IconButton>
-          <IconButton label="关闭工作区侧栏" onClick={onClose}><X size={14} /></IconButton>
+          <IconButton
+            aria-pressed={isFullscreen}
+            label={isFullscreen ? "还原工作区" : "展开工作区"}
+            onClick={() => setIsFullscreen((value) => !value)}
+          >
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </IconButton>
+          <IconButton label="关闭工作区侧栏" onClick={onClose}><X size={16} /></IconButton>
         </div>
       </header>
-      {surface.kind === "file"
+      {isEmpty ? (
+        <div className="surface-state surface-state-empty">工作区为空。打开的文件、计划与审阅会显示在这里。</div>
+      ) : surface?.kind === "file"
         ? <FileSurface error={fileError} file={file} loading={fileLoading} />
-        : surface.kind === "review"
+        : surface?.kind === "review"
           ? <ReviewSurface files={surface.files} selectedPath={surface.selectedPath} />
-          : surface.kind === "plan"
+          : surface?.kind === "plan"
             ? <PlanSurface
                 activity={planRun?.activities.find((activity) => activity.tool?.callId === surface.callId)}
                 onRevise={onRevisePlan}
                 plan={plans.filter((plan) => plan.runId === surface.runId && plan.callId === surface.callId).sort((left, right) => right.revision - left.revision)[0]}
                 runActive={Boolean(planRun && !isRunDone(planRun.status))}
               />
-            : surface.kind === "agent"
+            : surface?.kind === "agent"
               ? <AgentSurface
                   key={surface.sessionId}
                   onOpenFile={(path) => onOpenFile(path, surface.sessionId)}
                   onOpenReview={(delta) => onOpenReview(delta, surface.sessionId)}
                   surface={surface}
                 />
-              : <BrowserSurface surface={surface} />}
+              : surface?.kind === "browser"
+                ? <BrowserSurface surface={surface} />
+                : null}
     </aside>
   );
 }

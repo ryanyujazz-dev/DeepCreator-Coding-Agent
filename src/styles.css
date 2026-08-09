@@ -386,12 +386,6 @@ textarea:disabled {
   gap: 12px;
 }
 
-.window-actions .icon-button {
-  width: 24px;
-  height: 24px;
-  color: #a1a9ad;
-}
-
 .app-error-state {
   align-content: center;
   justify-items: center;
@@ -3146,12 +3140,6 @@ body.is-resizing-panel * {
   gap: 3px;
 }
 
-.window-actions .icon-button {
-  width: 27px;
-  height: 27px;
-  color: #8e999e;
-}
-
 .window-mode-button {
   display: inline-flex;
   align-items: center;
@@ -3742,7 +3730,6 @@ body.is-resizing-panel * {
   white-space: nowrap;
 }
 
-.workspace-surface-panel > header button,
 .surface-toolbar button {
   display: grid;
   width: 27px;
@@ -3756,7 +3743,6 @@ body.is-resizing-panel * {
   cursor: pointer;
 }
 
-.workspace-surface-panel > header button:hover,
 .surface-toolbar button:hover {
   background: #f3f5f5;
   color: #303638;
@@ -3980,6 +3966,14 @@ body.is-resizing-panel * {
   gap: 7px;
 }
 
+.surface-state-empty {
+  flex: 1;
+  align-self: stretch;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.6;
+}
+
 .surface-state.is-error {
   color: #b74b3f;
 }
@@ -4022,7 +4016,7 @@ body.is-resizing-panel * {
 }
 
 .conversation-workspace.has-surface .thread-title {
-  max-width: min(520px, 48%);
+  max-width: calc((100vw - var(--sidebar-width, 272px) - var(--surface-width, 640px)) / 2 - 28px);
 }
 
 .conversation-workspace.has-surface .composer-dock {
@@ -4073,12 +4067,25 @@ body.is-resizing-panel * {
   }
 }
 
+.workspace-surface-panel.is-fullscreen {
+  grid-column: 1 / -1;          /* float as a canvas over the whole conversation-workspace area */
+  height: 100%;
+  z-index: 60;                  /* above all conversation-area content (popovers ≤45); bounded to the workspace */
+  border-left: none;
+  box-shadow: none;
+}
+
+.workspace-surface-panel.is-fullscreen .panel-resize-handle {
+  display: none;                /* can't resize an expanded canvas */
+}
+
 .surface-tab-strip {
   display: grid;
-  flex: 0 0 42px;
+  flex: 0 0 56px;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  align-content: center;
   padding: 0 7px 0 11px;
   border-bottom: 1px solid rgba(47, 61, 66, 0.07);
   background: #fbfbfa;
@@ -4174,23 +4181,8 @@ body.is-resizing-panel * {
   gap: 4px;
 }
 
-.surface-window-actions button {
-  display: grid;
-  width: 27px;
-  height: 27px;
-  padding: 0;
-  border: 0;
-  place-items: center;
-  border-radius: 7px;
-  background: transparent;
-  color: #8b969a;
-  cursor: pointer;
-}
-
-.surface-window-actions button:hover {
-  background: #f0f2f2;
-  color: #303638;
-}
+/* surface-window-actions buttons reuse the shared .ui-icon-button base — same 28px circle,
+   muted color, and blue hover as the conversation title-bar window actions. */
 
 .workspace-surface-panel > .surface-breadcrumbs,
 .workspace-surface-panel > .surface-toolbar,
@@ -4222,12 +4214,6 @@ body.is-resizing-panel * {
 .workspace-surface-panel .surface-tab-strip .surface-tab.is-active {
   background: #f0f1f0;
   color: #303638;
-}
-
-.workspace-surface-panel .surface-tab-strip .surface-window-actions button {
-  width: 27px;
-  height: 27px;
-  padding: 0;
 }
 
 .workspace-surface-panel .surface-tab-strip .surface-tab-main {
@@ -5493,8 +5479,14 @@ body {
 }
 
 .sidebar-brand-row {
-  min-height: 58px;
-  padding: 8px 13px 4px 18px;
+  min-height: 56px;
+  padding: 0 13px 0 18px;
+}
+
+.sidebar-brand-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .sidebar-brand-lockup {
@@ -5720,8 +5712,15 @@ body {
   backdrop-filter: blur(20px);
 }
 
+.thread-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .thread-title {
-  max-width: min(720px, 55vw);
+  max-width: calc((100vw - var(--sidebar-width, 272px)) / 2 - 28px);
   color: #30383c;
   gap: 9px;
 }
@@ -5730,7 +5729,12 @@ body {
   color: #536169;
 }
 
+.thread-title svg {
+  flex-shrink: 0;
+}
+
 .thread-title span {
+  min-width: 0;
   font-size: 13.5px;
   font-weight: 680;
 }
@@ -5741,17 +5745,9 @@ body {
   gap: 5px;
 }
 
-.window-actions .icon-button {
-  width: 29px;
-  height: 29px;
-  border-radius: 9px;
-  color: #7f898f;
-}
-
-.window-actions .icon-button:hover {
-  background: #f0f3f4;
-  color: var(--theme-blue-dark);
-}
+/* Window-action buttons intentionally inherit the shared .ui-icon-button base so they stay
+   identical to the sidebar-reopen toggle on the left of this same header — same 28px circle,
+   same muted color, same hover. Do not re-add per-button size/radius/color overrides here. */
 
 .connection-status {
   color: #8a949a;
@@ -6700,6 +6696,10 @@ body {
 .ui-icon-button:hover:not(:disabled) {
   background: var(--color-hover);
   color: var(--theme-blue-dark);
+}
+
+.ui-icon-button.is-active {
+  color: var(--theme-blue);
 }
 
 .ui-icon-button:focus-visible,
@@ -8951,7 +8951,6 @@ html[data-translucent-sidebar="true"] .account-strip {
 }
 
 .surface-tab-close,
-.surface-window-actions button,
 .surface-toolbar button,
 .surface-review-actions button {
   color: var(--color-text-muted);
