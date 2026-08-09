@@ -21,6 +21,14 @@
   pointer-events: none;
 }
 
+/* 侧边栏收起静止态与动画期间都是 position:absolute,脱离 .app-shell 网格流。
+   若不给对话工作区显式钉到第 2 列,Chromium 会把它自动放进第 1 列(侧边栏的原单元格,
+   收起时宽 0px)→ 对话区被挤没。compact 路径(styles.css)已有同款 grid-column:2 钉位,此处对齐。 */
+.app-shell.sidebar-collapsed > .conversation-workspace,
+.app-shell.sidebar-animating > .conversation-workspace {
+  grid-column: 2;
+}
+
 /* 动画期间侧边栏全程叠层(position:absolute),不受网格轨道变化影响,
    故 Phase 2 对话列扩张/收缩时它不会再「弹一次」。基座提供叠层矩形 + 可见可点;
    方向类(3 类选择器)盖过上面的收起静止态(2 类),仅改 transform/opacity 驱动滑动。
