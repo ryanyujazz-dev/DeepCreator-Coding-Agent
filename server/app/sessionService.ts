@@ -18,7 +18,7 @@ export class SessionService {
   constructor(private readonly store: EventPort & SessionPort) {}
 
   list(query = ""): SessionSummary[] {
-    return this.store.listSessions(query);
+    return this.store.listSessions(query).filter((session) => !session.sessionId.startsWith("eval_"));
   }
 
   get(sessionId: string): Session {

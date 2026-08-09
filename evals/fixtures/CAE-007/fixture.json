@@ -1,0 +1,30 @@
+{
+  "caseId": "CAE-007",
+  "status": "ready",
+  "base": {
+    "kind": "git",
+    "revision": "HEAD"
+  },
+  "setupPatch": "setup.patch",
+  "interactions": {
+    "autoApprovePlan": true
+  },
+  "assertions": [
+    {
+      "id": "find-symbol-end-to-end",
+      "kind": "command",
+      "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/findSymbolAcceptance.test.ts tests/toolSemantics.test.ts",
+      "expectedExitCode": 0,
+      "points": 20
+    },
+    {
+      "id": "runtime-contract-stable",
+      "kind": "git_diff_excludes",
+      "paths": [
+        "shared/contracts/runtime.ts"
+      ],
+      "points": 10
+    }
+  ],
+  "timeoutMs": 900000
+}

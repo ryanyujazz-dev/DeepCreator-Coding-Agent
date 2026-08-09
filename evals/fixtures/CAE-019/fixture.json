@@ -1,0 +1,43 @@
+{
+  "caseId": "CAE-019",
+  "status": "ready",
+  "base": {
+    "kind": "git",
+    "revision": "HEAD"
+  },
+  "setupPatch": "setup.patch",
+  "interactions": {
+    "answerQuestions": "diagnosis_only"
+  },
+  "assertions": [
+    {
+      "id": "run-completed",
+      "kind": "run_completed",
+      "points": 6
+    },
+    {
+      "id": "diagnosis-names-node",
+      "kind": "run_answer_contains",
+      "text": "Node",
+      "points": 3
+    },
+    {
+      "id": "diagnosis-identifies-actual-version",
+      "kind": "run_answer_contains",
+      "text": "20",
+      "points": 3
+    },
+    {
+      "id": "diagnosis-identifies-required-version",
+      "kind": "run_answer_contains",
+      "text": "22",
+      "points": 3
+    },
+    {
+      "id": "diagnosis-only-no-mutation",
+      "kind": "git_diff_empty",
+      "points": 15
+    }
+  ],
+  "timeoutMs": 600000
+}

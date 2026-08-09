@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { DesktopSettings } from "../../shared/contracts/desktop";
 import { IconButton } from "../shared-ui/ControlPrimitives";
 import { browserPlatform } from "../platform/browser";
-import { desktopBridge } from "../platform/desktop";
+import { desktopBridge, desktopErrorMessage } from "../platform/desktop";
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const desktop = desktopBridge();
@@ -28,11 +28,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       await desktop.settings.save({
         apiKey: apiKey || undefined,
         defaultModel: settings?.defaultModel ?? "deepseek-v4-flash",
+        modelProtocols: settings?.modelProtocols ?? { "deepseek-v4-flash": "responses" },
         zhipuApiKey: zhipuApiKey || undefined
       });
       browserPlatform.reload();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      setError(desktopErrorMessage(nextError));
       setSaving(false);
     }
   };

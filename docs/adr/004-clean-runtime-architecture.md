@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-DeepSeeker has validated a local coding-agent vertical slice: durable conversations, a streamed agent loop, tool execution, approvals, context compaction, change review, and a multi-surface frontend. The prototype now has two structural problems.
+DeepCreator has validated a local coding-agent vertical slice: durable conversations, a streamed agent loop, tool execution, approvals, context compaction, change review, and a multi-surface frontend. The prototype now has two structural problems.
 
 First, its vocabulary exposes implementation history rather than product concepts. Names such as `WorkspaceSessionView`, `WorkCycle`, `ActivityUnitView`, and `AgentSignal` create distinctions that do not exist in the current model and repeat architectural context in every symbol.
 
@@ -34,7 +34,7 @@ The complete vocabulary and suffix rules are defined in `docs/naming-conventions
 
 ### Event protocol
 
-New events use `deepseeker.events/v2` and the envelope:
+New events use `deepcreator.events/v2` and the envelope:
 
 ```text
 version, eventId, offset, type, scope, at, data
@@ -106,7 +106,7 @@ REST commands and SSE Events remain the V2 local transport. Application use case
 6. Split stores and Runtime roles along the boundaries above.
 7. Remove temporary aliases and old names from active source.
 
-Rollback before completion uses the last V1-compatible Git commit and the existing `.deepseeker` directory. Once V2 writes production data, rollback requires retaining the V2 decoder or restoring a pre-migration data backup.
+Rollback before completion uses the last V1-compatible Git commit and the existing `.deepcreator` directory. Once V2 writes production data, rollback requires retaining the V2 decoder or restoring a pre-migration data backup.
 
 ## Deferred
 

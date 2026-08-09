@@ -16,6 +16,7 @@ import { ControlToolHandlers } from "./controlToolHandlers";
 import { SystemPort } from "./systemPort";
 import { workspaceMutationCoordinator } from "./workspaceMutationCoordinator";
 import { agentDefinition, stricterAccess } from "./agentDefinitions";
+import { pathsFromApplyPatch } from "../domain/applyPatch";
 
 export type ToolContext = {
   baseline: Baseline;
@@ -42,6 +43,15 @@ function parseArgs(text: string): Record<string, unknown> {
     return text.trim() ? (JSON.parse(text) as Record<string, unknown>) : {};
   } catch {
     throw new Error("工具参数不是有效的 JSON。");
+  }
+}
+
+function patchTextFromArguments(argumentsText: string): string {
+  try {
+    const parsed = JSON.parse(argumentsText) as { patch?: unknown };
+    return typeof parsed.patch === "string" ? parsed.patch : argumentsText;
+  } catch {
+    return argumentsText;
   }
 }
 
@@ -195,8 +205,11 @@ export class ToolPipeline {
       if (controlOutcome) return controlOutcome;
 
       const target = prepared.normalizedTarget;
-      const preflight = ["write_file", "edit_file", "delete_file"].includes(call.name) && target
-        ? findNewPathInstructions(input.projectRoot, [target], knownRuleIds, this.rules)
+      const mutationTargets = call.name === "apply_patch"
+        ? pathsFromApplyPatch(String(args.patch ?? ""))
+        : ["write_file", "edit_file", "delete_file"].includes(call.name) && target ? [target] : [];
+      const preflight = mutationTargets.length > 0
+        ? findNewPathInstructions(input.projectRoot, mutationTargets, knownRuleIds, this.rules)
         : [];
       if (preflight.length > 0) {
         const text = `操作尚未执行：目标 ${target} 首次命中 ${preflight.length} 项路径规范。Runtime 已加载规范，请在读取后重新发起操作。`;
@@ -213,6 +226,14 @@ export class ToolPipeline {
         };
       }
 
+      if (call.name === "apply_patch") {
+        const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
+        updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+          draft: current?.draft ?? { kind: "apply_patch", state: "unapplied", text: String(args.patch ?? "") },
+          title: "补丁草稿待应用"
+        });
+      }
+
       // authorize
       const parentAccess = session.kind === "subagent" && session.parentSessionId
         ? input.store.getSession(session.parentSessionId)?.accessMode
@@ -222,6 +243,14 @@ export class ToolPipeline {
         : session.accessMode;
       const approval = approvalFor({ args, grants: session.grants, profile, runId: input.runId, toolName: call.name });
       if (approval) {
+        if (call.name === "apply_patch") {
+          const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+            draft: current?.draft ? { ...current.draft, state: "waiting_approval" } : undefined,
+            status: "suspended",
+            title: "等待批准补丁"
+          });
+        }
         const decision = await input.registry.requestApproval({
           ...approval,
           callId: call.callId,
@@ -234,15 +263,39 @@ export class ToolPipeline {
         if (decision === "deny") {
           if (input.signal?.aborted) throw input.signal.reason ?? new DOMException("当前工具步骤已中断。", "AbortError");
           const text = "用户拒绝了本次操作，请不要再次尝试同一操作。";
-          finishActivity(input, activityId, { body: "用户拒绝了本次操作。", status: "cancelled", tool: { ...prepared, resultSummary: "用户拒绝了本次操作。" } });
+          finishActivity(input, activityId, {
+            body: "用户拒绝了本次操作。",
+            draft: call.name === "apply_patch" ? { kind: "apply_patch", state: "unapplied", text: String(args.patch ?? "") } : undefined,
+            status: "cancelled",
+            tool: { ...prepared, resultSummary: "用户拒绝了本次操作。" }
+          });
           this.record(input, call, modelStepId, text, { action: prepared.action, target: prepared.normalizedTarget }, true);
           return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target };
         }
+        if (call.name === "apply_patch") {
+          const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+            draft: current?.draft ? { ...current.draft, state: "applying" } : undefined,
+            status: "running",
+            title: "正在应用补丁"
+          });
+        }
+      }
+      if (call.name === "apply_patch" && !approval) {
+        const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
+        updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+          draft: current?.draft ? { ...current.draft, state: "applying" } : undefined,
+          status: "running",
+          title: "正在应用补丁"
+        });
       }
 
       // checkpoint
       if (["write_file", "edit_file", "delete_file"].includes(call.name)) {
         await this.host.checkpoint(input.projectRoot, input.baseline, String(args.path ?? ""));
+      }
+      if (call.name === "apply_patch") {
+        for (const patchPath of mutationTargets) await this.host.checkpoint(input.projectRoot, input.baseline, patchPath);
       }
 
       // execute
@@ -283,7 +336,9 @@ export class ToolPipeline {
       if (result.mutatedWorkspace) {
         const changes = await this.host.changes(input.projectRoot, input.baseline);
         const normalizedTarget = prepared.normalizedTarget.replaceAll("\\", "/");
-        const files = changes.files.filter((file) => file.path.replaceAll("\\", "/") === normalizedTarget);
+        const files = call.name === "apply_patch"
+          ? changes.files.filter((file) => mutationTargets.includes(file.path.replaceAll("\\", "/")))
+          : changes.files.filter((file) => file.path.replaceAll("\\", "/") === normalizedTarget);
         input.store.appendMany([{
           data: changes,
           runId: input.runId,
@@ -334,6 +389,7 @@ export class ToolPipeline {
         finishActivity(input, activityId, {
           body: this.host.summarizeResult(call.name, args, result.output),
           command,
+          draft: call.name === "apply_patch" ? { kind: "apply_patch", state: "applied", text: String(args.patch ?? "") } : undefined,
           status: result.commandState === "cancelled"
             ? "cancelled"
             : result.exitCode && result.exitCode !== 0 ? "failed" : "completed",
@@ -396,7 +452,12 @@ export class ToolPipeline {
       const activity = input.store.getRun(input.runId)?.activities.find((item) => item.activityId === activityId);
       finishActivity(input, activityId, activity?.kind === "plan"
         ? { error: message, status: "failed" }
-        : { body: message, error: message, status: "failed" });
+        : {
+            body: message,
+            draft: call.name === "apply_patch" ? { kind: "apply_patch", state: "failed", text: patchTextFromArguments(call.argumentsText) } : undefined,
+            error: message,
+            status: "failed"
+          });
       const text = `工具执行失败：${message}`;
       this.record(input, call, modelStepId, text, { action: "execute", target: call.name || "未知工具" }, true);
       return {

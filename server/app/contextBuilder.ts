@@ -318,7 +318,7 @@ function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {
     locale: context.locale,
     date: input.system.now().slice(0, 10),
     model: input.model,
-    app: "DeepSeeker CodeAgent"
+    app: "DeepCreator CodeAgent"
   };
   const guidanceText = (input.rules ?? emptyRuleSource).render(guidance, "stable");
   const memory = input.memoryIndex?.trim() || "当前没有生效的结构化记忆事实。";
@@ -356,7 +356,7 @@ export function sessionRevisionHash(input: BuildInput, guidance: ResolvedRule[])
     locale: context.locale,
     date: input.system.now().slice(0, 10),
     model: input.model,
-    app: "DeepSeeker CodeAgent"
+    app: "DeepCreator CodeAgent"
   };
   const memory = input.memoryIndex?.trim() || "当前没有生效的结构化记忆事实。";
   const capability = input.capabilityIndex?.trim() || "可以通过稳定能力工具发现长尾能力。";

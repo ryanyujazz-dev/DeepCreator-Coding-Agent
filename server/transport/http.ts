@@ -1,7 +1,7 @@
 import Fastify, { FastifyInstance } from "fastify";
-import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, WorkspaceKind } from "../../shared/contracts/runtime";
+import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, Session, WorkspaceKind } from "../../shared/contracts/runtime";
 import { MemoryFact } from "../../shared/contracts/context";
-import { Provider, ModelOption } from "../../shared/contracts/provider";
+import { Provider, ModelOption, ModelProtocol } from "../../shared/contracts/provider";
 import {
   accessInputSchema,
   approvalInputSchema,
@@ -35,12 +35,20 @@ import { ContextPort, EventPort, MemoryPort, SessionPort } from "../app/runtimeR
 import { SessionService } from "../app/sessionService";
 import { StartRun } from "../app/startRun";
 import { WorkspaceQueries } from "../app/workspaceQueries";
+import {
+  EvalBatchRunRecord,
+  EvalCaseSummary,
+  EvalRunRecord,
+  StartEvalBatchInput,
+  StartEvalRunInput
+} from "../../shared/contracts/evals";
 
 export type HttpConfig = {
   authToken?: string;
   dataDirectory: string;
   context: ContextConfig;
   defaultModel: string;
+  evalsEnabled?: boolean;
   frontendUrl: string;
   hasApiKey: boolean;
   models: ModelOption[];
@@ -51,14 +59,29 @@ export type HttpDeps = {
   cancelRun: CancelRun;
   config: HttpConfig;
   contextQueries: ContextQueries;
+  evals?: DeveloperEvalService;
   followUps: FollowUpService;
   launcher: RunLaunchPort;
-  providerFor: (model: string) => { model: string; provider: Provider };
+  providerFor: (model: string, protocol?: ModelProtocol) => { model: string; provider: Provider };
   registry: RunRegistry;
   sessions: SessionService;
   startRun: StartRun;
   store: ContextPort & EventPort & MemoryPort & SessionPort;
   workspace: WorkspaceQueries;
+};
+
+export type DeveloperEvalService = {
+  batches: () => EvalBatchRunRecord[];
+  cases: () => EvalCaseSummary[];
+  close: () => Promise<void>;
+  get: (evalRunId: string) => EvalRunRecord | undefined;
+  pauseBatch: (batchId: string) => EvalBatchRunRecord | undefined;
+  resumeBatch: (batchId: string) => EvalBatchRunRecord | undefined;
+  runs: () => EvalRunRecord[];
+  session: (evalRunId: string) => Session | undefined;
+  shutdown: () => Promise<void>;
+  start: (input: StartEvalRunInput) => Promise<EvalRunRecord>;
+  startBatch: (input: StartEvalBatchInput) => Promise<EvalBatchRunRecord>;
 };
 
 function statusFor(code: AppErrorCode): 400 | 404 | 409 {
@@ -68,8 +91,8 @@ function statusFor(code: AppErrorCode): 400 | 404 | 409 {
 }
 
 export function createHttp(deps: HttpDeps): FastifyInstance {
-  const { cancelRun, config, contextQueries, followUps, launcher, providerFor, registry, sessions, startRun, store, workspace } = deps;
-  const { authToken, context, dataDirectory, defaultModel, frontendUrl, hasApiKey, models, workspaceRoot } = config;
+  const { cancelRun, config, contextQueries, evals, followUps, launcher, providerFor, registry, sessions, startRun, store, workspace } = deps;
+  const { authToken, context, dataDirectory, defaultModel, evalsEnabled = false, frontendUrl, hasApiKey, models, workspaceRoot } = config;
   const app = Fastify({ logger: false });
   const frontendOrigin = new URL(frontendUrl).origin;
 
@@ -107,6 +130,7 @@ function resumeRun(resume: ResumeRun): void {
   launcher.launch({
     continuation: true,
     model: resume.model,
+    protocol: resume.protocol,
     projectRoot: resume.projectRoot,
     prompt: resume.prompt,
     runId: resume.runId,
@@ -122,7 +146,7 @@ function writeSSE(raw: NodeJS.WritableStream, message: EventStream): void {
   raw.write(`data: ${JSON.stringify(message)}\n\n`);
 }
 
-app.get("/api/health", async () => ({ ok: true, service: "deepseeker-runtime", storage: dataDirectory }));
+app.get("/api/health", async () => ({ ok: true, service: "deepcreator-runtime", storage: dataDirectory }));
 
 app.get("/", async (_request, reply) => {
   return reply.type("text/html; charset=utf-8").send(`<!doctype html>
@@ -130,10 +154,10 @@ app.get("/", async (_request, reply) => {
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="refresh" content="0; url=${frontendUrl}" />
-    <title>DeepSeeker Runtime</title>
+    <title>DeepCreator Runtime</title>
   </head>
   <body>
-    <p>DeepSeeker Runtime 正在运行。正在打开前端：<a href="${frontendUrl}">${frontendUrl}</a></p>
+    <p>DeepCreator Runtime 正在运行。正在打开前端：<a href="${frontendUrl}">${frontendUrl}</a></p>
   </body>
 </html>`);
 });
@@ -146,11 +170,48 @@ app.get("/api/config", async () => ({
   contextPreview: createContextPreview(),
   defaultModel,
   hasApiKey,
-  eventContract: "deepseeker.events/v2",
+  eventContract: "deepcreator.events/v2",
+  evalsEnabled,
   models,
   planEntry: "suggest",
   workspaceRoot
 }));
+
+if (evals) {
+  app.get("/api/evals/batches", async () => ({ batches: evals.batches() }));
+  app.get("/api/evals/cases", async () => ({ cases: evals.cases() }));
+  app.get("/api/evals/runs", async () => ({ runs: evals.runs() }));
+  app.get<{ Params: { evalRunId: string } }>("/api/evals/runs/:evalRunId", async (request, reply) => {
+    const run = evals.get(request.params.evalRunId);
+    return run ? { run } : reply.code(404).send({ error: "eval run not found" });
+  });
+  app.get<{ Params: { evalRunId: string } }>("/api/evals/runs/:evalRunId/session", async (request, reply) => {
+    const session = evals.session(request.params.evalRunId);
+    return session ? { session } : reply.code(404).send({ error: "eval session not found" });
+  });
+  app.post<{ Body: StartEvalRunInput }>("/api/evals/runs", async (request, reply) => {
+    const { caseId, judge, judgeModel, model, promptVersion } = request.body ?? {} as StartEvalRunInput;
+    if (!caseId || !model) return reply.code(400).send({ error: "caseId and model are required" });
+    if (judge && judge !== "heuristic" && judge !== "provider") return reply.code(400).send({ error: "invalid judge" });
+    const run = await evals.start({ caseId, judge, judgeModel, model, promptVersion });
+    return reply.code(run.stage === "failed" ? 500 : 202).send({ run });
+  });
+  app.post<{ Body: StartEvalBatchInput }>("/api/evals/batches", async (request, reply) => {
+    const { judge, judgeModel, model, promptVersion } = request.body ?? {} as StartEvalBatchInput;
+    if (!model) return reply.code(400).send({ error: "model is required" });
+    if (judge && judge !== "heuristic" && judge !== "provider") return reply.code(400).send({ error: "invalid judge" });
+    const batch = await evals.startBatch({ judge, judgeModel, model, promptVersion });
+    return reply.code(202).send({ batch });
+  });
+  app.post<{ Params: { batchId: string } }>("/api/evals/batches/:batchId/pause", async (request, reply) => {
+    const batch = evals.pauseBatch(request.params.batchId);
+    return batch ? { batch } : reply.code(404).send({ error: "eval batch not found" });
+  });
+  app.post<{ Params: { batchId: string } }>("/api/evals/batches/:batchId/resume", async (request, reply) => {
+    const batch = evals.resumeBatch(request.params.batchId);
+    return batch ? { batch } : reply.code(404).send({ error: "eval batch not found" });
+  });
+}
 
 // 查询账户余额。前端 60s 轮询一次,用于在 context-meter popover 显示剩余额度。
 // 复用 providerFor 闭包拿到 provider(已持有解密后的 apiKey)。

@@ -8,7 +8,7 @@ import {
   ThemeVariant
 } from "./contracts/theme";
 
-export const DEFAULT_THEME_ID = "deepseeker";
+export const DEFAULT_THEME_ID = "deepcreator";
 export const THEME_SCHEMA_VERSION = 1;
 export const DEFAULT_THEME_PREFERENCE: ThemePreference = {
   mode: "system",
@@ -70,7 +70,7 @@ function variant(
   };
 }
 
-const deepseekerLightColors: ThemeColors = {
+const deepcreatorLightColors: ThemeColors = {
   accent: "#3188f4",
   accentHover: "#2378ec",
   background: "#fbfbfa",
@@ -91,7 +91,7 @@ const deepseekerLightColors: ThemeColors = {
   warning: "#a66b12"
 };
 
-const deepseekerDarkColors: ThemeColors = {
+const deepcreatorDarkColors: ThemeColors = {
   accent: "#5ca2ff",
   accentHover: "#78b3ff",
   background: "#111619",
@@ -188,14 +188,14 @@ const githubDarkCode: CodeColors = {
   type: "#d2a8ff"
 };
 
-const deepseekerLightCode: CodeColors = {
+const deepcreatorLightCode: CodeColors = {
   ...githubLightCode,
   background: "#F3F7FA",
   lineHighlight: "#EAF1F6",
   selection: "#BBDDFC80"
 };
 
-const deepseekerDarkCode: CodeColors = {
+const deepcreatorDarkCode: CodeColors = {
   ...githubDarkCode,
   background: "#10171C",
   lineHighlight: "#182229",
@@ -208,16 +208,16 @@ const DEFAULT_DARK_CONTRAST = 58;
 export const BUILTIN_THEMES: ThemePack[] = [
   {
     id: DEFAULT_THEME_ID,
-    name: "DeepSeeker",
+    name: "DeepCreator",
     readonly: true,
     schemaVersion: 1,
     source: "builtin",
     variants: {
-      dark: variant(deepseekerDarkColors, deepseekerDarkCode, {
+      dark: variant(deepcreatorDarkColors, deepcreatorDarkCode, {
         contrast: DEFAULT_DARK_CONTRAST,
         translucentSidebar: true
       }),
-      light: variant(deepseekerLightColors, deepseekerLightCode, {
+      light: variant(deepcreatorLightColors, deepcreatorLightCode, {
         contrast: DEFAULT_LIGHT_CONTRAST,
         translucentSidebar: true
       })
@@ -277,10 +277,14 @@ const CODE_COLOR_KEYS: Array<keyof CodeColors> = [
 export function normalizeThemePreference(value: unknown): ThemePreference {
   if (!value || typeof value !== "object") return structuredClone(DEFAULT_THEME_PREFERENCE);
   const input = value as Record<string, unknown>;
+  const normalizeId = (id: unknown): string | undefined => {
+    if (typeof id !== "string" || !id.trim()) return undefined;
+    return id.trim() === "deepseeker" ? DEFAULT_THEME_ID : id.trim();
+  };
   return {
-    codeThemeId: typeof input.codeThemeId === "string" && input.codeThemeId.trim() ? input.codeThemeId.trim() : undefined,
+    codeThemeId: normalizeId(input.codeThemeId),
     mode: input.mode === "light" || input.mode === "dark" ? input.mode : "system",
-    themeId: typeof input.themeId === "string" && input.themeId.trim() ? input.themeId.trim() : DEFAULT_THEME_ID
+    themeId: normalizeId(input.themeId) ?? DEFAULT_THEME_ID
   };
 }
 

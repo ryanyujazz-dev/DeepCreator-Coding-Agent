@@ -1,0 +1,89 @@
+diff --git a/tests/verificationSummaryAcceptance.test.ts b/tests/verificationSummaryAcceptance.test.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/verificationSummaryAcceptance.test.ts
+@@ -0,0 +1,84 @@
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import test from "node:test";
++import React from "react";
++import { renderToStaticMarkup } from "react-dom/server";
++import { Activity } from "../shared/contracts/runtime";
++import { projectVerificationSummary } from "../shared/projections/verificationSummary";
++import { VerificationSummaryCard } from "../src/components/VerificationSummaryCard";
++
++function command(activityId: string, value: string, exitCode: number): Activity {
++  return {
++    activityId,
++    audience: "user",
++    body: "",
++    command: {
++      command: value,
++      exitCode,
++      state: exitCode === 0 ? "completed" : "failed"
++    },
++    finishedAt: "2026-07-27T00:00:01.000Z",
++    kind: "command",
++    runId: "run_verification",
++    startedAt: "2026-07-27T00:00:00.000Z",
++    status: exitCode === 0 ? "completed" : "failed",
++    tool: {
++      action: "verify",
++      argumentsPreview: value,
++      callId: `call_${activityId}`,
++      effect: "process_side_effect",
++      modelStepId: "step_verify",
++      normalizedTarget: value,
++      resultMetrics: { exitCode },
++      targetKind: "process",
++      toolName: "run_command"
++    }
++  };
++}
++
++test("projects passed, failed, and not-run verification without parsing model prose", () => {
++  const activities = [
++    command("activity_test", "npm test", 0),
++    command("activity_build", "npm run build", 1)
++  ];
++  const result = projectVerificationSummary(activities, ["npm test", "npm run build", "npm run lint"]);
++
++  assert.deepEqual(result, [
++    {
++      activityId: "activity_test",
++      command: "npm test",
++      evidence: "退出码 0",
++      status: "passed"
++    },
++    {
++      activityId: "activity_build",
++      command: "npm run build",
++      evidence: "退出码 1",
++      status: "failed"
++    },
++    {
++      command: "npm run lint",
++      evidence: "没有对应的命令 Activity",
++      status: "not_run"
++    }
++  ]);
++});
++
++test("renders every verification state and keeps activity evidence selectable", () => {
++  const selected: string[] = [];
++  const html = renderToStaticMarkup(React.createElement(VerificationSummaryCard, {
++    items: projectVerificationSummary([
++      command("activity_test", "npm test", 0),
++      command("activity_build", "npm run build", 1)
++    ], ["npm test", "npm run build", "npm run lint"]),
++    onOpenActivity: (activityId: string) => selected.push(activityId)
++  }));
++
++  assert.match(html, /验证结果/);
++  assert.match(html, /通过/);
++  assert.match(html, /失败/);
++  assert.match(html, /未执行/);
++  assert.match(html, /activity_test/);
++  assert.match(readFileSync("src/components/RunTimeline.tsx", "utf8"), /VerificationSummaryCard/);
++  assert.deepEqual(selected, []);
++});

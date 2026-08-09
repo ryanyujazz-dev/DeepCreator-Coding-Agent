@@ -57,12 +57,47 @@ function ActivitySlotView({
       ?? activity.liveFiles?.[0])
     : undefined;
   const isThinking = slot.visual.mode === "thinking";
+  const patchDraft = activity?.draft;
+  const nativeSearch = activity?.tool?.toolName === "web_search" && activity.modelItemId;
   const slotActive = slot.logicalState === "active" || continuationActive;
   return (
     <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${isThinking ? " is-thinking" : ""}`}>
       {slot.visual.mode === "tool" && <div className="work-dot">{indicatorIcon(slot.visual)}</div>}
       <div className="work-body">
-        {liveFile
+        {patchDraft
+          ? (
+              <div className="activity-slot-command responses-patch-draft">
+                <button
+                  aria-expanded={expanded}
+                  className="activity-slot-toggle"
+                  onClick={() => setExpanded((value) => !value)}
+                  type="button"
+                >
+                  <strong className={`activity-slot-label ${slotActive ? "working-glow" : ""}`}>
+                    <span className="activity-slot-label-text">{slot.visual.label}</span>
+                    <span className={`responses-draft-state is-${patchDraft.state}`}>{patchDraft.state === "applied" ? "已应用" : "未应用"}</span>
+                  </strong>
+                  <ChevronDown size={12} />
+                </button>
+                {expanded && <pre className="activity-output responses-patch-preview">{patchDraft.text || "补丁正文尚未到达。"}</pre>}
+              </div>
+            )
+          : nativeSearch
+            ? (
+                <div className="activity-slot-command responses-search-detail">
+                  <button
+                    aria-expanded={expanded}
+                    className="activity-slot-toggle"
+                    onClick={() => setExpanded((value) => !value)}
+                    type="button"
+                  >
+                    <strong className={`activity-slot-label ${slotActive ? "working-glow" : ""}`}>{slot.visual.label}</strong>
+                    <ChevronDown size={12} />
+                  </button>
+                  {expanded && <p className="muted-line">查询：{activity.body || activity.tool?.normalizedTarget || "等待服务端返回"}</p>}
+                </div>
+              )
+        : liveFile
           ? <ModificationFileRow active file={liveFile} onOpenFile={onOpenFile} showIcon={false} />
           : commandRunning
             ? (
@@ -116,7 +151,7 @@ function MainContentSlot({
   return (
     <article className="work-step content-step">
       <div className="work-body">
-        <MarkdownContent fragments={text.fragments} stable={text.stable} streaming={streaming} />
+        <MarkdownContent citations={activity.citations} fragments={text.fragments} stable={text.stable} streaming={streaming} />
       </div>
     </article>
   );

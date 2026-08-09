@@ -1,0 +1,31 @@
+{
+  "caseId": "CAE-013",
+  "status": "ready",
+  "base": {
+    "kind": "git",
+    "revision": "HEAD"
+  },
+  "setupPatch": "setup.patch",
+  "interactions": {
+    "autoApprovePlan": true
+  },
+  "assertions": [
+    {
+      "id": "registry-contract-and-structure",
+      "kind": "command",
+      "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/toolRegistryAcceptance.test.ts tests/toolSemantics.test.ts tests/architecture.test.ts",
+      "expectedExitCode": 0,
+      "points": 20
+    },
+    {
+      "id": "public-contracts-unchanged",
+      "kind": "git_diff_excludes",
+      "paths": [
+        "shared/contracts",
+        "server/infra/migrations"
+      ],
+      "points": 10
+    }
+  ],
+  "timeoutMs": 900000
+}

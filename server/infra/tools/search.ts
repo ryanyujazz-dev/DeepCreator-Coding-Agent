@@ -14,7 +14,7 @@ const GREP_MAX_PATTERN_CHARS = 2_000;
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
-  ".deepseeker",
+  ".deepcreator",
   ".playwright-cli",
   ".pytest_cache",
   ".venv",

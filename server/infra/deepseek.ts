@@ -9,6 +9,7 @@ import {
   Usage
 } from "../../shared/contracts/provider";
 import { decodeCompatibleStream, toCompatibleMessage, toCompatibleTools } from "./openAiCompatibleStream";
+import { decodeResponsesStream, toResponsesBody } from "./responsesStream";
 
 const DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
 
@@ -96,6 +97,7 @@ export class DeepSeekProvider implements Provider {
         { role: "user", text: request.transcript }
       ],
       model: request.model,
+      protocol: "chat",
       signal: request.signal,
       tools: []
     });
@@ -115,8 +117,12 @@ export class DeepSeekProvider implements Provider {
 
   async stream(request: ModelRequest): Promise<ModelResponse> {
     if (!this.apiKey) throw new Error("缺少 DEEPSEEK_API_KEY。请在 .env.local 中配置后重启 Runtime。");
-    const response = await fetch(this.apiUrl, {
-      body: JSON.stringify({
+    const responses = request.protocol === "responses";
+    const targetUrl = responses
+      ? process.env.DEEPSEEK_RESPONSES_API_URL ?? new URL("/responses", new URL(this.apiUrl).origin).toString()
+      : this.apiUrl;
+    const response = await fetch(targetUrl, {
+      body: JSON.stringify(responses ? toResponsesBody(request) : {
         messages: request.messages.map(toCompatibleMessage),
         ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {}),
         model: request.model,
@@ -141,6 +147,13 @@ export class DeepSeekProvider implements Provider {
     }
     if (!response.body) throw new Error("DeepSeek 响应没有可读取的流。");
 
+    if (responses) {
+      return decodeResponsesStream({
+        body: response.body,
+        modelStepId: request.modelStepId ?? "model_step_unknown",
+        onFragment: request.onFragment
+      });
+    }
     return decodeCompatibleStream({
       body: response.body,
       dialect: {

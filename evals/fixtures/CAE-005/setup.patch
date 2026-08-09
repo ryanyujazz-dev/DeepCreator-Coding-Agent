@@ -1,0 +1,12 @@
+diff --git a/server/app/completionGate.ts b/server/app/completionGate.ts
+--- a/server/app/completionGate.ts
++++ b/server/app/completionGate.ts
+@@ -22,7 +22,7 @@ export function finalTaskMaintenanceIssue(run: Run): string | undefined {
+ }
+
+ export function evaluateCompletion(input: { run?: Run; runningCommandCount: number }): CompletionBlock | undefined {
+-  if (input.runningCommandCount > 0) {
++  if (input.runningCommandCount < 0) {
+     return {
+       kind: "running_commands",
+       retryMessage: `当前文本不能作为最终回答，因为仍有 ${input.runningCommandCount} 个托管命令正在运行。请调用 wait_command 等待，或调用 stop_command 结束命令；所有命令进入终态后才能给出最终回答。`

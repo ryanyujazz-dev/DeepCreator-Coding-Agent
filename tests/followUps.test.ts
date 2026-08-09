@@ -50,7 +50,7 @@ function createHarness(directory: string) {
 }
 
 test("persists a queued follow-up and can steer it into the active Run", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-follow-up-steer-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-follow-up-steer-"));
   const { followUps, registry, store } = createHarness(directory);
   try {
     registry.startRun("run_current");
@@ -91,7 +91,7 @@ test("persists a queued follow-up and can steer it into the active Run", async (
 });
 
 test("steering aborts the active interruptible step after persisting the user message", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-follow-up-preempt-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-follow-up-preempt-"));
   const { followUps, registry, store } = createHarness(directory);
   try {
     registry.startRun("run_current");
@@ -118,7 +118,7 @@ test("steering aborts the active interruptible step after persisting the user me
 });
 
 test("starts the next queued prompt automatically after the active Run finishes", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-follow-up-drain-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-follow-up-drain-"));
   const { followUps, launched, store, system } = createHarness(directory);
   try {
     await followUps.queue({

@@ -8,7 +8,7 @@ import { RuntimeStore } from "../server/infra/runtimeStore";
 import { executeTool, redactSensitiveText, summarizeToolArguments } from "../server/infra/tools";
 
 test("blocks credential files and redacts secrets from public text", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-security-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-security-"));
   try {
     writeFileSync(path.join(directory, ".env.local"), "DEEPSEEK_API_KEY=sk-sensitive-value-123456789\n");
     writeFileSync(path.join(directory, ".env.example"), "DEEPSEEK_API_KEY=replace-me\n");
@@ -27,7 +27,7 @@ test("blocks credential files and redacts secrets from public text", async () =>
 });
 
 test("cancelling during approval resolves the interaction without timeline activities", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-approval-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-approval-"));
   mkdirSync(directory, { recursive: true });
   try {
     const store = new RuntimeStore(directory);

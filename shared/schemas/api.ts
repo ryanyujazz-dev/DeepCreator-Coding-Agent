@@ -12,6 +12,15 @@ import {
   WorkspaceResponse
 } from "../contracts/api";
 import { EventStream, Session, SessionSummary } from "../contracts/runtime";
+import {
+  EvalBatchResponse,
+  EvalBatchRunRecord,
+  EvalBatchesResponse,
+  EvalCasesResponse,
+  EvalRunRecord,
+  EvalRunResponse,
+  EvalRunsResponse
+} from "../contracts/evals";
 import { eventSchema } from "./event";
 
 type RecordValue = Record<string, unknown>;
@@ -138,6 +147,7 @@ export function decodeRuntimeConfig(value: unknown): RuntimeConfig {
   string(item.defaultModel, "$config.defaultModel");
   boolean(item.hasApiKey, "$config.hasApiKey");
   string(item.eventContract, "$config.eventContract");
+  if (item.evalsEnabled !== undefined) boolean(item.evalsEnabled, "$config.evalsEnabled");
   string(item.planEntry, "$config.planEntry");
   string(item.workspaceRoot, "$config.workspaceRoot");
   array(item.models, "$config.models").forEach((entry, index) => {
@@ -146,6 +156,20 @@ export function decodeRuntimeConfig(value: unknown): RuntimeConfig {
     string(model.label, `$config.models[${index}].label`);
     string(model.provider, `$config.models[${index}].provider`);
     string(model.description, `$config.models[${index}].description`);
+    if (model.defaultProtocol !== undefined) {
+      const protocol = string(model.defaultProtocol, `$config.models[${index}].defaultProtocol`);
+      if (protocol !== "chat" && protocol !== "responses") {
+        throw new ContractViolationError(`$config.models[${index}].defaultProtocol`, "chat or responses");
+      }
+    }
+    if (model.supportedProtocols !== undefined) {
+      array(model.supportedProtocols, `$config.models[${index}].supportedProtocols`).forEach((entry, protocolIndex) => {
+        const protocol = string(entry, `$config.models[${index}].supportedProtocols[${protocolIndex}]`);
+        if (protocol !== "chat" && protocol !== "responses") {
+          throw new ContractViolationError(`$config.models[${index}].supportedProtocols[${protocolIndex}]`, "chat or responses");
+        }
+      });
+    }
   });
   if (item.contextPreview !== undefined) contextStats(item.contextPreview, "$config.contextPreview");
   return item as RuntimeConfig;
@@ -162,6 +186,95 @@ export function decodeRuntimeBalance(value: unknown): RuntimeBalance {
     number(balance.toppedUpBalance, `$balance.balanceInfos[${index}].toppedUpBalance`);
   });
   return item as RuntimeBalance;
+}
+
+function evalRunRecord(value: unknown, path: string): EvalRunRecord {
+  const item = record(value, path);
+  number(item.attempt, `${path}.attempt`);
+  optionalString(item.batchId, `${path}.batchId`);
+  string(item.caseId, `${path}.caseId`);
+  string(item.createdAt, `${path}.createdAt`);
+  string(item.evalRunId, `${path}.evalRunId`);
+  string(item.experimentId, `${path}.experimentId`);
+  string(item.judge, `${path}.judge`);
+  string(item.model, `${path}.model`);
+  string(item.promptVersion, `${path}.promptVersion`);
+  string(item.stage, `${path}.stage`);
+  optionalString(item.error, `${path}.error`);
+  optionalString(item.finishedAt, `${path}.finishedAt`);
+  optionalString(item.judgeModel, `${path}.judgeModel`);
+  optionalString(item.runId, `${path}.runId`);
+  optionalString(item.sessionId, `${path}.sessionId`);
+  if (item.result !== undefined) record(item.result, `${path}.result`);
+  return item as EvalRunRecord;
+}
+
+function evalBatchRunRecord(value: unknown, path: string): EvalBatchRunRecord {
+  const item = record(value, path);
+  string(item.batchId, `${path}.batchId`);
+  number(item.completedCases, `${path}.completedCases`);
+  number(item.concurrency, `${path}.concurrency`);
+  string(item.createdAt, `${path}.createdAt`);
+  string(item.experimentId, `${path}.experimentId`);
+  number(item.failedCases, `${path}.failedCases`);
+  string(item.judge, `${path}.judge`);
+  string(item.model, `${path}.model`);
+  number(item.passedCases, `${path}.passedCases`);
+  string(item.promptVersion, `${path}.promptVersion`);
+  string(item.stage, `${path}.stage`);
+  optionalString(item.error, `${path}.error`);
+  optionalString(item.finishedAt, `${path}.finishedAt`);
+  optionalString(item.judgeModel, `${path}.judgeModel`);
+  if (item.weightedAverage !== undefined) number(item.weightedAverage, `${path}.weightedAverage`);
+  array(item.cases, `${path}.cases`).forEach((value, index) => {
+    const batchCase = record(value, `${path}.cases[${index}]`);
+    string(batchCase.caseId, `${path}.cases[${index}].caseId`);
+    string(batchCase.difficulty, `${path}.cases[${index}].difficulty`);
+    string(batchCase.evalRunId, `${path}.cases[${index}].evalRunId`);
+    number(batchCase.weight, `${path}.cases[${index}].weight`);
+  });
+  return item as EvalBatchRunRecord;
+}
+
+export function decodeEvalCasesResponse(value: unknown): EvalCasesResponse {
+  const item = record(value, "$evalCases");
+  const cases = array(item.cases, "$evalCases.cases");
+  cases.forEach((value, index) => {
+    const candidate = record(value, `$evalCases.cases[${index}]`);
+    string(candidate.caseId, `$evalCases.cases[${index}].caseId`);
+    string(candidate.title, `$evalCases.cases[${index}].title`);
+    string(candidate.scenario, `$evalCases.cases[${index}].scenario`);
+    string(candidate.status, `$evalCases.cases[${index}].status`);
+    string(candidate.userRequest, `$evalCases.cases[${index}].userRequest`);
+    string(candidate.initialMode, `$evalCases.cases[${index}].initialMode`);
+    number(candidate.idealStepCount, `$evalCases.cases[${index}].idealStepCount`);
+    array(candidate.allowedTools, `$evalCases.cases[${index}].allowedTools`);
+  });
+  return item as EvalCasesResponse;
+}
+
+export function decodeEvalRunsResponse(value: unknown): EvalRunsResponse {
+  const item = record(value, "$evalRuns");
+  array(item.runs, "$evalRuns.runs").forEach((run, index) => evalRunRecord(run, `$evalRuns.runs[${index}]`));
+  return item as EvalRunsResponse;
+}
+
+export function decodeEvalRunResponse(value: unknown): EvalRunResponse {
+  const item = record(value, "$evalRun");
+  evalRunRecord(item.run, "$evalRun.run");
+  return item as EvalRunResponse;
+}
+
+export function decodeEvalBatchesResponse(value: unknown): EvalBatchesResponse {
+  const item = record(value, "$evalBatches");
+  array(item.batches, "$evalBatches.batches").forEach((batch, index) => evalBatchRunRecord(batch, `$evalBatches.batches[${index}]`));
+  return item as EvalBatchesResponse;
+}
+
+export function decodeEvalBatchResponse(value: unknown): EvalBatchResponse {
+  const item = record(value, "$evalBatch");
+  evalBatchRunRecord(item.batch, "$evalBatch.batch");
+  return item as EvalBatchResponse;
 }
 
 export function decodeSessionsResponse(value: unknown): SessionsResponse {

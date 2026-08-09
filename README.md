@@ -1,6 +1,6 @@
-# DeepSeeker CodeAgent
+# DeepCreator CodeAgent
 
-DeepSeeker is a local coding-agent desktop platform with DeepSeek as its default model. The repository contains an Electron shell, a React renderer, and a modular TypeScript Runtime served over an authenticated loopback HTTP/SSE boundary.
+DeepCreator is a local coding-agent desktop platform with DeepSeek as its default model. The repository contains an Electron shell, a React renderer, and a modular TypeScript Runtime served over an authenticated loopback HTTP/SSE boundary.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ To run the desktop product, use:
 npm run dev:desktop
 ```
 
-Electron starts the Runtime in a `utilityProcess` on a random loopback port. The renderer is sandboxed and receives only a typed `window.deepseeker` bridge; it never receives the DeepSeek API key or raw Electron IPC primitives.
+Electron starts the Runtime in a `utilityProcess` on a random loopback port. The renderer is sandboxed and receives only a typed `window.deepcreator` bridge; it never receives the DeepSeek API key or raw Electron IPC primitives.
 
 Useful commands:
 
@@ -56,9 +56,9 @@ npm run check
 npm run package:mac
 ```
 
-Desktop Runtime data is stored in Electron's `userData/runtime` directory. A legacy project `.deepseeker` store is copied once when the desktop data directory is empty. Browser development keeps its local Runtime configuration, so the renderer can still be debugged without Electron.
+Desktop Runtime data is stored in Electron's `userData/runtime` directory. A legacy project `.deepseeker` store is copied once to `.deepcreator` when the new data directory is empty. Browser development keeps its local Runtime configuration, so the renderer can still be debugged without Electron.
 
-`package:mac` creates an ad-hoc signed development application under `out/DeepSeeker-darwin-arm64`. It does not perform Developer ID signing, notarization, or distribution packaging. If Electron's GitHub download is unavailable on the local network, install the binary once with a trusted mirror configured through `ELECTRON_MIRROR`, then rerun the package command.
+`package:mac` creates an ad-hoc signed development application under `out/DeepCreator-darwin-arm64`. It does not perform Developer ID signing, notarization, or distribution packaging. If Electron's GitHub download is unavailable on the local network, install the binary once with a trusted mirror configured through `ELECTRON_MIRROR`, then rerun the package command.
 
 ## Runtime API
 

@@ -21,11 +21,22 @@ import { useSurfaceWorkspace } from "./features/surfaces/useSurfaceWorkspace";
 
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const DEFAULT_SURFACE_WIDTH = 640;
+const DEVELOPER_VIEW_STORAGE_KEY = "deepcreator.developerView";
+type WorkspaceView = "conversation" | "settings" | "evals";
 const SurfacePane = lazy(() => import("./components/SurfacePane").then((module) => ({ default: module.SurfacePane })));
+const DeveloperEvalWorkspace = import.meta.env.DEV
+  ? lazy(() => import("./components/evals/EvalWorkspace").then((module) => ({ default: module.EvalWorkspace })))
+  : null;
 
 function storedPanelWidth(key: string, fallback: number): number {
   const stored = Number(browserPlatform.storage.get(key));
   return Number.isFinite(stored) && stored > 0 ? stored : fallback;
+}
+
+function initialWorkspaceView(): WorkspaceView {
+  return import.meta.env.DEV && browserPlatform.storage.get(DEVELOPER_VIEW_STORAGE_KEY) === "evals"
+    ? "evals"
+    : "conversation";
 }
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
@@ -41,14 +52,14 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { message: str
 
 export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepseeker.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
+  const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepcreator.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
   const [compactSidebar, setCompactSidebar] = useState(() => resolveCompactSidebar(browserPlatform.viewportWidth(), DEFAULT_SIDEBAR_WIDTH));
   const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false);
-  const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepseeker.surfaceWidth", DEFAULT_SURFACE_WIDTH));
+  const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepcreator.surfaceWidth", DEFAULT_SURFACE_WIDTH));
   const [viewportWidth, setViewportWidth] = useState(browserPlatform.viewportWidth);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [projectsReady, setProjectsReady] = useState(!desktopBridge());
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(initialWorkspaceView);
   const [modelNotices, setModelNotices] = useState<string[]>([]);
   const { layout: inspectorLayout, targetRef: conversationMainRef } = useInspectorLayout();
   const desktop = desktopBridge();
@@ -143,8 +154,12 @@ export function App() {
     const name = config.workspaceRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? config.workspaceRoot;
     return [{ lastOpenedAt: "", name, path: config.workspaceRoot }, ...projects.filter((project) => project.path !== config.workspaceRoot)];
   }, [config?.workspaceRoot, desktop, projects]);
-  useEffect(() => browserPlatform.storage.set("deepseeker.sidebarWidth", String(Math.round(sidebarWidth))), [sidebarWidth]);
-  useEffect(() => browserPlatform.storage.set("deepseeker.surfaceWidth", String(Math.round(surfaceWidth))), [surfaceWidth]);
+  useEffect(() => browserPlatform.storage.set("deepcreator.sidebarWidth", String(Math.round(sidebarWidth))), [sidebarWidth]);
+  useEffect(() => browserPlatform.storage.set("deepcreator.surfaceWidth", String(Math.round(surfaceWidth))), [surfaceWidth]);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    browserPlatform.storage.set(DEVELOPER_VIEW_STORAGE_KEY, workspaceView === "evals" ? "evals" : "conversation");
+  }, [workspaceView]);
   useEffect(() => {
     const handleResize = () => setViewportWidth(browserPlatform.viewportWidth());
     window.addEventListener("resize", handleResize);
@@ -221,7 +236,7 @@ export function App() {
         }} />
         <div
           className={`app-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}${sidebarOverlayOpen ? " sidebar-overlay-open" : ""}`}
-          hidden={settingsOpen}
+          hidden={workspaceView !== "conversation"}
           style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
         <SessionSidebar
@@ -236,7 +251,7 @@ export function App() {
           onRenameProject={desktop ? async (root, name) => setProjects(await desktop.projects.rename(root, name)) : undefined}
           onSearch={searchSessions}
           onSelectSession={(sessionId) => void openSession(sessionId)}
-          onSettings={() => setSettingsOpen(true)}
+          onSettings={() => setWorkspaceView("settings")}
           onWidthChange={setSidebarWidth}
           onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
           selectedSessionKey={session?.sessionId ?? null}
@@ -258,7 +273,7 @@ export function App() {
         >
           <div className={`conversation-main inspector-layout-${inspectorLayout}`} ref={conversationMainRef}>
             <header className="thread-header">
-              <div className="thread-title"><Folder size={16} /><span>{session?.title ?? "DeepSeeker CodeAgent"}</span><MoreHorizontal size={14} /></div>
+              <div className="thread-title"><Folder size={16} /><span>{session?.title ?? "DeepCreator CodeAgent"}</span><MoreHorizontal size={14} /></div>
               <ConnectionStatus onRetry={desktop ? () => void retryRuntime() : undefined} phase={connection} />
             </header>
             <div className="window-actions"><IconButton className="icon-button" label="视图设置"><SlidersHorizontal size={14} /></IconButton><IconButton className="icon-button" label="工作区面板"><PanelRight size={14} /></IconButton></div>
@@ -351,16 +366,37 @@ export function App() {
         </div>
         <div
           className="app-shell settings-shell"
-          hidden={!settingsOpen}
+          hidden={workspaceView !== "settings"}
           style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
           <SettingsWorkspace
-            onClose={() => setSettingsOpen(false)}
+            onClose={() => setWorkspaceView("conversation")}
+            onOpenEvals={() => setWorkspaceView("evals")}
             onWidthChange={setSidebarWidth}
             onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+            showEvals={Boolean(DeveloperEvalWorkspace && config?.evalsEnabled)}
             sidebarWidth={sidebarWidth}
           />
         </div>
+        {DeveloperEvalWorkspace && config?.evalsEnabled && (
+          <div
+            className={`app-shell eval-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}`}
+            hidden={workspaceView !== "evals"}
+            style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+          >
+            <Suspense fallback={<main className="workspace"><div className="surface-state">正在加载评测中心...</div></main>}>
+              <DeveloperEvalWorkspace
+                config={config}
+                connection={connection}
+                onBack={() => setWorkspaceView("settings")}
+                onWidthChange={setSidebarWidth}
+                onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+                sidebarWidth={sidebarWidth}
+                viewportWidth={viewportWidth}
+              />
+            </Suspense>
+          </div>
+        )}
       </div>
     </AppErrorBoundary>
   );

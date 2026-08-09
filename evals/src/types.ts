@@ -78,6 +78,7 @@ export type FixtureAssertion =
   | { id: string; kind: "file_not_contains"; path: string; text: string; points: number }
   | { id: string; kind: "git_diff_empty"; points: number }
   | { id: string; kind: "git_diff_excludes"; paths: string[]; points: number }
+  | { id: string; kind: "run_answer_contains"; text: string; points: number }
   | { id: string; kind: "run_completed"; points: number };
 
 export type EvalFixtureManifest = {
@@ -85,6 +86,11 @@ export type EvalFixtureManifest = {
   status: "planned" | "ready";
   base: { kind: "git"; revision: string };
   setupPatch?: string;
+  interactions?: {
+    autoApprovePlan?: boolean;
+    answerQuestions?: "first_option" | "diagnosis_only";
+    continuePlanningOnce?: string;
+  };
   assertions: FixtureAssertion[];
   timeoutMs?: number;
 };

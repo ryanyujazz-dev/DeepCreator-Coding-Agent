@@ -1,13 +1,14 @@
-import { Provider } from "../../shared/contracts/provider";
+import { ModelProtocol, Provider } from "../../shared/contracts/provider";
 import { finishRun } from "./runLifecycle";
 import { RunRegistry } from "./runRegistry";
 import { RunInput, RunnerPorts } from "./runner";
 
-export type ProviderSelection = { model: string; provider: Provider; summaryModel?: string };
+export type ProviderSelection = { model: string; protocol?: ModelProtocol; provider: Provider; summaryModel?: string };
 
 export type LaunchRunInput = {
   continuation?: boolean;
   model: string;
+  protocol?: ModelProtocol;
   projectRoot: string;
   prompt: string;
   runId: string;
@@ -20,7 +21,7 @@ export interface RunLaunchPort {
 
 export class RunLauncher implements RunLaunchPort {
   constructor(
-    private readonly providerFor: (model: string) => ProviderSelection,
+    private readonly providerFor: (model: string, protocol: ModelProtocol) => ProviderSelection,
     private readonly registry: RunRegistry,
     private readonly run: (input: Omit<RunInput, "tools">) => Promise<void>,
     private readonly store: RunnerPorts
@@ -32,13 +33,15 @@ export class RunLauncher implements RunLaunchPort {
       return;
     }
     const controller = this.registry.startRun(input.runId);
-    const selected = this.providerFor(input.model);
+    const protocol = input.protocol ?? "chat";
+    const selected = this.providerFor(input.model, protocol);
     void this.run({
       continuation: input.continuation,
       model: selected.model,
       projectRoot: input.projectRoot,
       prompt: input.prompt,
       provider: selected.provider,
+      protocol: selected.protocol ?? protocol,
       summaryModel: selected.summaryModel,
       registry: this.registry,
       runId: input.runId,

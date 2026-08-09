@@ -217,6 +217,17 @@ export function approvalFor(input: {
   profile: AccessMode;
   toolName: string;
 }): ApprovalRequest | undefined {
+  if (input.toolName === "apply_patch") {
+    if (hasGrant(input.grants, input.runId, input.toolName, "workspace_write", "apply_patch")) return undefined;
+    if (input.profile === "full_access") return undefined;
+    return {
+      capability: "workspace_write",
+      detail: "应用模型生成的工作区补丁。补丁草稿在批准前不会写入文件。",
+      risk: "medium",
+      target: "apply_patch",
+      title: "允许应用补丁？"
+    };
+  }
   if (input.toolName === "delete_file") {
     const target = String(input.args.path ?? "");
     if (hasGrant(input.grants, input.runId, input.toolName, "workspace_delete", target)) return undefined;

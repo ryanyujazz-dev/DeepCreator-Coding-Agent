@@ -1,10 +1,10 @@
-# DeepSeeker Naming Conventions
+# DeepCreator Naming Conventions
 
 ## Status
 
 Accepted
 
-This document defines the vocabulary and naming rules for DeepSeeker. It is the authority for active source, public contracts, persistence schemas, tests, and documentation. Earlier names are valid only inside V1 compatibility code, migrations, and explicit historical discussion.
+This document defines the vocabulary and naming rules for DeepCreator. It is the authority for active source, public contracts, persistence schemas, tests, and documentation. Earlier names are valid only inside V1 compatibility code, migrations, and explicit historical discussion.
 
 ## Goals
 
@@ -20,7 +20,7 @@ Normative words such as **MUST**, **SHOULD**, and **MUST NOT** are intentional.
 
 1. A core domain concept MUST use one noun whenever one noun is sufficient.
 2. A name MUST describe what a value is, not where it happened to be created.
-3. Directory and module boundaries SHOULD carry architectural context. Symbols MUST NOT repeat `Agent`, `Runtime`, `Workspace`, or `DeepSeeker` without a real ambiguity.
+3. Directory and module boundaries SHOULD carry architectural context. Symbols MUST NOT repeat `Agent`, `Runtime`, `Workspace`, or `DeepCreator` without a real ambiguity.
 4. Two declarations with different responsibilities MUST NOT be mechanically renamed to the same symbol.
 5. A suffix MUST describe a real data shape or role. Generic suffixes such as `View`, `Data`, `Info`, `Object`, `Manager`, and `Helper` MUST NOT be used as substitutes for design.
 6. Identifiers MUST use `Id`. New code MUST NOT introduce `Key` for entity identity.
@@ -29,9 +29,11 @@ Normative words such as **MUST**, **SHOULD**, and **MUST NOT** are intentional.
 9. UI wording and aggregation MUST NOT become persisted domain vocabulary.
 10. Abbreviations SHOULD be avoided unless they are established protocol or platform terms such as `API`, `HTTP`, `SSE`, `SQL`, `MCP`, or `UI`.
 
+`reasoning presentation title` is the canonical name for the short Runtime-generated label shown above reasoning. It MUST NOT be called `reasoning summary`, because that name is reserved for a provider-native response field or item.
+
 ## Core Language
 
-DeepSeeker uses four primary nouns:
+DeepCreator uses four primary nouns:
 
 ```text
 Session
@@ -140,7 +142,7 @@ The V2 envelope uses concise, stable fields:
 
 ```ts
 type Event<T = unknown> = {
-  version: "deepseeker.events/v2";
+  version: "deepcreator.events/v2";
   eventId: string;
   offset: number;
   type: EventType;
@@ -394,8 +396,8 @@ Boolean names use `is`, `has`, `can`, or `should`. Event handlers use `on` in co
 1. Inventory actual declarations before applying this mapping.
 2. Rename one concept vertically across shared contracts, Runtime, transport, frontend, tests, and documentation.
 3. Update persisted and wire schemas deliberately; do not rely on TypeScript renaming alone.
-4. Decode `deepseeker.flow/v1` through an isolated legacy decoder.
-5. Write only `deepseeker.events/v2` after migration. Do not maintain indefinite dual writes.
+4. Decode `deepcreator.flow/v1` through an isolated legacy decoder.
+5. Write only `deepcreator.events/v2` after migration. Do not maintain indefinite dual writes.
 6. Old terminology MAY appear only in legacy decoding, migrations, historical ADR context, and explicit migration tests.
 7. Run tests and build after each vertical concept migration.
 

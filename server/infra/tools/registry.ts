@@ -289,6 +289,22 @@ export const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    name: "apply_patch",
+    description: "使用 Codex apply_patch 文本格式原子描述一个或多个工作区文件改动。Responses 协议会把它作为 custom tool 调用；补丁在完整生成、解析、审批之前只是未应用草稿。\n\n格式必须以 *** Begin Patch 开始、*** End Patch 结束，并使用 *** Add File、*** Update File 或 *** Delete File 文件段。更新段使用 @@ hunk，内容行分别以空格、+、- 开头。",
+    inputSchema: objectSchema({
+      patch: { type: "string", description: "完整的 apply_patch 文本，包括 Begin Patch 与 End Patch 标记" }
+    }, ["patch"]),
+    presentation: {
+      groupMode: "workspace_delta",
+      detail: { ...COLLAPSED_FILE_DETAIL, defaultCollapsed: false },
+      effect: "workspace_write",
+      importance: "notable",
+      action: "modify",
+      targetKind: "workspace",
+      resolveTarget: () => "工作区补丁"
+    }
+  },
+  {
     // 创建/覆盖文件
     name: "write_file",
     description: "使用给定的完整内容创建新文件，或覆盖现有文件。\n\n适用场景：创建尚不存在的新文件；完整替换某个文件，例如重写配置；文件足够小，可以完整输出。\n\n不适用场景：只修改现有文件的一部分，应使用更节省且更安全的 edit_file；文件已经存在但尚未读取。\n\n重要：如果文件已经存在，必须先使用 read_file 读取。未读取就覆盖可能丢失未知的重要内容。局部改动应优先使用 edit_file，它能产生更小、更易审查的 diff。\n\n示例：\n  write_file(path=\"src/utils/helpers.ts\", content=\"export const add = (a: number, b: number) => a + b;\\n\")",

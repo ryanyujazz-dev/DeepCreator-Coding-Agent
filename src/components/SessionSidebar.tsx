@@ -1,6 +1,5 @@
 import {
   Archive,
-  ChevronDown,
   CircleHelp,
   Folder,
   FolderOpen,
@@ -57,7 +56,7 @@ function ageLabel(timestamp: string): string {
 
 function storedCollapsedProjects(): Set<string> {
   try {
-    const value = JSON.parse(browserPlatform.storage.get("deepseeker.collapsedProjects") ?? "[]");
+    const value = JSON.parse(browserPlatform.storage.get("deepcreator.collapsedProjects") ?? "[]");
     return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
   } catch {
     return new Set();
@@ -146,7 +145,7 @@ export function SessionSidebar({
   );
 
   useEffect(() => {
-    browserPlatform.storage.set("deepseeker.collapsedProjects", JSON.stringify([...collapsedProjects]));
+    browserPlatform.storage.set("deepcreator.collapsedProjects", JSON.stringify([...collapsedProjects]));
   }, [collapsedProjects]);
 
   useEffect(() => {
@@ -315,7 +314,7 @@ export function SessionSidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-brand-row">
-        <div className="sidebar-brand-lockup"><strong className="sidebar-brand">DeepSeeker</strong><ChevronDown size={13} /></div>
+        <div className="sidebar-brand-lockup"><strong className="sidebar-brand">DeepCreator</strong></div>
         <IconButton className="icon-button" label="搜索任务" onClick={() => setSearchOpen((open) => !open)}><Search size={15} /></IconButton>
       </div>
       {searchOpen && (

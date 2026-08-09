@@ -2,7 +2,7 @@ import { registerCustomCSSVariableTheme } from "@pierre/diffs";
 import { CSSProperties } from "react";
 import { ThemeVariant } from "../../shared/contracts/theme";
 
-export const DIFF_THEME_NAME = "deepseeker-css-variables";
+export const DIFF_THEME_NAME = "deepcreator-css-variables";
 
 registerCustomCSSVariableTheme(DIFF_THEME_NAME, {
   background: "#ffffff",

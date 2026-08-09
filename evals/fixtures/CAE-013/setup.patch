@@ -1,0 +1,40 @@
+diff --git a/tests/toolRegistryAcceptance.test.ts b/tests/toolRegistryAcceptance.test.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/toolRegistryAcceptance.test.ts
+@@ -0,0 +1,35 @@
++import assert from "node:assert/strict";
++import { createHash } from "node:crypto";
++import { existsSync, readFileSync } from "node:fs";
++import path from "node:path";
++import test from "node:test";
++import { toolSpecs } from "../server/infra/tools";
++
++const BASELINE_SCHEMA_HASH = "c897164d757730030f04cebe61be2a0f288e32da78049c3b53d976384eaa1220";
++
++test("tool registry refactor preserves provider schema and removes duplicate label maps", () => {
++  const schemaHash = createHash("sha256").update(JSON.stringify(toolSpecs)).digest("hex");
++  assert.equal(schemaHash, BASELINE_SCHEMA_HASH, "model-visible tool schema changed");
++
++  const root = process.cwd();
++  const runtimeTools = readFileSync(path.join(root, "server/infra/tools.ts"), "utf8");
++  const presentation = readFileSync(path.join(root, "shared/projections/activityPresentation.ts"), "utf8");
++  const registry = readFileSync(path.join(root, "server/infra/tools/registry.ts"), "utf8");
++  const sharedCatalog = path.join(root, "shared/toolCatalog.ts");
++
++  assert.doesNotMatch(
++    runtimeTools,
++    /export function toolTitle[\s\S]*?Record<string, string>/,
++    "server/infra/tools.ts still owns a duplicate title table"
++  );
++  assert.doesNotMatch(
++    presentation,
++    /const TOOL_LABELS:\s*Record<string, string>/,
++    "activityPresentation still owns a duplicate title table"
++  );
++  assert.ok(
++    /\btitle\s*:/.test(registry) || existsSync(sharedCatalog),
++    "the authoritative registry/catalog must own visible tool titles"
++  );
++  assert.equal(new Set(toolSpecs.map((spec) => spec.name)).size, toolSpecs.length);
++});

@@ -31,7 +31,7 @@ export class DesktopStore {
   }
 
   apiKey(): string {
-    // ADR-009: 优先从 ~/.deepseeker/config.json 读取
+    // ADR-009: 优先从 ~/.deepcreator/config.json 读取
     const configKey = loadUserConfig().apiKey;
     if (configKey) return configKey;
     // 降级:Electron safeStorage(旧版 UI 输入的 key)
@@ -94,7 +94,8 @@ export class DesktopStore {
     return {
       defaultModel: config.model || this.state.defaultModel,
       hasApiKey: Boolean(this.apiKey()),
-      hasZhipuApiKey: Boolean(config.zhipuApiKey)
+      hasZhipuApiKey: Boolean(config.zhipuApiKey),
+      modelProtocols: config.modelProtocols
     };
   }
 
@@ -120,9 +121,10 @@ export class DesktopStore {
       else if (!safeStorage.isEncryptionAvailable()) throw new Error("系统加密存储当前不可用，API Key 未保存。");
       else this.state.apiKey = safeStorage.encryptString(input.apiKey.trim()).toString("base64");
     }
-    // 普通设置统一写入 ~/.deepseeker/config.json；desktop.json 仅保留旧版本兼容字段。
+    // 普通设置统一写入 ~/.deepcreator/config.json；desktop.json 仅保留旧版本兼容字段。
     const config = loadUserConfig();
     config.model = defaultModel;
+    if (input.modelProtocols) config.modelProtocols = { ...input.modelProtocols };
     if (input.zhipuApiKey !== undefined) config.zhipuApiKey = input.zhipuApiKey.trim();
     saveUserConfig(config);
     this.write();

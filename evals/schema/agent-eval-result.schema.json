@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://deepseeker.local/evals/agent-eval-result.schema.json",
-  "title": "DeepSeeker Agent Eval Result",
+  "$id": "https://deepcreator.local/evals/agent-eval-result.schema.json",
+  "title": "DeepCreator Agent Eval Result",
   "type": "object",
   "required": [
     "caseId",

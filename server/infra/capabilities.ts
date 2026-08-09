@@ -69,8 +69,8 @@ function collectSkillFiles(directory: string): string[] {
 
 export function listDeferredCapabilities(projectRoot: string): LoadedCapability[] {
   const files = [
-    ...collectSkillFiles(path.join(homedir(), ".deepseeker", "skills")),
-    ...collectSkillFiles(path.join(projectRoot, ".deepseeker", "skills"))
+    ...collectSkillFiles(path.join(homedir(), ".deepcreator", "skills")),
+    ...collectSkillFiles(path.join(projectRoot, ".deepcreator", "skills"))
   ];
   return [
     ...files.flatMap((source) => parseSkill(source) ?? []),

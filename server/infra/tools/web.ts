@@ -67,7 +67,7 @@ export async function fetchUrl(
   signal?.addEventListener("abort", () => controller.abort());
   try {
     const response = await fetch(url, {
-      headers: { "User-Agent": "DeepSeeker-CodeAgent/1.0", Accept: "text/html,application/json,text/plain,*/*" },
+      headers: { "User-Agent": "DeepCreator-CodeAgent/1.0", Accept: "text/html,application/json,text/plain,*/*" },
       redirect: "follow",
       signal: controller.signal
     });

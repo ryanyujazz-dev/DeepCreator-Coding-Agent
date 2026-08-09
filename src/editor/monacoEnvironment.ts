@@ -34,7 +34,7 @@ export function monacoThemeName(themeId: string, scheme: ColorScheme, variant: T
     variant.code.added,
     variant.code.removed
   ].join("").replaceAll("#", "").slice(0, 36);
-  return `deepseeker-${themeId}-${scheme}-${signature}`;
+  return `deepcreator-${themeId}-${scheme}-${signature}`;
 }
 
 export function prepareMonacoTheme(

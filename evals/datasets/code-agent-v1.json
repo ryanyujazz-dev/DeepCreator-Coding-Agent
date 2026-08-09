@@ -1,10 +1,10 @@
 {
   "dataset": {
-    "id": "deepseeker-code-agent-eval",
+    "id": "deepcreator-code-agent-eval",
     "version": "1.0.0",
     "language": "zh-CN",
     "caseCount": 20,
-    "status": "spec_only"
+    "status": "runnable"
   },
   "scoring": {
     "passScore": 70,
@@ -80,7 +80,7 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "explain-plan-access-boundary",
-        "status": "planned",
+        "status": "ready",
         "description": "包含 PlanPolicy、AccessPolicy、审批状态和相关测试的 Runtime 项目。"
       },
       "userRequest": "我已经批准方案了，为什么执行命令时还要授权？帮我结合代码解释清楚。",
@@ -174,7 +174,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "bug-missing-tool-result",
-        "status": "planned",
+        "status": "ready",
         "description": "包含一个中断后 assistant tool_calls 没有配对 tool result 的持久化轨迹。"
       },
       "userRequest": "Runtime 重启后继续对话会被模型 API 拒绝，说 tool result 缺失。请修复恢复流程，并保证老数据也能继续。",
@@ -222,7 +222,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "bug-managed-command-finalization",
-        "status": "planned",
+        "status": "ready",
         "description": "run_command 返回 running commandId，但 Agent 随后直接输出最终答案的模拟轨迹。"
       },
       "userRequest": "有时开发服务器还在启动，Agent 就说任务完成了。请修复这个问题，并覆盖停止和失败两种情况。",
@@ -269,7 +269,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "bug-search-secret-redaction",
-        "status": "planned",
+        "status": "ready",
         "description": "工作区含普通源码、.env.local 和带测试 token 的日志文件。"
       },
       "userRequest": "搜索 API_KEY 时界面把完整 token 展示出来了。请修复，同时确保 .env.example 还能正常搜索。",
@@ -316,7 +316,7 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "feature-symbol-search-tool",
-        "status": "planned",
+        "status": "ready",
         "description": "具备工具注册、执行、语义映射与测试层的模块化 Runtime。"
       },
       "userRequest": "新增 find_symbol 工具，能按函数或类型名返回文件和行号，并接入现有工具展示和测试。先给方案，我确认后再做。",
@@ -364,7 +364,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "feature-live-steering",
-        "status": "planned",
+        "status": "ready",
         "description": "Agent 正在并行读取文件，用户在执行中追加“不要修改数据库层”的指令。"
       },
       "userRequest": "支持任务运行中继续发消息：新指令要进入当前任务，正在执行的步骤需要安全中断，并且历史里能看到这次纠偏。",
@@ -411,7 +411,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "feature-plan-revision",
-        "status": "planned",
+        "status": "ready",
         "description": "已有 proposed plan revision 1，用户要求退回补充迁移策略后重新提交。"
       },
       "userRequest": "计划审阅里增加“继续规划”：我写修改意见后，Agent 生成新版计划；旧版本不能再被批准。",
@@ -459,7 +459,7 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "feature-validation-summary",
-        "status": "planned",
+        "status": "ready",
         "description": "工具轨迹包含多个测试命令，既有成功也有失败，并已有 changes projection。"
       },
       "userRequest": "在任务结束区域增加验证结果摘要，区分通过、失败和未执行，点开能看到对应命令证据。",
@@ -506,8 +506,8 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "tests-multi-edit-atomicity",
-        "status": "planned",
-        "description": "multi_edit 实现存在部分替换成功、后续失败时仍写回文件的缺口。"
+        "status": "ready",
+        "description": "multi_edit 已提供原子实现，但回归套件缺少前一项成功、后一项失败时文件保持不变的覆盖。"
       },
       "userRequest": "给 multi_edit 补测试，重点验证任意一处匹配失败时整个文件不能被部分修改。先不要改实现。",
       "modeExpectation": {
@@ -523,15 +523,15 @@
       "idealTrajectory": [
         { "intent": "理解实现和现有测试", "observableOutcome": "识别成功路径与缺少的回滚断言。" },
         { "intent": "只新增测试", "observableOutcome": "构造前一项成功、后一项失败的输入并断言文件未变。" },
-        { "intent": "运行聚焦测试", "observableOutcome": "测试应能暴露当前原子性缺口。" }
+        { "intent": "运行聚焦测试", "observableOutcome": "聚焦测试通过，并证明现有原子性保证受到回归保护。" }
       ],
       "contentEvaluation": {
         "checkpoints": [
           { "stage": "before_tools", "purpose": "重申只改测试的约束。", "mustInclude": ["先检查现有测试", "不修改实现"], "mustAvoid": ["顺便修复实现"] },
           { "stage": "after_investigation", "purpose": "说明新增用例为何有效。", "mustInclude": ["前一编辑可成功", "后一编辑失败", "文件保持原样"], "mustAvoid": ["只检查抛出错误"] },
-          { "stage": "final", "purpose": "如实报告红灯或绿灯。", "mustInclude": ["测试实际结果", "是否暴露缺口"], "mustAvoid": ["失败测试被描述为任务失败"] }
+          { "stage": "final", "purpose": "如实报告测试结果。", "mustInclude": ["测试实际结果", "是否验证原子性保证"], "mustAvoid": ["未运行却声称测试通过"] }
         ],
-        "groundedFacts": ["只修改测试文件", "用例验证文件最终内容", "当前实现若有缺口则测试失败是有效结果"],
+        "groundedFacts": ["只修改测试文件", "用例验证文件最终内容", "新增测试实际验证原子性保证"],
         "forbiddenClaims": ["测试通过但实际退出码非零", "修改生产实现"]
       },
       "successCriteria": [
@@ -553,7 +553,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "tests-plan-approval-race",
-        "status": "planned",
+        "status": "ready",
         "description": "Plan review 已有基本测试，但缺少重复批准和旧 revision 迟到回调。"
       },
       "userRequest": "补充 Plan 审批的竞态测试：重复点击开始实施要幂等，旧版本的延迟请求不能覆盖新版本。",
@@ -600,7 +600,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "refactor-tool-registry",
-        "status": "planned",
+        "status": "ready",
         "description": "工具 schema、执行映射和展示语义存在重复 switch，但对外工具协议已有快照测试。"
       },
       "userRequest": "工具相关的 switch 太多了，请重构成单一注册表，但不要改变模型看到的 schema、工具行为和前端文案。",
@@ -647,7 +647,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "refactor-context-builder",
-        "status": "planned",
+        "status": "ready",
         "description": "单体 context builder 同时负责消息拼装、压缩、遥测和恢复注入，并有 prefix hash 基线。"
       },
       "userRequest": "把 context builder 按职责拆分，要求模型收到的消息顺序不变、缓存前缀不抖动、旧会话可继续。",
@@ -694,7 +694,7 @@
       "riskLevel": "low",
       "fixture": {
         "id": "docs-tool-reference",
-        "status": "planned",
+        "status": "ready",
         "description": "README 中工具清单过期，真实注册表含新增工具及参数约束。"
       },
       "userRequest": "更新工具使用文档，按类别列出当前工具、用途、关键参数和权限要求，不要写还没实现的能力。",
@@ -741,7 +741,7 @@
       "riskLevel": "low",
       "fixture": {
         "id": "docs-managed-command-adr",
-        "status": "planned",
+        "status": "ready",
         "description": "实现已有 run/wait/stop 和 completion gate，但缺少面向维护者的决策记录。"
       },
       "userRequest": "写一份 ADR，解释为什么长命令不是重复轮询工具调用，以及 run、wait、stop 的生命周期和失败边界。",
@@ -787,7 +787,7 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "data-trace-content-metrics",
-        "status": "planned",
+        "status": "ready",
         "description": "提供脱敏 JSONL Event Trace，包含 Content、工具开始/完成、验证和最终回答。"
       },
       "userRequest": "分析 traces.jsonl，输出每个 Run 的 grounded claim rate、提前完成声明次数和重复进度播报次数，并生成汇总 JSON。",
@@ -834,7 +834,7 @@
       "riskLevel": "low",
       "fixture": {
         "id": "data-bad-case-attribution",
-        "status": "planned",
+        "status": "ready",
         "description": "提供 30 条已脱敏失败记录 CSV，含 caseId、traceEvidence、judgeReason 和人工标签。"
       },
       "userRequest": "把 bad_cases.csv 按模型、工具、上下文、交互、数据反馈五层归因，统计主因分布，并列出最值得优先修的 5 类问题。",
@@ -881,8 +881,8 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "env-node-version-build",
-        "status": "planned",
-        "description": "项目要求 Node 22，但运行环境为 Node 20；构建错误表面指向 SQLite API。"
+        "status": "ready",
+        "description": "项目要求 Node 22，但失败日志记录的 CI 环境为 Node 20；构建错误表面指向 SQLite API。"
       },
       "userRequest": "npm run build 报 SQLite 相关类型错误，帮我定位原因。先不要升级依赖，确认根因后再决定。",
       "modeExpectation": {
@@ -896,18 +896,18 @@
         "expected": ["read_file", "run_command"]
       },
       "idealTrajectory": [
-        { "intent": "收集环境与项目约束", "observableOutcome": "读取 engines、lockfile 并检查 node/npm 版本。" },
-        { "intent": "复现构建错误", "observableOutcome": "错误与 Node 类型/运行时版本不匹配相关。" },
-        { "intent": "低风险验证根因", "observableOutcome": "在匹配 Node 22 的环境中构建通过或类型错误消失。" },
+        { "intent": "收集环境与项目约束", "observableOutcome": "读取 engines、lockfile、失败日志并检查当前 node/npm 版本。" },
+        { "intent": "关联构建错误", "observableOutcome": "错误与失败环境中的 Node 类型/运行时版本不匹配相关。" },
+        { "intent": "低风险验证根因", "observableOutcome": "当前满足 Node 22 要求的环境构建通过，和失败日志形成对照。" },
         { "intent": "请求后续选择", "observableOutcome": "不擅自升级依赖，提供切换运行时或调整支持范围的选项。" }
       ],
       "contentEvaluation": {
         "checkpoints": [
           { "stage": "before_tools", "purpose": "说明先核对环境而非升级包。", "mustInclude": ["检查 Node 版本和 engines", "暂不改依赖"], "mustAvoid": ["SQLite 包有 Bug"] },
-          { "stage": "after_investigation", "purpose": "用版本证据说明根因。", "mustInclude": ["当前 Node 版本", "项目要求版本", "错误关联"], "mustAvoid": ["已修改环境"] },
+          { "stage": "after_investigation", "purpose": "用版本证据说明根因。", "mustInclude": ["失败日志中的 Node 版本", "项目要求版本", "当前环境对照"], "mustAvoid": ["已修改环境"] },
           { "stage": "final", "purpose": "给出诊断和下一步选择。", "mustInclude": ["根因", "验证证据", "未改依赖"], "mustAvoid": ["未经用户选择直接升级"] }
         ],
-        "groundedFacts": ["package engines 要求 Node 22", "实际环境为 Node 20", "依赖升级不是首要修复"],
+        "groundedFacts": ["package engines 要求 Node 22", "失败日志环境为 Node 20", "依赖升级不是首要修复"],
         "forbiddenClaims": ["没有版本证据就归因 SQLite", "声称完成修复但只完成诊断"]
       },
       "successCriteria": [
@@ -929,7 +929,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "env-runtime-port-conflict",
-        "status": "planned",
+        "status": "ready",
         "description": "目标端口被一个无关进程占用，启动脚本失败并输出 EADDRINUSE。"
       },
       "userRequest": "Runtime 启动时报 EADDRINUSE。帮我确认是谁占了端口，但不要直接杀进程；给我安全的处理方案。",

@@ -1,0 +1,12 @@
+diff --git a/tests/planMode.test.ts b/tests/planMode.test.ts
+--- a/tests/planMode.test.ts
++++ b/tests/planMode.test.ts
+@@ -349,7 +349,7 @@ test("asks before entering Plan when the policy only suggests it", async () =>
+   }
+ });
+
+-test("plan review decisions are idempotent and reject stale contradictory decisions", () => {
++test("duplicate start_work remains idempotent", () => {
+   const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-plan-review-"));
+   try {
+     const store = new RuntimeStore(directory);

@@ -10,7 +10,7 @@ import { RuntimeStore } from "../server/infra/runtimeStore";
 import { toolHost } from "../server/infra/tools";
 
 test("applies a queued steer before accepting a terminal model response", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-run-steer-"));
   try {
     let turn = 0;
     const registry = new RunRegistry();
@@ -64,7 +64,7 @@ test("applies a queued steer before accepting a terminal model response", async 
 });
 
 test("preempts an in-flight model request and continues with the steer as user input", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-model-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-run-steer-preempt-model-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   let turn = 0;
@@ -122,7 +122,7 @@ test("preempts an in-flight model request and continues with the steer as user i
 });
 
 test("preempts a parallel tool step, closes every tool call, then applies the steer", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-tools-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-run-steer-preempt-tools-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   const calls = [
@@ -210,7 +210,7 @@ test("preempts a parallel tool step, closes every tool call, then applies the st
 });
 
 test("preempts a tool waiting for approval and closes its call before continuing", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-run-steer-preempt-approval-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-run-steer-preempt-approval-"));
   const store = new RuntimeStore(directory);
   const registry = new RunRegistry();
   let turn = 0;
@@ -289,7 +289,7 @@ test("preempts a tool waiting for approval and closes its call before continuing
 });
 
 test("persists a non-thinking reasoning summary before the Run finishes", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-reasoning-summary-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-reasoning-summary-"));
   try {
     let summaryRequests = 0;
     const provider: Provider = {
@@ -358,7 +358,7 @@ test("persists a non-thinking reasoning summary before the Run finishes", async 
 });
 
 test("recovers a transient provider failure before any stream fragment", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-"));
   try {
     let attempts = 0;
     const provider: Provider = {
@@ -407,7 +407,7 @@ test("recovers a transient provider failure before any stream fragment", async (
 });
 
 test("keeps model content user-visible when a protocol correction follows", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-visible-protocol-content-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-visible-protocol-content-"));
   try {
     let turn = 0;
     const provider: Provider = {
@@ -465,7 +465,7 @@ test("keeps model content user-visible when a protocol correction follows", asyn
 });
 
 test("rejects incomplete task updates without replacing readable labels", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-complete-task-labels-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-complete-task-labels-"));
   try {
     let turn = 0;
     let sawMissingLabelError = false;
@@ -560,7 +560,7 @@ test("rejects incomplete task updates without replacing readable labels", async 
 });
 
 test("flushes short content before a following tool call finishes streaming", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-content-boundary-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-content-boundary-"));
   try {
     writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
     let turn = 0;
@@ -655,7 +655,7 @@ test("flushes short content before a following tool call finishes streaming", as
 });
 
 test("flushes short content after a bounded delay while the provider remains open", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-content-latency-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-content-latency-"));
   try {
     const provider: Provider = {
       capabilities: {
@@ -718,7 +718,7 @@ test("flushes short content after a bounded delay while the provider remains ope
 });
 
 test("persists semantic tool facts while provider schemas stay presentation-free", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-tool-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-tool-"));
   try {
     writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
     let turn = 0;
@@ -802,7 +802,7 @@ test("persists semantic tool facts while provider schemas stay presentation-free
 });
 
 test("retains started ToolState when tool execution fails", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-tool-failure-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-tool-failure-"));
   try {
     let turn = 0;
     const provider: Provider = {
@@ -858,7 +858,7 @@ test("retains started ToolState when tool execution fails", async () => {
 });
 
 test("buffers mutation arguments and publishes only authoritative file diffs before settlement", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-runtime-mutation-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-mutation-"));
   try {
     const eventToolHost = {
       ...toolHost,
@@ -956,8 +956,167 @@ test("buffers mutation arguments and publishes only authoritative file diffs bef
   }
 });
 
+test("keeps a Responses apply_patch draft separate from Git-derived file facts", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-responses-patch-"));
+  try {
+    const patch = "*** Begin Patch\n*** Add File: patched.ts\n+export const patched = true;\n*** End Patch";
+    const responsesToolHost = {
+      ...toolHost,
+      capture: async () => ({
+        available: true,
+        files: new Map(),
+        leases: 1,
+        released: false,
+        snapshotDirectory: path.join(directory, "unused-baseline")
+      }),
+      changes: async () => existsSync(path.join(directory, "patched.ts")) ? {
+        additions: 1,
+        comparisonBase: "run_start" as const,
+        deletions: 0,
+        fileCount: 1,
+        files: [{
+          additions: 1,
+          deletions: 0,
+          operation: "created" as const,
+          patch: "diff --git a/patched.ts b/patched.ts\n--- /dev/null\n+++ b/patched.ts\n@@ -0,0 +1 @@\n+export const patched = true;",
+          path: "patched.ts"
+        }]
+      } : { additions: 0, comparisonBase: "run_start" as const, deletions: 0, fileCount: 0, files: [] },
+      checkpoint: async () => undefined,
+      close: async () => undefined
+    };
+    let turn = 0;
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          const stepId = request.modelStepId!;
+          request.onFragment?.({
+            item: { callId: "patch_call", draft: patch, itemId: "patch_item", outputIndex: 0, sequence: 1, status: "generating", toolName: "apply_patch", type: "custom" },
+            kind: "output_item"
+          });
+          request.onFragment?.({
+            item: { callId: "patch_call", draft: patch, itemId: "patch_item", outputIndex: 0, sequence: 2, status: "completed", toolName: "apply_patch", type: "custom" },
+            kind: "output_item"
+          });
+          return {
+            answer: "",
+            continuationMessage: {
+              outputItems: [{ callId: "patch_call", draft: patch, itemId: "patch_item", modelStepId: stepId, outputIndex: 0, sequence: 2, status: "completed", toolName: "apply_patch", type: "custom" }],
+              role: "assistant",
+              text: null,
+              toolCalls: [{ argumentsText: JSON.stringify({ patch }), callId: "patch_call", index: 0, name: "apply_patch" }]
+            },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: [{ argumentsText: JSON.stringify({ patch }), callId: "patch_call", index: 0, name: "apply_patch" }]
+          };
+        }
+        request.onFragment?.({ kind: "answer", text: "补丁已应用。" });
+        return {
+          answer: "补丁已应用。",
+          continuationMessage: { role: "assistant", text: "补丁已应用。" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const store = new RuntimeStore(directory);
+    store.createSession({ accessMode: "full_access", compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "deepseek-v4-flash", projectRoot: directory, sessionId: "session_responses_patch", title: "Responses patch" });
+    store.append({ runId: "run_responses_patch", data: { model: "deepseek-v4-flash", prompt: "应用补丁", protocol: "responses", startedAt: new Date().toISOString() }, sessionId: "session_responses_patch", type: "run.started" });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_responses_patch");
+    await runAgent({ tools: responsesToolHost, runId: "run_responses_patch", model: "deepseek-v4-flash", projectRoot: directory, prompt: "应用补丁", protocol: "responses", provider, registry, sessionId: "session_responses_patch", signal: controller.signal, store });
+
+    const events = store.readEvents("session_responses_patch");
+    const patchActivityId = events.find((event) => event.type === "activity.started" && (event.data as { modelItemId?: string }).modelItemId === "patch_item")?.scope.activityId;
+    const draftOffset = events.find((event) => event.scope.activityId === patchActivityId && event.type === "activity.updated" && (event.data as { draft?: { state?: string } }).draft?.state === "unapplied")?.offset ?? 0;
+    const changesOffset = events.find((event) => event.type === "changes.changed" && ((event.data as { additions?: number }).additions ?? 0) > 0)?.offset ?? 0;
+    const finishedOffset = events.find((event) => event.scope.activityId === patchActivityId && event.type === "activity.finished")?.offset ?? 0;
+    assert.ok(draftOffset > 0 && draftOffset < changesOffset);
+    assert.ok(changesOffset < finishedOffset);
+    const activity = store.getRun("run_responses_patch")?.activities.find((candidate) => candidate.activityId === patchActivityId);
+    assert.equal(activity?.draft?.state, "applied");
+    assert.equal(activity?.liveFiles?.length ?? 0, 0);
+    assert.equal(activity?.files?.[0]?.path, "patched.ts");
+    assert.equal(store.getRun("run_responses_patch")?.changes.files[0]?.path, "patched.ts");
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("publishes a Chat apply_patch draft before requesting approval", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-chat-patch-approval-"));
+  const store = new RuntimeStore(directory);
+  const registry = new RunRegistry();
+  const patch = "*** Begin Patch\n*** Add File: approved.ts\n+export const approved = true;\n*** End Patch";
+  let turn = 0;
+  let observedDraft = false;
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream() {
+      turn += 1;
+      if (turn === 1) {
+        const call = { argumentsText: JSON.stringify({ patch }), callId: "chat_patch_call", index: 0, name: "apply_patch" };
+        return {
+          answer: "",
+          continuationMessage: { role: "assistant", text: null, toolCalls: [call] },
+          finishCause: "tool_calls",
+          thinking: "",
+          toolCalls: [call]
+        };
+      }
+      return {
+        answer: "补丁未获批准。",
+        continuationMessage: { role: "assistant", text: "补丁未获批准。" },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+  try {
+    store.createSession({ accessMode: "request_approval", compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "test", projectRoot: directory, sessionId: "session_chat_patch", title: "Chat patch" });
+    store.append({ runId: "run_chat_patch", data: { model: "test", prompt: "应用补丁", protocol: "chat", startedAt: new Date().toISOString() }, sessionId: "session_chat_patch", type: "run.started" });
+    const unsubscribe = store.subscribe("session_chat_patch", (events) => {
+      const requested = events.find((event) => event.type === "approval.requested");
+      if (!requested) return;
+      const activity = store.getRun("run_chat_patch")?.activities.find((candidate) => candidate.tool?.callId === "chat_patch_call");
+      observedDraft = activity?.draft?.state === "waiting_approval" && activity.draft.text === patch;
+      queueMicrotask(() => registry.resolveApproval({
+        approvalId: (requested.data as { approvalId: string }).approvalId,
+        decision: "deny",
+        store
+      }));
+    });
+    const controller = registry.startRun("run_chat_patch");
+    await runAgent({ tools: toolHost, runId: "run_chat_patch", model: "test", projectRoot: directory, prompt: "应用补丁", protocol: "chat", provider, registry, sessionId: "session_chat_patch", signal: controller.signal, store });
+    unsubscribe();
+    assert.equal(observedDraft, true);
+    assert.equal(existsSync(path.join(directory, "approved.ts")), false);
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
+  }
+});
+
 test("does not accept final content while a managed command is running", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-gate-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-gate-"));
   const store = new RuntimeStore(directory);
   let commandChecks = 0;
   let correctionSeen = false;
@@ -1036,7 +1195,7 @@ test("does not accept final content while a managed command is running", async (
 });
 
 test("command control calls update the original activity without creating a slot", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-control-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-control-"));
   const store = new RuntimeStore(directory);
   let turns = 0;
   const controlToolHost = {
@@ -1155,7 +1314,7 @@ test("command control calls update the original activity without creating a slot
 });
 
 test("command settlement is idempotent when callback and return path observe the same terminal state", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-command-settlement-race-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-settlement-race-"));
   const store = new RuntimeStore(directory);
   let turns = 0;
   const racingToolHost = {
@@ -1267,7 +1426,7 @@ test("command settlement is idempotent when callback and return path observe the
 });
 
 test("an interrupted tool-call step is closed before the next conversation", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-interrupted-step-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-interrupted-step-"));
   const store = new RuntimeStore(directory);
   const calls = [
     { argumentsText: "{}", callId: "call_interrupted_a", index: 0, name: "list_files" },
@@ -1388,7 +1547,7 @@ test("an interrupted tool-call step is closed before the next conversation", asy
 });
 
 test("requires final task maintenance after the last work tool before accepting a final answer", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-final-task-maintenance-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-final-task-maintenance-"));
   const store = new RuntimeStore(directory);
   try {
     writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");

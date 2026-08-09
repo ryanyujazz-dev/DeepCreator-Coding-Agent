@@ -1,4 +1,5 @@
 import { AccessMode, PlanDecision, Session } from "../../shared/contracts/runtime";
+import { ModelProtocol } from "../../shared/contracts/provider";
 import { ContextPort, EventInput, EventPort, SessionPort } from "./runtimeRepo";
 import { AppError, AppErrorCode } from "./appError";
 import { SystemPort } from "./systemPort";
@@ -14,6 +15,7 @@ export class PlanReviewError extends AppError {
 
 export type ResumeRun = {
   model: string;
+  protocol: ModelProtocol;
   projectRoot: string;
   prompt: string;
   runId: string;
@@ -45,7 +47,7 @@ function resultText(input: {
 function resumeFor(session: Session, runId: string): ResumeRun {
   const run = session.runs.find((item) => item.runId === runId);
   if (!run) throw new PlanReviewError("Plan Run not found.", "not_found");
-  return { model: run.model, projectRoot: session.projectRoot, prompt: run.prompt, runId, sessionId: session.sessionId };
+  return { model: run.model, protocol: run.protocol ?? "chat", projectRoot: session.projectRoot, prompt: run.prompt, runId, sessionId: session.sessionId };
 }
 
 export function resolvePlan(input: {

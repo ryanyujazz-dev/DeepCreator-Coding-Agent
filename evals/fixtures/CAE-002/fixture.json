@@ -1,0 +1,12 @@
+{
+  "caseId": "CAE-002",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "assertions": [
+    { "id": "run-completed", "kind": "run_completed", "points": 4 },
+    { "id": "names-plan-policy", "kind": "run_answer_contains", "text": "PlanPolicy", "points": 8 },
+    { "id": "names-access-policy", "kind": "run_answer_contains", "text": "AccessPolicy", "points": 8 },
+    { "id": "workspace-unchanged", "kind": "git_diff_empty", "points": 10 }
+  ],
+  "timeoutMs": 300000
+}

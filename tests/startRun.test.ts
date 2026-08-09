@@ -10,7 +10,7 @@ import { RuntimeStore } from "../server/infra/runtimeStore";
 import { testSystem } from "./support/system";
 
 test("starts a Run through an application use case without transport concerns", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-start-run-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-start-run-"));
   const store = new RuntimeStore(directory);
   const launched: LaunchRunInput[] = [];
   const launcher: RunLaunchPort = { launch: (input) => launched.push(input) };
@@ -31,6 +31,7 @@ test("starts a Run through an application use case without transport concerns", 
       model: "mock-agent",
       projectRoot: directory,
       prompt: "先规划企业架构，不要修改",
+      protocol: "chat",
       runId: "run_use_case",
       sessionId: "session_use_case"
     }]);
@@ -42,7 +43,7 @@ test("starts a Run through an application use case without transport concerns", 
 });
 
 test("enforces workspace identity before launching an existing Session", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-start-run-lock-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-start-run-lock-"));
   const store = new RuntimeStore(directory);
   const useCase = new StartRun({
     context: defaultContextConfig,

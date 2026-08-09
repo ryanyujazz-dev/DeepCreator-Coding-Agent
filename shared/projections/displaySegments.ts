@@ -79,6 +79,7 @@ function createDraft(activity: Activity): SegmentDraft {
 function toolStartLabel(activity: Activity): string {
   const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
   let action = "正在执行";
+  if (activity.tool?.toolName === "apply_patch") return "正在应用补丁";
   if (activity.tool?.toolName === "delegate" || activity.tool?.toolName === "spawn_agent") action = "委派";
   else if (activity.tool?.toolName === "read_file") action = "正在读取";
   else if (activity.tool?.toolName === "list_files") action = "正在列出";
@@ -95,6 +96,17 @@ function toolStartLabel(activity: Activity): string {
 }
 
 function indicatorFor(activity: Activity): ActivityIndicator {
+  if (activity.draft?.kind === "apply_patch" && activity.kind === "thinking") {
+    return {
+      category: "modify",
+      label: activity.draft.state === "generating"
+        ? "正在生成补丁"
+        : activity.draft.state === "waiting_approval" ? "等待批准补丁" : "补丁草稿未应用",
+      mode: "tool",
+      sourceActivityId: activity.activityId,
+      target: "工作区补丁"
+    };
+  }
   if (activity.kind === "thinking") {
     return { label: "正在思考", mode: "thinking", sourceActivityId: activity.activityId };
   }

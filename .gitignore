@@ -7,6 +7,8 @@ out/
 output/
 .DS_Store
 .env.local
+.playwright-mcp/
+.deepcreator/
 .deepseeker/
 .eval-worktrees/
 evals/runs/

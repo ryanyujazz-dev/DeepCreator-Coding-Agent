@@ -7,7 +7,7 @@ import {
 import { ContextInput } from "../../shared/contracts/context";
 import { RunRegistry } from "./runRegistry";
 import { prompts } from "./prompts";
-import { ModelResponse, Provider, ToolCall } from "../../shared/contracts/provider";
+import { ModelProtocol, ModelResponse, Provider, ToolCall } from "../../shared/contracts/provider";
 import { EventPayloadMap } from "../../shared/contracts/runtime";
 import { Baseline } from "../../shared/contracts/tool";
 import { CapabilitySource, emptyCapabilitySource } from "../../shared/contracts/capability";
@@ -46,6 +46,7 @@ type RuntimeInput = {
   projectRoot: string;
   prompt: string;
   model: string;
+  protocol: ModelProtocol;
   capabilities: CapabilitySource;
   context: ContextConfig;
   provider: Provider;
@@ -62,7 +63,8 @@ type RuntimeInput = {
   delegations?: DelegationCoordinator;
 };
 
-export type RunInput = Omit<RuntimeInput, "workspaceBaseline" | "capabilities" | "context" | "rules" | "system" | "thinkingSummary"> & Partial<Pick<RuntimeInput, "capabilities" | "context" | "rules">>;
+export type RunInput = Omit<RuntimeInput, "workspaceBaseline" | "capabilities" | "context" | "rules" | "system" | "thinkingSummary" | "protocol">
+  & Partial<Pick<RuntimeInput, "capabilities" | "context" | "rules" | "protocol">>;
 
 export class ModelProtocolError extends Error {
   constructor(message: string) {
@@ -198,21 +200,32 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     let thinkingActivity: string | undefined;
     let answerActivity: string | undefined;
     const modelStepId = input.registry.system.createId("model_step");
+    const providerActivitiesByItemId = new Map<string, string>();
+    const providerActivitiesByCallId = new Map<string, string>();
     let thinkingSummaryPhaseEnded = false;
     const endThinkingSummaryPhase = () => {
       if (thinkingSummaryPhaseEnded) return;
       thinkingSummaryPhaseEnded = true;
       input.thinkingSummary?.endModelStep();
     };
+    const finishThinkingActivity = (status: "cancelled" | "completed" = "completed") => {
+      if (!thinkingActivity) return;
+      const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === thinkingActivity);
+      if (!current || (current.status !== "running" && current.status !== "suspended")) return;
+      finishActivity(input, thinkingActivity, { status });
+    };
     const stepStream = new ModelStepStream({
-      appendAnswer: (text, firstFragment) => {
+      appendAnswer: (text, firstFragment, source) => {
         if (firstFragment) {
           answerActivity = openActivity(input, {
             audience: "user",
             body: text,
             kind: "message",
+            modelItemId: source?.itemId,
+            modelStepId,
             startedAt: input.registry.system.now()
           });
+          if (source?.itemId) providerActivitiesByItemId.set(source.itemId, answerActivity);
         } else if (answerActivity) {
           updateActivity({
             activityId: answerActivity,
@@ -244,6 +257,113 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       startVisibleStage: () => { visibleStageStarted = true; }
     });
 
+    const handleOutputItem = (item: Omit<import("../../shared/contracts/provider").ModelOutputItem, "modelStepId">) => {
+      const durableItem = { ...item, modelStepId };
+      input.store.append({
+        data: { item: durableItem },
+        runId: input.runId,
+        sessionId: input.sessionId,
+        type: "model.output_item.changed"
+      });
+      if (item.type === "reasoning") {
+        if (item.status === "completed" || item.status === "failed") {
+          endThinkingSummaryPhase();
+          finishThinkingActivity(item.status === "failed" ? "cancelled" : "completed");
+        }
+        return;
+      }
+      if (item.type === "message") {
+        const activityId = providerActivitiesByItemId.get(item.itemId) ?? answerActivity;
+        if (activityId && item.citations) {
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, { citations: item.citations });
+        }
+        return;
+      }
+      if (item.type === "hosted_tool" && item.toolName === "web_search") {
+        visibleStageStarted = true;
+        let activityId = providerActivitiesByItemId.get(item.itemId);
+        const tool = {
+          action: "search" as const,
+          argumentsPreview: item.searchQuery ? JSON.stringify({ query: item.searchQuery }) : "",
+          callId: item.callId ?? item.itemId,
+          callIndex: item.outputIndex,
+          effect: "external_side_effect" as const,
+          modelStepId,
+          normalizedTarget: item.searchQuery ?? "网络",
+          targetKind: "network" as const,
+          toolName: "web_search"
+        };
+        if (!activityId) {
+          activityId = openActivity(input, {
+            audience: "user",
+            body: item.searchQuery ?? "",
+            kind: "tool",
+            modelItemId: item.itemId,
+            modelStepId,
+            startedAt: input.registry.system.now(),
+            title: item.searchStatus === "searching" ? "搜索中" : "准备搜索",
+            tool
+          });
+          providerActivitiesByItemId.set(item.itemId, activityId);
+        } else {
+          const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
+          if (current && current.status !== "running" && current.status !== "suspended") return;
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+            title: item.searchStatus === "searching" ? "搜索中" : item.searchStatus === "completed" ? "搜索完成" : "准备搜索",
+            tool
+          });
+        }
+        if (item.status === "completed" || item.status === "failed") {
+          finishActivity(input, activityId, {
+            body: item.searchQuery ? `搜索 ${item.searchQuery}` : "搜索网络",
+            error: item.error,
+            status: item.status === "failed" ? "failed" : "completed",
+            tool: { ...tool, resultMetrics: { itemCount: 1 }, resultSummary: item.searchQuery ? `搜索 ${item.searchQuery}` : "搜索网络" }
+          });
+        }
+        return;
+      }
+      if (item.type === "custom" && item.toolName === "apply_patch") {
+        visibleStageStarted = true;
+        let activityId = providerActivitiesByItemId.get(item.itemId);
+        const callId = item.callId ?? item.itemId;
+        const tool = {
+          action: "modify" as const,
+          argumentsPreview: "补丁草稿（未应用）",
+          callId,
+          callIndex: item.outputIndex,
+          effect: "workspace_write" as const,
+          modelStepId,
+          normalizedTarget: "工作区补丁",
+          targetKind: "workspace" as const,
+          toolName: "apply_patch"
+        };
+        if (!activityId) {
+          activityId = openActivity(input, {
+            audience: "user",
+            body: "",
+            draft: { kind: "apply_patch", state: "generating", text: item.draft ?? "" },
+            kind: "tool",
+            modelItemId: item.itemId,
+            modelStepId,
+            startedAt: input.registry.system.now(),
+            title: "正在生成补丁",
+            tool
+          });
+          providerActivitiesByItemId.set(item.itemId, activityId);
+          providerActivitiesByCallId.set(callId, activityId);
+        } else {
+          const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
+          if (current && current.status !== "running" && current.status !== "suspended") return;
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+            draft: { kind: "apply_patch", state: item.status === "completed" ? "unapplied" : "generating", text: item.draft ?? "" },
+            status: item.status === "completed" ? "suspended" : "running",
+            title: item.status === "completed" ? "补丁草稿待应用" : "正在生成补丁"
+          });
+        }
+      }
+    };
+
     input.store.writeDebugSnapshot(input.sessionId, input.runId, {
       ...prepared.debugSnapshot,
       currentRequestEstimatedTokens: estimateProviderRequestTokens(messages, tools),
@@ -268,7 +388,12 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           maxOutputTokens: prepared.requestedMaxOutputTokens,
           messages,
           model: input.model,
-          onFragment: (fragment) => stepStream.push(fragment),
+          modelStepId,
+          onFragment: (fragment) => {
+            if (fragment.kind === "output_item") handleOutputItem(fragment.item);
+            else stepStream.push(fragment);
+          },
+          protocol: input.protocol,
           signal: providerStep.signal,
           tools
         },
@@ -276,10 +401,21 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       });
     } catch (error) {
       if (!input.signal?.aborted && providerStep.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
-        if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "cancelled" });
+        finishThinkingActivity("cancelled");
         if (answerActivity) finishActivity(input, answerActivity, { status: "cancelled" });
         applyPendingSteers();
         continue;
+      }
+      for (const activityId of providerActivitiesByItemId.values()) {
+        const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
+        if (!current || (current.status !== "running" && current.status !== "suspended") || current.kind === "message") continue;
+        const message = error instanceof Error ? error.message : String(error);
+        finishActivity(input, activityId, {
+          draft: current.draft ? { ...current.draft, state: "failed" } : undefined,
+          error: message,
+          status: "failed",
+          tool: current.tool
+        });
       }
       throw error;
     } finally {
@@ -287,7 +423,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       providerStep.release();
     }
     if (!input.signal?.aborted && providerStep.interruptedBySteer() && input.registry.hasSteers(input.runId)) {
-      if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "cancelled" });
+      finishThinkingActivity("cancelled");
       if (answerActivity) finishActivity(input, answerActivity, { status: "cancelled" });
       applyPendingSteers();
       continue;
@@ -308,7 +444,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     }
 
     if (response.protocolIssue) {
-      if (thinkingActivity) finishActivity(input, thinkingActivity, { status: "completed" });
+      finishThinkingActivity();
       if (answerActivity) finishActivity(input, answerActivity, { error: response.protocolIssue.message, status: "failed" });
       messages.push(response.continuationMessage);
       if (response.protocolIssue.retryable && protocolCorrectionCount === 0) {
@@ -332,8 +468,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       ? evaluateCompletion({ run: currentRun, runningCommandCount: runningCommandsAtFinal.length })
       : undefined;
     if (thinkingActivity) {
-      if (response.toolCalls.length > 0) suspendActivity(input, thinkingActivity);
-      else finishActivity(input, thinkingActivity, { status: "completed" });
+      const currentThinking = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === thinkingActivity);
+      if (currentThinking?.status === "running" || currentThinking?.status === "suspended") {
+        if (response.toolCalls.length > 0) suspendActivity(input, thinkingActivity);
+        else finishActivity(input, thinkingActivity, { status: "completed" });
+      }
     }
     if (answerActivity) finishActivity(input, answerActivity, {
       status: "completed"
@@ -425,7 +564,9 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     }));
     let suspended = false;
     const toolControl = input.registry.beginInterruptibleStep(input.runId);
-    const runToolCall = (call: ToolCall) => pipeline.run({
+    const runToolCall = (call: ToolCall) => {
+      const existingActivityId = providerActivitiesByCallId.get(call.callId);
+      return pipeline.run({
         baseline: input.workspaceBaseline,
         projectRoot: input.projectRoot,
         registry: input.registry,
@@ -433,7 +574,8 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         sessionId: input.sessionId,
         signal: toolControl.signal,
         store: input.store
-      }, call, modelStepId, knownInstructionKeys, undefined, stepRejection, stepHeadline);
+      }, call, modelStepId, knownInstructionKeys, existingActivityId, stepRejection, stepHeadline);
+    };
     let toolStep: Awaited<ReturnType<typeof executeToolStep>>;
     try {
       toolStep = await executeToolStep({
@@ -522,6 +664,7 @@ export async function runAgent(input: RunInput): Promise<void> {
     capabilities: input.capabilities ?? emptyCapabilitySource,
     context: input.context ?? defaultContextConfig,
     rules: input.rules ?? emptyRuleSource,
+    protocol: input.protocol ?? "chat",
     system: input.registry.system,
     thinkingSummary,
     workspaceBaseline: await input.tools.capture(input.projectRoot)

@@ -1,0 +1,35 @@
+diff --git a/tests/multiEdit.test.ts b/tests/multiEdit.test.ts
+--- a/tests/multiEdit.test.ts
++++ b/tests/multiEdit.test.ts
+@@ -48,30 +48,3 @@
+ });
+-
+-test("multi_edit: rolls back all changes when one edit fails (atomicity)", async () => {
+-  const directory = setupWorkspace();
+-  try {
+-    const original = "const foo = 1;\nconst bar = 2;\n";
+-    writeFileSync(path.join(directory, "target.ts"), original);
+-    await assert.rejects(
+-      executeTool({
+-        args: {
+-          path: "target.ts",
+-          edits: [
+-            { oldText: "const foo = 1;", newText: "const foo = 10;" },
+-            { oldText: "const NONEXISTENT = 999;", newText: "replaced" }
+-          ]
+-        },
+-        name: "multi_edit",
+-        projectRoot: directory
+-      }),
+-      /回滚/
+-    );
+-    // 原子性:文件应未被修改
+-    const content = readFileSync(path.join(directory, "target.ts"), "utf8");
+-    assert.equal(content, original);
+-  } finally {
+-    rmSync(directory, { force: true, recursive: true });
+-  }
+-});
+-
++
+ test("multi_edit: fails when oldText appears multiple times without replaceAll", async () => {

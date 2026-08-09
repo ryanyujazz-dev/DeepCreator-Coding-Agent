@@ -12,6 +12,7 @@ import { commandManager, CommandSnapshot } from "./commandManager";
 import { summarizeToolArguments, summarizeToolResult } from "./tools/summaries";
 import { runShell } from "./tools/shellExecution";
 import { deleteFile, editFile, listFiles, multiEdit, readFile, writeFile } from "./tools/files";
+import { applyPatch } from "./tools/applyPatch";
 import { globFiles, grepFiles } from "./tools/search";
 import { fetchUrl, webSearch } from "./tools/web";
 import { toolRegistry, toolSpecs, ToolRegistration } from "./tools/registry";
@@ -95,6 +96,7 @@ export async function executeTool(input: {
   if (name === "edit_file") return { mutatedWorkspace: true, output: await editFile(projectRoot, args as never) };
   if (name === "multi_edit") return { mutatedWorkspace: true, output: await multiEdit(projectRoot, args as never) };
   if (name === "delete_file") return { mutatedWorkspace: true, output: await deleteFile(projectRoot, args as never) };
+  if (name === "apply_patch") return { mutatedWorkspace: true, output: await applyPatch(projectRoot, args as never) };
   if (name === "fetch_url") return { mutatedWorkspace: false, output: await fetchUrl(args as never, signal) };
   if (name === "web_search") return { mutatedWorkspace: false, output: await webSearch(args as never, signal) };
   if (name === "run_command") {
@@ -264,6 +266,7 @@ export function toolTitle(name: string): string {
     update_tasks: "更新执行任务",
     write_file: "写入文件",
     multi_edit: "批量编辑文件",
+    apply_patch: "应用补丁",
     fetch_url: "抓取网页",
     web_search: "联网搜索",
     delegate: "委派子代理",

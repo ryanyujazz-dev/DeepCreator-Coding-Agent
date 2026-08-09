@@ -120,13 +120,13 @@ test("clamps compaction to the active provider context window", () => {
 });
 
 test("resolves broad, local, path-scoped, and nested instructions with provenance", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-instructions-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-instructions-"));
   try {
-    mkdirSync(path.join(directory, ".deepseeker", "rules"), { recursive: true });
+    mkdirSync(path.join(directory, ".deepcreator", "rules"), { recursive: true });
     mkdirSync(path.join(directory, "src", "feature"), { recursive: true });
-    writeFileSync(path.join(directory, "DEEPSEEKER.md"), "项目规则", "utf8");
-    writeFileSync(path.join(directory, "src", "feature", "DEEPSEEKER.md"), "功能目录规则", "utf8");
-    writeFileSync(path.join(directory, ".deepseeker", "rules", "typescript.md"), [
+    writeFileSync(path.join(directory, "DEEPCREATOR.md"), "项目规则", "utf8");
+    writeFileSync(path.join(directory, "src", "feature", "DEEPCREATOR.md"), "功能目录规则", "utf8");
+    writeFileSync(path.join(directory, ".deepcreator", "rules", "typescript.md"), [
       "---", "paths:", "  - 'src/**/*.ts'", "---", "TypeScript 路径规则"
     ].join("\n"), "utf8");
     const instructions = resolveInstructions({ activePaths: ["src/feature/view.ts"], projectRoot: directory });
@@ -141,10 +141,10 @@ test("resolves broad, local, path-scoped, and nested instructions with provenanc
 });
 
 test("project guidance metadata cannot elevate its authority or break the envelope", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-guidance-trust-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-guidance-trust-"));
   let store: RuntimeStore | undefined;
   try {
-    writeFileSync(path.join(directory, "DEEPSEEKER.md"), [
+    writeFileSync(path.join(directory, "DEEPCREATOR.md"), [
       "---",
       "origin: personal",
       "trust: user_owned",
@@ -174,9 +174,9 @@ test("project guidance metadata cannot elevate its authority or break the envelo
 });
 
 test("freezes startup guidance in the stable session envelope", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-guidance-freeze-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-guidance-freeze-"));
   try {
-    writeFileSync(path.join(directory, "DEEPSEEKER.md"), "稳定规范 v1", "utf8");
+    writeFileSync(path.join(directory, "DEEPCREATOR.md"), "稳定规范 v1", "utf8");
     const now = new Date().toISOString();
     const session = {
       ...sessionDefaults,
@@ -196,7 +196,7 @@ test("freezes startup guidance in the stable session envelope", () => {
       recordId: "session_context_1",
       sequence: 1
     };
-    writeFileSync(path.join(directory, "DEEPSEEKER.md"), "稳定规范 v2", "utf8");
+    writeFileSync(path.join(directory, "DEEPCREATOR.md"), "稳定规范 v2", "utf8");
     const second = prepareSessionContext({
       runId: "run_2", model: "deepseek-v4-flash", projectRoot: directory,
       prompt: "继续", records: [frozenRecord], session, rules: ruleSource, system: testSystem, tools: toolSpecs
@@ -215,7 +215,7 @@ test("uses provider output reserve before applying the 85 percent compact thresh
 });
 
 test("calibrates heuristic token estimates against provider usage without feedback drift", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-token-calibration-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-token-calibration-"));
   try {
     const store = new RuntimeStore(directory);
     const session = createSession(store, directory, "session_calibration");
@@ -246,10 +246,10 @@ test("calibrates heuristic token estimates against provider usage without feedba
 });
 
 test("keeps lazy path guidance out of the stable cache prefix", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-guidance-prefix-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-guidance-prefix-"));
   try {
-    mkdirSync(path.join(directory, ".deepseeker", "rules"), { recursive: true });
-    writeFileSync(path.join(directory, ".deepseeker", "rules", "ts.md"), "---\nselectors:\n  - 'src/**/*.ts'\ntrust: trusted_project\n---\n只使用 TypeScript。", "utf8");
+    mkdirSync(path.join(directory, ".deepcreator", "rules"), { recursive: true });
+    writeFileSync(path.join(directory, ".deepcreator", "rules", "ts.md"), "---\nselectors:\n  - 'src/**/*.ts'\ntrust: trusted_project\n---\n只使用 TypeScript。", "utf8");
     const now = new Date().toISOString();
     const session = {
       ...sessionDefaults,
@@ -274,10 +274,10 @@ test("keeps lazy path guidance out of the stable cache prefix", () => {
 });
 
 test("preflights unseen path guidance before the first file mutation", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-guidance-preflight-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-guidance-preflight-"));
   try {
-    mkdirSync(path.join(directory, ".deepseeker", "rules"), { recursive: true });
-    writeFileSync(path.join(directory, ".deepseeker", "rules", "ts.md"), "---\nselectors: ['src/**/*.ts']\n---\n新增文件必须导出常量。", "utf8");
+    mkdirSync(path.join(directory, ".deepcreator", "rules"), { recursive: true });
+    writeFileSync(path.join(directory, ".deepcreator", "rules", "ts.md"), "---\nselectors: ['src/**/*.ts']\n---\n新增文件必须导出常量。", "utf8");
     const store = new RuntimeStore(directory);
     createSession(store, directory, "session_preflight");
     store.append({ data: { accessMode: "full_access" }, sessionId: "session_preflight", type: "session.updated" });
@@ -321,13 +321,13 @@ test("preflights unseen path guidance before the first file mutation", async () 
 });
 
 test("appends lazy context only after every result in a parallel tool-call group", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-parallel-context-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-parallel-context-"));
   try {
     mkdirSync(path.join(directory, "src"), { recursive: true });
-    mkdirSync(path.join(directory, ".deepseeker", "rules"), { recursive: true });
+    mkdirSync(path.join(directory, ".deepcreator", "rules"), { recursive: true });
     writeFileSync(path.join(directory, "src", "a.ts"), "export const a = 1;\n", "utf8");
     writeFileSync(path.join(directory, "src", "b.ts"), "export const b = 2;\n", "utf8");
-    writeFileSync(path.join(directory, ".deepseeker", "rules", "ts.md"), "---\nselectors: ['src/**/*.ts']\n---\nTypeScript guidance", "utf8");
+    writeFileSync(path.join(directory, ".deepcreator", "rules", "ts.md"), "---\nselectors: ['src/**/*.ts']\n---\nTypeScript guidance", "utf8");
     const store = new RuntimeStore(directory);
     createSession(store, directory, "session_parallel");
     acceptCycle(store, "session_parallel", "run_parallel", "读取两个文件");
@@ -361,9 +361,9 @@ test("appends lazy context only after every result in a parallel tool-call group
 });
 
 test("indexes skills lazily and loads the full body only on invocation", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-skills-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-skills-"));
   try {
-    const skillDirectory = path.join(directory, ".deepseeker", "skills", "release");
+    const skillDirectory = path.join(directory, ".deepcreator", "skills", "release");
     mkdirSync(skillDirectory, { recursive: true });
     writeFileSync(path.join(skillDirectory, "SKILL.md"), "---\nname: release-check\ndescription: Validate a release candidate\n---\nFULL_SKILL_BODY run all release checks", "utf8");
     const digest = capabilityDigest(directory);
@@ -379,7 +379,7 @@ test("indexes skills lazily and loads the full body only on invocation", async (
 });
 
 test("stores only curated scoped memory facts and rejects secrets", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-memory-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-memory-"));
   try {
     const store = new RuntimeStore(directory);
     const fact = store.saveMemory({
@@ -515,7 +515,7 @@ test("reduces oversized evidence with explicit truncation and secret redaction",
 });
 
 test("persists DeepSeek tool reasoning across runs but drops ordinary final reasoning", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-context-loop-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-context-loop-"));
   try {
     writeFileSync(path.join(directory, "sample.ts"), "export const value = 1;\n", "utf8");
     const store = new RuntimeStore(directory);
@@ -582,7 +582,7 @@ test("persists DeepSeek tool reasoning across runs but drops ordinary final reas
 });
 
 test("records context telemetry without recording full reasoning content", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-telemetry-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-telemetry-"));
   try {
     process.env.DEEPSEEK_CONTEXT_DEBUG = "1";
     const store = new RuntimeStore(directory);
@@ -626,7 +626,7 @@ test("records context telemetry without recording full reasoning content", async
 });
 
 test("injects failed-run recovery facts immediately before a continue request", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-recovery-context-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-recovery-context-"));
   try {
     const store = new RuntimeStore(directory);
     createSession(store, directory, "session_recovery");
@@ -681,17 +681,20 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   const second = prompts.compileSystem("deepseek-v4-flash");
   assert.equal(first.hash, second.hash);
   assert.match(first.version, /safety@1\.1\.0/);
-  assert.match(first.version, /identity@2\.6\.0/);
+  assert.match(first.version, /identity@2\.7\.0/);
   assert.match(first.version, /coding_behavior@4\.5\.0/);
   assert.match(first.version, /content_policy@1\.3\.1/);
   assert.match(first.version, /tool_policy@5\.1\.0/);
   assert.match(first.version, /plan_policy@2\.8\.0/);
   assert.match(first.version, /final_response@2\.3\.0/);
   assert.match(first.version, /doing_tasks@1\.3\.0/);
-  assert.match(first.version, /output_style@2\.0\.0/);
+  assert.match(first.version, /output_style@2\.1\.0/);
   assert.match(first.text, /结构化 tool_calls/);
   assert.match(first.text, /所有面向用户的自然语言输出/);
   assert.match(first.text, /你的思维链（thinking 过程）必须全程与面向用户的输出语言保持一致。/);
+  assert.match(first.text, /第一个自然语言 token 就必须是中文/);
+  assert.match(first.text, /不得把它们与中文拼成一句/);
+  assert.match(first.text, /“Let me”“I'll”“I will”/);
   assert.match(first.text, /你不是任务播报员/);
   assert.match(first.text, /update_tasks 唯一负责整体任务清单/);
   assert.match(first.text, /调用工具时的回答内容不得包含任务计划的进度汇报/);
@@ -705,7 +708,7 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
 });
 
 test("persists the private context ledger independently from public signals", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-context-store-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-context-store-"));
   try {
     const first = new RuntimeStore(directory);
     createSession(first, directory, "session_persisted_context");

@@ -2,7 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MarkdownContent } from "../src/components/MarkdownContent";
+import { decorateCitations, MarkdownContent } from "../src/components/MarkdownContent";
+
+test("turns valid Responses citations into inline links and falls back to a source list", () => {
+  const valid = decorateCitations("来源", [{ endIndex: 2, startIndex: 0, title: "官方文档", url: "https://example.com/docs" }]);
+  assert.match(valid, /来源\[\[1\]\]/);
+  assert.match(valid, /https:\/\/example\.com\/docs/);
+  const html = renderToStaticMarkup(createElement(MarkdownContent, {
+    citations: [{ endIndex: 2, startIndex: 0, title: "官方文档", url: "https://example.com/docs" }],
+    text: "来源"
+  }));
+  assert.match(html, /href="https:\/\/example\.com\/docs"/);
+  assert.match(html, /target="_blank"/);
+  const fallback = decorateCitations("来源", [{ endIndex: 99, startIndex: 0, title: "官方文档", url: "https://example.com/docs" }]);
+  assert.match(fallback, /来源：/);
+  assert.equal(decorateCitations("来源", [{ endIndex: 2, startIndex: 0, title: "危险", url: "javascript:alert(1)" }]), "来源");
+});
 
 test("renders GFM structure and fenced code through the shared markdown surface", () => {
   const html = renderToStaticMarkup(createElement(MarkdownContent, {

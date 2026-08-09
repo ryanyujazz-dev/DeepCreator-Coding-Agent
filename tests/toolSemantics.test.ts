@@ -83,7 +83,7 @@ test("classifies command permission and mutation semantics from parsed arguments
   assert.equal(localNpx.network, false);
   assert.equal(localNpx.readOnly, true);
 
-  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepseeker-command-"));
+  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepcreator-command-"));
   try {
     const readOnlyResult = await executeTool({
       activityId: "activity_pwd",
@@ -110,7 +110,7 @@ test("classifies command permission and mutation semantics from parsed arguments
 });
 
 test("yields long commands for follow-up control and preserves nonzero exits", async () => {
-  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepseeker-command-"));
+  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepcreator-command-"));
   const family = resolveRuntimeShell().family;
   const timeoutCommand = family === "cmd"
     ? "ping -n 3 127.0.0.1 >NUL"
@@ -152,7 +152,7 @@ test("yields long commands for follow-up control and preserves nonzero exits", a
 });
 
 test("settles after a shell exits with inherited pipes", async () => {
-  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepseeker-command-lifecycle-"));
+  const projectRoot = mkdtempSync(path.join(tmpdir(), "deepcreator-command-lifecycle-"));
   writeFileSync(path.join(projectRoot, "background-parent.cjs"), [
     "const { spawn } = require('node:child_process');",
     "const { tmpdir } = require('node:os');",

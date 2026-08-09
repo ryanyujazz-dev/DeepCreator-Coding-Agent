@@ -5,6 +5,7 @@ import {
   ThemeSummary,
   WindowChromeTheme
 } from "./theme";
+import { ModelProtocol } from "./provider";
 
 export type RuntimePhase = "starting" | "ready" | "restarting" | "stopped" | "failed";
 
@@ -31,12 +32,14 @@ export type DesktopSettings = {
   defaultModel: string;
   hasApiKey: boolean;
   hasZhipuApiKey: boolean;
+  modelProtocols: Record<string, ModelProtocol>;
 };
 
 export type DesktopSettingsInput = {
   apiKey?: string;
   defaultModel: string;
   zhipuApiKey?: string;
+  modelProtocols?: Record<string, ModelProtocol>;
 };
 
 export type DesktopSettingsSaveResult = {

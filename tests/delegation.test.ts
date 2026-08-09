@@ -13,7 +13,7 @@ import { Provider } from "../shared/contracts/provider";
 import { testSystem } from "./support/system";
 
 test("delegate creates an independent hidden session and asynchronously delivers one typed result", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-delegation-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-delegation-"));
   try {
     const system = testSystem;
     const store = new RuntimeStore(directory, undefined, system);
@@ -122,7 +122,8 @@ test("delegate creates an independent hidden session and asynchronously delivers
       store
     });
     assert.match(requestMessages[0].text ?? "", /Explorer 子代理/);
-    assert.doesNotMatch(requestMessages[0].text ?? "", /你是 DeepSeeker CodeAgent/);
+    assert.match(requestMessages[0].text ?? "", /不得生成 “Let me先……” 这类中英混合句/);
+    assert.doesNotMatch(requestMessages[0].text ?? "", /你是 DeepCreator CodeAgent/);
     assert.equal(requestMessages.some((message) => message.text?.includes("PARENT_HISTORY_MUST_NOT_LEAK")), false);
     assert.equal(requestMessages.filter((message) => message.text === "Inspect the route registration").length, 1);
     assert.deepEqual(requestTools.sort(), [...agentDefinition("explorer").tools].sort());
@@ -157,7 +158,7 @@ test("built-in agent profiles enforce fixed tools and forbid nested delegation",
 });
 
 test("parent completion waits for a typed delegation result without emitting a second tool result", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-delegation-gate-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-delegation-gate-"));
   const system = testSystem;
   const store = new RuntimeStore(directory, undefined, system);
   const registry = new RunRegistry(system);
@@ -269,7 +270,7 @@ test("parent completion waits for a typed delegation result without emitting a s
 });
 
 test("delegation enforces the four-child limit and parent cancellation cascades", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-delegation-limit-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-delegation-limit-"));
   const store = new RuntimeStore(directory, undefined, testSystem);
   const registry = new RunRegistry(testSystem);
   try {

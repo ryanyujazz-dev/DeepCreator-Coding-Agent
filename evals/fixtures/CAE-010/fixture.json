@@ -1,0 +1,12 @@
+{
+  "caseId": "CAE-010",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "interactions": { "autoApprovePlan": true },
+  "assertions": [
+    { "id": "verification-card", "kind": "command", "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/verificationSummaryAcceptance.test.ts", "expectedExitCode": 0, "points": 20 },
+    { "id": "renderer-build", "kind": "command", "command": "npm run typecheck:renderer", "expectedExitCode": 0, "points": 10 }
+  ],
+  "timeoutMs": 900000
+}

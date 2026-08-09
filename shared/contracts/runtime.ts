@@ -1,4 +1,6 @@
-export const EVENT_VERSION = "deepseeker.events/v2" as const;
+import { ModelCitation, ModelOutputItem, ModelProtocol } from "./provider";
+
+export const EVENT_VERSION = "deepcreator.events/v2" as const;
 
 export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 export type ActivityStatus = "running" | "suspended" | "completed" | "failed" | "cancelled";
@@ -219,6 +221,7 @@ export type Activity = {
   activityId: string;
   runId: string;
   modelStepId?: string;
+  modelItemId?: string;
   kind: ActivityKind;
   status: ActivityStatus;
   audience: Audience;
@@ -239,6 +242,12 @@ export type Activity = {
   };
   files?: FileChange[];
   liveFiles?: FileChange[];
+  citations?: ModelCitation[];
+  draft?: {
+    kind: "apply_patch";
+    state: "generating" | "unapplied" | "waiting_approval" | "applying" | "applied" | "failed";
+    text: string;
+  };
   error?: string;
   delegation?: DelegationActivity;
 };
@@ -248,6 +257,7 @@ export type Run = {
   sessionId: string;
   prompt: string;
   model: string;
+  protocol?: ModelProtocol;
   mode: Mode;
   status: RunStatus;
   startedAt: string;
@@ -258,6 +268,7 @@ export type Run = {
   changes: Changes;
   approvals: Approval[];
   usage?: Usage;
+  outputItems?: ModelOutputItem[];
   /** Backward-compatible aggregate of all provider reasoning in this Run. */
   reasoning?: string;
   /** Provider reasoning grouped by sealed model step for the local Run inspector. */
@@ -369,7 +380,8 @@ export type EventPayloadMap = {
     updatedAt: string;
   };
   "delegation.delivered": { deliveredAt: string; delegationId: string };
-  "run.started": Pick<Run, "model" | "prompt" | "startedAt"> & { mode?: Mode };
+  "run.started": Pick<Run, "model" | "prompt" | "startedAt"> & { mode?: Mode; protocol?: ModelProtocol };
+  "model.output_item.changed": { item: ModelOutputItem };
   "reasoning.updated": {
     /** Optional only so pre-step-grouping Events remain replayable. */
     modelStepId?: string;
@@ -402,6 +414,8 @@ export type EventPayloadMap = {
     bodyDelta?: string;
     command?: Partial<NonNullable<Activity["command"]>>;
     files?: Activity["files"];
+    citations?: Activity["citations"];
+    draft?: Activity["draft"];
     kind?: Activity["kind"];
     liveFiles?: Activity["liveFiles"];
     status?: Extract<Activity["status"], "running" | "suspended">;

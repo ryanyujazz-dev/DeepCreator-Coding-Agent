@@ -1,0 +1,42 @@
+diff --git a/server/app/followUps.ts b/server/app/followUps.ts
+--- a/server/app/followUps.ts
++++ b/server/app/followUps.ts
+@@ -72,6 +72,7 @@ export class FollowUpService {
+     }
+     const at = this.deps.system.now();
+     const activityId = this.deps.system.createId("activity");
++    this.deps.registry.interruptForSteer(activeRun.runId);
+     this.deps.store.appendContextEntry({
+       createdAt: at,
+       kind: "human_text",
+@@ -105,7 +106,6 @@ export class FollowUpService {
+       sessionId,
+       type: "activity.finished"
+     }]);
+-    this.deps.registry.interruptForSteer(activeRun.runId);
+     return { session: this.requireSession(sessionId) };
+   }
+
+diff --git a/tests/followUps.test.ts b/tests/followUps.test.ts
+--- a/tests/followUps.test.ts
++++ b/tests/followUps.test.ts
+@@ -92,6 +92,11 @@ test("steering aborts the active interruptible step after persisting the user m
+   try {
+     registry.startRun("run_current");
+     const step = registry.beginInterruptibleStep("run_current");
++    let persistedBeforeAbort = false;
++    step.signal.addEventListener("abort", () => {
++      persistedBeforeAbort = store.readContextEntries("session_follow_up")
++        .some((entry) => entry.kind === "human_text" && entry.text === "立即改为检查测试");
++    });
+     const queued = await followUps.queue({
+       accessMode: "request_approval",
+       mode: "work",
+@@ -104,6 +109,7 @@ test("steering aborts the active interruptible step after persisting the user m
+
+     assert.equal(step.signal.aborted, true);
+     assert.equal(step.interruptedBySteer(), true);
++    assert.equal(persistedBeforeAbort, true);
+     assert.equal(store.getRun("run_current")?.activities.at(-1)?.kind, "user_message");
+     step.release();
+   } finally {

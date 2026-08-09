@@ -17,6 +17,9 @@ export function summarizeToolArguments(name: string, args: Record<string, unknow
       oldText: typeof edit.oldText === "string" ? `[原文本已省略，共 ${edit.oldText.length} 字符]` : edit.oldText
     }));
   }
+  if (name === "apply_patch" && typeof safe.patch === "string") {
+    safe.patch = `[补丁正文已从参数摘要省略，共 ${safe.patch.length} 字符]`;
+  }
   return redactSensitiveText(JSON.stringify(safe));
 }
 
@@ -40,5 +43,6 @@ export function summarizeToolResult(name: string, args: Record<string, unknown>,
   if (name === "stop_command") return `已停止命令 ${String(args.commandId ?? "")}`;
   if (name === "web_search") return `搜索 ${String(args.query ?? "")}`;
   if (name === "fetch_url") return `已抓取 ${String(args.url ?? "URL")}`;
+  if (name === "apply_patch") return output;
   return redactSensitiveText(output).slice(0, 2_000);
 }

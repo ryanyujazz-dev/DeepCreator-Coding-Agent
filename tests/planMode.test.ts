@@ -149,7 +149,7 @@ test("RunRegistry waits for one cancelled run to finish unwinding", async () => 
 });
 
 test("submit_plan suspends durably and approval resumes the same Run with a paired tool result", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-plan-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-plan-"));
   try {
     const store = new RuntimeStore(directory);
     store.createSession({
@@ -250,7 +250,7 @@ test("submit_plan suspends durably and approval resumes the same Run with a pair
 });
 
 test("fragmented submit_plan stays buffered until the complete tool step is available", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-plan-stream-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-plan-stream-"));
   try {
     const store = new RuntimeStore(directory);
     store.createSession({
@@ -320,7 +320,7 @@ test("fragmented submit_plan stays buffered until the complete tool step is avai
 });
 
 test("suggested entry waits for user confirmation before changing mode", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-plan-entry-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-plan-entry-"));
   try {
     const store = new RuntimeStore(directory);
     store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, mode: "work", model: "test", planEntry: "suggest", projectRoot: directory, sessionId: "session_entry", title: "建议进入" });
@@ -348,7 +348,7 @@ test("suggested entry waits for user confirmation before changing mode", async (
 });
 
 test("plan review decisions are idempotent and reject stale contradictory decisions", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-plan-review-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-plan-review-"));
   try {
     const store = new RuntimeStore(directory);
     store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, mode: "plan", model: "test", projectRoot: directory, sessionId: "session_review", title: "审阅" });

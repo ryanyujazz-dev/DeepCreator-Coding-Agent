@@ -16,7 +16,7 @@ function git(directory: string, ...args: string[]): void {
 }
 
 test("reports only changes made after the work-run baseline", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-delta-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-delta-"));
   try {
     git(directory, "init");
     git(directory, "config", "user.email", "runtime@test.local");
@@ -61,7 +61,7 @@ test("reports only changes made after the work-run baseline", async () => {
 });
 
 test("checkpoints clean direct file targets before mutation", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "deepseeker-checkpoint-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-checkpoint-"));
   try {
     git(directory, "init");
     git(directory, "config", "user.email", "runtime@test.local");

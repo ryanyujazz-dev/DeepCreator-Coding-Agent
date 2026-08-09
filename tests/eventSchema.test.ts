@@ -71,6 +71,29 @@ test("validates durable reasoning titles", () => {
   assert.equal(eventSchema.safeParse({ ...title, data: { title: "字".repeat(61) } }).success, false);
 });
 
+test("validates provider-neutral Responses output item lifecycle facts", () => {
+  const outputItem = {
+    ...startedEvent(),
+    data: {
+      item: {
+        itemId: "item_1",
+        modelStepId: "model_step_1",
+        outputIndex: 0,
+        sequence: 1,
+        status: "generating",
+        type: "custom",
+        callId: "call_1",
+        draft: "*** Begin Patch"
+      }
+    },
+    eventId: "session_schema:5",
+    offset: 5,
+    type: "model.output_item.changed"
+  };
+  assert.equal(eventSchema.safeParse(outputItem).success, true);
+  assert.equal(eventSchema.safeParse({ ...outputItem, data: { item: { ...outputItem.data.item, type: "raw_sse" } } }).success, false);
+});
+
 test("rejects unknown or incomplete V2 Events at the decoding boundary", () => {
   assert.equal(decodeEvent({ ...startedEvent(), type: "run.teleported" }), undefined);
   assert.equal(decodeEvent({ ...startedEvent(), scope: { sessionId: "session_schema" } }), undefined);

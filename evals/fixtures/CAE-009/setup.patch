@@ -1,0 +1,60 @@
+diff --git a/server/app/planReview.ts b/server/app/planReview.ts
+--- a/server/app/planReview.ts
++++ b/server/app/planReview.ts
+@@ -214,7 +214,7 @@ export function revisePlan(input: {
+       plan: {
+         ...plan,
+         markdown,
+-        revision: plan.revision + 1,
++        revision: plan.revision,
+         status: "proposed" as const,
+         title,
+         updatedAt
+diff --git a/tests/planMode.test.ts b/tests/planMode.test.ts
+--- a/tests/planMode.test.ts
++++ b/tests/planMode.test.ts
+@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
+ import path from "node:path";
+ import test from "node:test";
+ import { Event } from "../shared/contracts/runtime";
+-import { answerQuestion, resolvePlan } from "../server/app/planReview";
++import { answerQuestion, resolvePlan, revisePlan } from "../server/app/planReview";
+ import { testSystem, TestRunRegistry as RunRegistry } from "./support/system";
+ import { runAgent } from "../server/app/runner";
+ import { analyzeCommand } from "../server/domain/accessPolicy";
+@@ -374,3 +374,34 @@ test("plan review decisions are idempotent and reject stale contradictory deci
+     rmSync(directory, { force: true, recursive: true });
+   }
+ });
++
++test("plan revision increments and rejects approval of the superseded revision", () => {
++  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-plan-revision-acceptance-"));
++  try {
++    const store = new RuntimeStore(directory);
++    store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, mode: "plan", model: "test", projectRoot: directory, sessionId: "session_revision", title: "修订" });
++    store.append({ data: { mode: "plan", model: "test", prompt: "规划", startedAt: testSystem.now() }, runId: "run_revision", sessionId: "session_revision", type: "run.started" });
++    store.append({
++      data: { plan: { callId: "call_revision", createdAt: testSystem.now(), markdown: "第一版", planId: "plan_revision", revision: 1, runId: "run_revision", sessionId: "session_revision", status: "proposed", title: "方案", updatedAt: testSystem.now() } },
++      runId: "run_revision",
++      sessionId: "session_revision",
++      type: "plan.proposed"
++    });
++
++    const revised = revisePlan({
++      markdown: "第二版",
++      planId: "plan_revision",
++      revision: 1,
++      sessionId: "session_revision",
++      store,
++      system: testSystem,
++      title: "修订方案"
++    });
++
++    assert.equal(revised.plans.some((plan) => plan.revision === 2 && plan.status === "proposed"), true);
++    assert.equal(revised.plans.find((plan) => plan.revision === 1)?.status, "superseded");
++    assert.throws(() => resolvePlan({ decision: "start_work", planId: "plan_revision", revision: 1, sessionId: "session_revision", store, system: testSystem }), /stale/);
++    store.close();
++  } finally {
++    rmSync(directory, { force: true, recursive: true });
++  }
++});

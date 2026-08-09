@@ -117,6 +117,40 @@ function fileChange(value: unknown): boolean {
     && oneOf(value.operation, ["created", "edited", "deleted", "renamed", "unknown"] as const);
 }
 
+function citation(value: unknown): boolean {
+  return record(value)
+    && number(value.startIndex)
+    && number(value.endIndex)
+    && string(value.title)
+    && string(value.url);
+}
+
+function patchDraft(value: unknown): boolean {
+  return record(value)
+    && value.kind === "apply_patch"
+    && oneOf(value.state, ["generating", "unapplied", "waiting_approval", "applying", "applied", "failed"] as const)
+    && string(value.text);
+}
+
+function modelOutputItem(value: unknown): boolean {
+  return record(value)
+    && string(value.itemId)
+    && string(value.modelStepId)
+    && number(value.outputIndex)
+    && number(value.sequence)
+    && oneOf(value.status, ["generating", "running", "completed", "failed"] as const)
+    && oneOf(value.type, ["reasoning", "message", "function", "custom", "hosted_tool"] as const)
+    && optional(value.argumentsText, string)
+    && optional(value.callId, string)
+    && optional(value.citations, (item) => Array.isArray(item) && item.every(citation))
+    && optional(value.draft, string)
+    && optional(value.error, string)
+    && optional(value.searchQuery, string)
+    && optional(value.searchStatus, (item) => oneOf(item, ["in_progress", "searching", "completed"] as const))
+    && optional(value.text, string)
+    && optional(value.toolName, string);
+}
+
 function toolState(value: unknown, partial = false): boolean {
   if (!record(value)) return false;
   const required = (key: string, predicate: (input: unknown) => boolean) => partial
@@ -227,7 +261,9 @@ const payloadSchemas = {
     && string(value.model)
     && string(value.prompt)
     && string(value.startedAt)
-    && optional(value.mode, (item) => oneOf(item, ["work", "plan"] as const)),
+    && optional(value.mode, (item) => oneOf(item, ["work", "plan"] as const))
+    && optional(value.protocol, (item) => oneOf(item, ["chat", "responses"] as const)),
+  "model.output_item.changed": (value) => record(value) && modelOutputItem(value.item),
   "reasoning.updated": (value) => record(value)
     && optional(value.modelStepId, string)
     && string(value.textDelta),
@@ -269,16 +305,22 @@ const payloadSchemas = {
     && oneOf(value.kind, ["thinking", "message", "user_message", "plan", "tool", "command", "file_mutation", "delegation", "compaction", "error"] as const)
     && oneOf(value.audience, ["user", "debug", "internal"] as const)
     && optional(value.title, string)
+    && optional(value.modelStepId, string)
+    && optional(value.modelItemId, string)
     && string(value.startedAt)
     && optional(value.body, string)
     && optional(value.tool, (item) => toolState(item))
     && optional(value.command, (item) => command(item))
-    && optional(value.files, (item) => Array.isArray(item) && item.every(fileChange)),
+    && optional(value.files, (item) => Array.isArray(item) && item.every(fileChange))
+    && optional(value.citations, (item) => Array.isArray(item) && item.every(citation))
+    && optional(value.draft, patchDraft),
   "activity.updated": (value) => record(value)
     && optional(value.argumentsDelta, string)
     && optional(value.bodyDelta, string)
     && optional(value.command, (item) => command(item, true))
     && optional(value.files, (item) => Array.isArray(item) && item.every(fileChange))
+    && optional(value.citations, (item) => Array.isArray(item) && item.every(citation))
+    && optional(value.draft, patchDraft)
     && optional(value.liveFiles, (item) => Array.isArray(item) && item.every(fileChange))
     && optional(value.kind, (item) => oneOf(item, ["thinking", "message", "user_message", "plan", "tool", "command", "file_mutation", "delegation", "compaction", "error"] as const))
     && optional(value.status, (item) => oneOf(item, ["running", "suspended"] as const))
@@ -293,6 +335,8 @@ const payloadSchemas = {
     && optional(value.tool, (item) => toolState(item))
     && optional(value.command, (item) => command(item))
     && optional(value.files, (item) => Array.isArray(item) && item.every(fileChange))
+    && optional(value.citations, (item) => Array.isArray(item) && item.every(citation))
+    && optional(value.draft, patchDraft)
     && optional(value.liveFiles, (item) => Array.isArray(item) && item.every(fileChange)),
   "approval.requested": approval,
   "approval.resolved": (value) => record(value)

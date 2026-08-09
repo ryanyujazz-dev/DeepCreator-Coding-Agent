@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { ModelProtocol } from "../../shared/contracts/provider";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADR-009: 普通用户配置统一为 ~/.deepseeker/config.json
+// ADR-009: 普通用户配置统一为 ~/.deepcreator/config.json
 //
 // 不再读取项目内的 .env.local。桌面端历史 DeepSeek 密钥仍可由
 // safeStorage 兼容解析，Runtime 环境变量只承担宿主到 worker 的进程传递。
@@ -16,6 +17,8 @@ export type UserConfig = {
   zhipuApiKey: string;
   /** 默认模型。 */
   model: string;
+  /** Per-model transport protocol overrides. */
+  modelProtocols: Record<string, ModelProtocol>;
   /** 上下文窗口 token 数。 */
   contextWindowTokens: number;
   /** 用户语言环境(如 zh-CN、en-US)。 */
@@ -38,6 +41,7 @@ const DEFAULT_CONFIG: UserConfig = {
   contextWindowTokens: 1_000_000,
   locale: "en-US",
   model: "deepseek-v4-flash",
+  modelProtocols: { "deepseek-v4-flash": "responses" },
   permissions: { allow: [], deny: [] }
 };
 
@@ -56,6 +60,17 @@ export function parseUserConfig(raw: string): UserConfig {
     throw new Error("contextWindowTokens 必须是正整数。");
   }
   let permissions = DEFAULT_CONFIG.permissions;
+  let modelProtocols = { ...DEFAULT_CONFIG.modelProtocols };
+  if (input.modelProtocols !== undefined) {
+    if (!input.modelProtocols || typeof input.modelProtocols !== "object" || Array.isArray(input.modelProtocols)) {
+      throw new Error("modelProtocols 必须是对象。");
+    }
+    modelProtocols = {};
+    for (const [model, protocol] of Object.entries(input.modelProtocols as Record<string, unknown>)) {
+      if (protocol !== "chat" && protocol !== "responses") throw new Error(`modelProtocols.${model} 必须是 chat 或 responses。`);
+      modelProtocols[model] = protocol;
+    }
+  }
   if (input.permissions !== undefined) {
     if (!input.permissions || typeof input.permissions !== "object" || Array.isArray(input.permissions)) {
       throw new Error("permissions 必须是对象。");
@@ -76,12 +91,17 @@ export function parseUserConfig(raw: string): UserConfig {
     contextWindowTokens: Number(contextWindowTokens),
     locale: optionalString(input.locale, "locale") ?? DEFAULT_CONFIG.locale,
     model: optionalString(input.model, "model") ?? DEFAULT_CONFIG.model,
+    modelProtocols,
     permissions,
     zhipuApiKey: optionalString(input.zhipuApiKey, "zhipuApiKey") ?? DEFAULT_CONFIG.zhipuApiKey
   };
 }
 
 function configPath(): string {
+  return path.join(homedir(), ".deepcreator", "config.json");
+}
+
+function previousConfigPath(): string {
   return path.join(homedir(), ".deepseeker", "config.json");
 }
 
@@ -101,7 +121,7 @@ export function loadUserConfig(): UserConfig {
 }
 
 /**
- * 确保 ~/.deepseeker/config.json 存在。首次运行时创建模板。
+ * 确保 ~/.deepcreator/config.json 存在。首次运行时创建模板。
  * 如果已存在则不覆盖。
  */
 export function ensureUserConfig(): void {
@@ -109,6 +129,11 @@ export function ensureUserConfig(): void {
   if (existsSync(file)) return;
   const dir = path.dirname(file);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const previous = previousConfigPath();
+  if (existsSync(previous)) {
+    writeFileSync(file, readFileSync(previous, "utf8"), { encoding: "utf8", mode: 0o600 });
+    return;
+  }
   writeFileSync(file, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n", "utf8");
 }
 
