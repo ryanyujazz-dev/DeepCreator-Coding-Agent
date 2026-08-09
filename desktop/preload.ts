@@ -1,8 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { AuthState } from "../shared/contracts/auth";
-import { DesktopBridge, DesktopSettingsInput, RuntimeState } from "../shared/contracts/desktop";
+import {
+  DesktopBridge,
+  DesktopSettingsInput,
+  RuntimeState,
+  WindowControlsState
+} from "../shared/contracts/desktop";
 
 const bridge: DesktopBridge = {
+  platform: process.platform === "darwin" || process.platform === "win32" ? process.platform : "linux",
   auth: {
     cancelSignIn: () => ipcRenderer.invoke("desktop:auth:cancel-sign-in"),
     deleteAccount: (input) => ipcRenderer.invoke("desktop:auth:delete-account", input),
@@ -64,6 +70,14 @@ const bridge: DesktopBridge = {
     list: () => ipcRenderer.invoke("desktop:themes:list"),
     remove: (themeId) => ipcRenderer.invoke("desktop:themes:remove", themeId),
     save: (theme) => ipcRenderer.invoke("desktop:themes:save", theme)
+  },
+  windowControls: {
+    getState: () => ipcRenderer.invoke("desktop:window-controls:get-state"),
+    onState: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: WindowControlsState) => listener(state);
+      ipcRenderer.on("window-controls:state", handler);
+      return () => ipcRenderer.removeListener("window-controls:state", handler);
+    }
   }
 };
 
