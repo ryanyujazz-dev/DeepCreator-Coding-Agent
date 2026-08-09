@@ -3,6 +3,7 @@
   "references": [
     { "path": "./tsconfig.shared.json" },
     { "path": "./tsconfig.server.json" },
+    { "path": "./tsconfig.auth.json" },
     { "path": "./tsconfig.renderer.json" },
     { "path": "./tsconfig.desktop.json" },
     { "path": "./tsconfig.evals.json" },

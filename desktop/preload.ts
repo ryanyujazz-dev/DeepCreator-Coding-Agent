@@ -1,7 +1,21 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { AuthState } from "../shared/contracts/auth";
 import { DesktopBridge, DesktopSettingsInput, RuntimeState } from "../shared/contracts/desktop";
 
 const bridge: DesktopBridge = {
+  auth: {
+    cancelSignIn: () => ipcRenderer.invoke("desktop:auth:cancel-sign-in"),
+    deleteAccount: (input) => ipcRenderer.invoke("desktop:auth:delete-account", input),
+    getState: () => ipcRenderer.invoke("desktop:auth:get-state"),
+    onState: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: AuthState) => listener(state);
+      ipcRenderer.on("auth:state", handler);
+      return () => ipcRenderer.removeListener("auth:state", handler);
+    },
+    signIn: () => ipcRenderer.invoke("desktop:auth:sign-in"),
+    signOut: () => ipcRenderer.invoke("desktop:auth:sign-out"),
+    updateLocalProfile: (input) => ipcRenderer.invoke("desktop:auth:update-local-profile", input)
+  },
   appearance: {
     applyChrome: (theme) => ipcRenderer.invoke("desktop:appearance:apply-chrome", theme),
     read: () => ipcRenderer.invoke("desktop:appearance:read"),

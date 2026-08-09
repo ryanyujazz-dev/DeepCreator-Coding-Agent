@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const styles = readFileSync(path.join(root, "src/styles.css"), "utf8");
 const applicationSurfaces = readFileSync(path.join(root, "src/styles/features/application-surfaces.css"), "utf8");
+const authStyles = readFileSync(path.join(root, "src/styles/features/auth.css"), "utf8");
 const followUpStyles = readFileSync(path.join(root, "src/styles/features/follow-ups.css"), "utf8");
 
 test("keeps one semantic token source and the licensed HarmonyOS font", () => {
@@ -22,6 +23,17 @@ test("keeps one semantic token source and the licensed HarmonyOS font", () => {
   assert.equal(existsSync(font), true);
   assert.equal(existsSync(license), true);
   assert.ok(statSync(font).size > 20_000_000);
+});
+
+test("keeps settings development-only and centers the sidebar Profile avatar", () => {
+  const app = readFileSync(path.join(root, "src/App.tsx"), "utf8");
+  const sidebar = readFileSync(path.join(root, "src/components/SessionSidebar.tsx"), "utf8");
+  assert.match(app, /const DeveloperSettingsWorkspace = import\.meta\.env\.DEV/);
+  assert.match(app, /if \(DeveloperSettingsWorkspace\) setWorkspaceView\("settings"\)/);
+  assert.match(app, /else setQuickSettingsOpen\(true\)/);
+  assert.match(app, /<SettingsDialog authState=\{authState\}/);
+  assert.doesNotMatch(sidebar, /CircleHelp/);
+  assert.match(authStyles, /\.account-strip \.profile-avatar\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*line-height:\s*1;[^}]*text-align:\s*center;/s);
 });
 
 test("binds every execution hierarchy level to shared typography and columns", () => {
@@ -59,12 +71,12 @@ test("anchors the scroll-to-bottom control to the responsive composer center", (
   assert.match(conversation, /createPortal\([\s\S]*className="scroll-to-bottom-button"[\s\S]*composerPortalTarget/s);
 });
 
-test("floats the composer and reserves its bottom offset plus 30px in the conversation flow", () => {
+test("floats the composer and reserves its bottom offset plus 60px in the conversation flow", () => {
   assert.match(followUpStyles, /\.conversation-main > \.composer-stack\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*18px/s);
   assert.match(followUpStyles, /\.queued-follow-ups\s*\{[^}]*background:\s*color-mix/s);
   const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
   assert.match(conversation, /setComposerBottomOffset\(portalTarget\.clientHeight - composer\.offsetTop\)/);
-  assert.match(conversation, /conversation-column-bottom-spacer" style=\{\{ height: `\$\{composerBottomOffset \+ 30\}px` \}\}/);
+  assert.match(conversation, /conversation-column-bottom-spacer" style=\{\{ height: `\$\{composerBottomOffset \+ 60\}px` \}\}/);
 });
 
 test("floats runtime errors at the centered top of the conversation flow", () => {
@@ -210,7 +222,7 @@ test("routes the renderer, code views, and settings workspace through the shared
   const mermaid = readFileSync(path.join(root, "src/components/MermaidBlock.tsx"), "utf8");
 
   assert.match(main, /<ThemeProvider>/);
-  assert.match(app, /<SettingsWorkspace/);
+  assert.match(app, /<DeveloperSettingsWorkspace/);
   assert.match(provider, /root\.dataset\.theme = activeTheme\.id/);
   assert.match(provider, /previewTheme/);
   assert.match(provider, /"--shadow-faint-color"/);

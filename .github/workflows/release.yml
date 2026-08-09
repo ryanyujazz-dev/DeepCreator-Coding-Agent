@@ -22,6 +22,8 @@ jobs:
             artifact: Windows
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      DEEPCREATOR_AUTH_MODE: local
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

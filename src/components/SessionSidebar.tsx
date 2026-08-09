@@ -1,6 +1,5 @@
 import {
   Archive,
-  CircleHelp,
   Folder,
   FolderOpen,
   MessageCircle,
@@ -21,6 +20,8 @@ import { NewTaskIcon } from "./NewTaskIcon";
 import { OverflowFadeText } from "./OverflowFadeText";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { SidebarConfirmationDialog } from "./SidebarConfirmationDialog";
+import { AuthState } from "../../shared/contracts/auth";
+import { ProfileAvatar } from "../features/auth/ProfileAvatar";
 import { FloatingSurface, IconButton, RowAction } from "../shared-ui/ControlPrimitives";
 import { browserPlatform } from "../platform/browser";
 
@@ -79,6 +80,7 @@ export function partitionSidebarItems(projectRoots: string[], projects: ProjectR
 }
 
 export function SessionSidebar({
+  authState,
   desktopProjectsManaged = false,
   onArchiveProject,
   onArchiveSession,
@@ -99,6 +101,7 @@ export function SessionSidebar({
   sidebarWidth,
   sessions
 }: {
+  authState?: AuthState;
   desktopProjectsManaged?: boolean;
   onArchiveProject?: (projectRoot: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string) => Promise<void> | void;
@@ -364,7 +367,16 @@ export function SessionSidebar({
         )}
       </div>
       <div className="account-strip">
-        <div className="avatar">DS</div><div><strong>本地工作区</strong></div>{onSettings ? <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton> : <CircleHelp size={16} />}
+        {authState?.user?.avatarUrl
+          ? <img alt="" className="avatar account-avatar-image" referrerPolicy="no-referrer" src={authState.user.avatarUrl} />
+          : authState?.mode === "local"
+            ? <ProfileAvatar avatar={authState.user?.avatar} className="avatar" displayName={authState.user?.displayName || "本地 Profile"} />
+            : <div className="avatar">{authState?.user?.displayName.slice(0, 1).toLocaleUpperCase() || "DS"}</div>}
+        <div>
+          <strong>{authState?.user?.displayName || "本地 Profile"}</strong>
+          <span>{authState?.mode === "local" ? "仅此设备" : authState?.phase === "offline" ? "离线登录" : authState?.user ? `@${authState.user.githubLogin}` : ""}</span>
+        </div>
+        {onSettings && <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton>}
       </div>
       <PanelResizeHandle ariaLabel="调整左侧栏宽度" edge="right" max={360} min={220} onChange={onWidthChange} onReset={onWidthReset} value={sidebarWidth} />
 

@@ -12,6 +12,7 @@ import {
   SkillSummary,
   SkillTargetInput
 } from "./skill";
+import { AuthDeleteInput, AuthState, LocalProfileInput } from "./auth";
 
 export type RuntimePhase = "starting" | "ready" | "restarting" | "stopped" | "failed";
 
@@ -54,6 +55,15 @@ export type DesktopSettingsSaveResult = {
 };
 
 export type DesktopBridge = {
+  auth: {
+    cancelSignIn: () => Promise<AuthState>;
+    deleteAccount: (input: AuthDeleteInput) => Promise<AuthState>;
+    getState: () => Promise<AuthState>;
+    onState: (listener: (state: AuthState) => void) => () => void;
+    signIn: () => Promise<AuthState>;
+    signOut: () => Promise<AuthState>;
+    updateLocalProfile: (input: LocalProfileInput) => Promise<AuthState>;
+  };
   appearance: {
     applyChrome: (theme: WindowChromeTheme) => Promise<void>;
     read: () => Promise<ThemePreference>;

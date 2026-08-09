@@ -1,23 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { App } from "./app/index";
-import { runtimeApi } from "./runtimeApi";
+import { DesktopAppRoot } from "./app/index";
 import { ThemeProvider } from "./theme/ThemeProvider";
 import { installWorkingGlowMotion } from "./workingGlowMotion";
 import "./styles/index.css";
-import { desktopBridge } from "./platform/desktop";
 
 async function bootstrap(): Promise<void> {
-  const desktop = desktopBridge();
-  if (desktop) {
-    const connection = await desktop.runtime.connection();
-    runtimeApi.configure(connection);
-  }
   const rootElement = document.getElementById("root")!;
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <ThemeProvider>
-        <App />
+        <DesktopAppRoot />
       </ThemeProvider>
     </React.StrictMode>
   );

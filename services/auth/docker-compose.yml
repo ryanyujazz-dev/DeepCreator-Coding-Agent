@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: deepcreator_auth
+      POSTGRES_PASSWORD: deepcreator_dev
+      POSTGRES_USER: deepcreator
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deepcreator -d deepcreator_auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "54329:5432"
+    volumes:
+      - deepcreator-auth-postgres:/var/lib/postgresql/data
+
+volumes:
+  deepcreator-auth-postgres:

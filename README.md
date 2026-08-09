@@ -42,6 +42,14 @@ To run the desktop product, use:
 npm run dev:desktop
 ```
 
+桌面端默认在首次启动时创建一个持久的本地 Profile，不需要登录或账号服务。对话、最近项目、模型配置和 API Key 都按该 Profile 保存在当前设备：
+
+```bash
+npm run dev:desktop:local-auth
+```
+
+`dev:desktop:local-auth` 是兼容入口，与默认的 `dev:desktop` 使用同一种本地 Profile 模式。需要为特定发行版显式启用 GitHub 账号时，再设置 `DEEPCREATOR_AUTH_MODE=github`；可选账号服务的容器、PostgreSQL 和 GitHub OAuth 配置见 [账号服务部署指南](docs/auth-service-deployment.md)。
+
 Electron starts the Runtime in a `utilityProcess` on a random loopback port. The renderer is sandboxed and receives only a typed `window.deepcreator` bridge; it never receives the DeepSeek API key or raw Electron IPC primitives.
 
 Useful commands:
@@ -61,7 +69,7 @@ npm run make:mac
 npm run make:windows
 ```
 
-Desktop Runtime data is stored in Electron's `userData/runtime` directory. A legacy project `.deepseeker` store is copied once to `.deepcreator` when the new data directory is empty. Browser development keeps its local Runtime configuration, so the renderer can still be debugged without Electron.
+Desktop Runtime data is stored in the active local Profile under Electron's `userData/profiles/<profile-id>/runtime` directory. A legacy project `.deepseeker` store is copied once to `.deepcreator` when the new data directory is empty. Browser development keeps its local Runtime configuration, so the renderer can still be debugged without Electron.
 
 `package:mac` creates an ad-hoc signed development application under `out/DeepCreator-darwin-arm64`. It does not perform Developer ID signing, notarization, or distribution packaging. If Electron's GitHub download is unavailable on the local network, install the binary once with a trusted mirror configured through `ELECTRON_MIRROR`, then rerun the package command.
 

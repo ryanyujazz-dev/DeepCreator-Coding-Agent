@@ -1,6 +1,6 @@
 import { app, utilityProcess, UtilityProcess } from "electron";
 import { randomBytes } from "node:crypto";
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { RuntimeConnection, RuntimeState } from "../shared/contracts/desktop";
 import { DesktopStore } from "./store";
@@ -79,13 +79,8 @@ export class RuntimeHost {
   }
 
   private prepareDataDirectory(): string {
-    const target = path.join(app.getPath("userData"), "runtime");
+    const target = this.store.activeProfileRuntimeDirectory();
     mkdirSync(target, { recursive: true });
-    const candidates = [path.join(app.getAppPath(), ".deepcreator"), path.join(app.getAppPath(), ".deepseeker")];
-    const source = candidates.find((candidate) => existsSync(path.join(candidate, "runtime.sqlite")));
-    if (!existsSync(path.join(target, "runtime.sqlite")) && source) {
-      cpSync(source, target, { recursive: true, errorOnExist: false, force: false });
-    }
     return target;
   }
 

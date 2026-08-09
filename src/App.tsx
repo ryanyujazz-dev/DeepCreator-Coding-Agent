@@ -8,22 +8,26 @@ import { ConnectionStatus } from "./components/ConnectionStatus";
 import { Conversation } from "./components/Conversation";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { Inspector } from "./components/Inspector";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { TaskProgress } from "./components/TaskProgress";
 import { useWorkspace } from "./useWorkspace";
 import { ProjectRef } from "../shared/contracts/desktop";
-import { SettingsWorkspace } from "./components/settings/SettingsWorkspace";
 import { IconButton } from "./shared-ui/ControlPrimitives";
 import { defaultDraftWorkspace, DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
 import { resolveCompactSidebar, useInspectorLayout } from "./inspectorLayout";
 import { browserPlatform } from "./platform/browser";
 import { desktopBridge } from "./platform/desktop";
 import { useSurfaceWorkspace } from "./features/surfaces/useSurfaceWorkspace";
+import { AuthState } from "../shared/contracts/auth";
 
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const DEFAULT_SURFACE_WIDTH = 640;
 const DEVELOPER_VIEW_STORAGE_KEY = "deepcreator.developerView";
 type WorkspaceView = "conversation" | "settings" | "evals";
 const SurfacePane = lazy(() => import("./components/SurfacePane").then((module) => ({ default: module.SurfacePane })));
+const DeveloperSettingsWorkspace = import.meta.env.DEV
+  ? lazy(() => import("./components/settings/SettingsWorkspace").then((module) => ({ default: module.SettingsWorkspace })))
+  : null;
 const DeveloperEvalWorkspace = import.meta.env.DEV
   ? lazy(() => import("./components/evals/EvalWorkspace").then((module) => ({ default: module.EvalWorkspace })))
   : null;
@@ -50,7 +54,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { message: str
   }
 }
 
-export function App() {
+export function App({ authState }: { authState?: AuthState }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepcreator.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
   const [compactSidebar, setCompactSidebar] = useState(() => resolveCompactSidebar(browserPlatform.viewportWidth(), DEFAULT_SIDEBAR_WIDTH));
@@ -63,6 +67,7 @@ export function App() {
   const [viewportWidth, setViewportWidth] = useState(browserPlatform.viewportWidth);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [projectsReady, setProjectsReady] = useState(!desktopBridge());
+  const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(initialWorkspaceView);
   const [modelNotices, setModelNotices] = useState<string[]>([]);
   const { layout: inspectorLayout, targetRef: conversationMainRef } = useInspectorLayout();
@@ -274,6 +279,7 @@ export function App() {
           style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
         <SessionSidebar
+          authState={authState}
           desktopProjectsManaged={Boolean(desktop)}
           onArchiveProject={(root) => archiveProjectSessions(root)}
           onArchiveSession={(sessionId) => archiveSession(sessionId)}
@@ -286,7 +292,10 @@ export function App() {
           onSearch={searchSessions}
           onSelectSession={(sessionId) => void openSession(sessionId)}
           onToggleSidebar={toggleSidebar}
-          onSettings={() => setWorkspaceView("settings")}
+          onSettings={() => {
+            if (DeveloperSettingsWorkspace) setWorkspaceView("settings");
+            else setQuickSettingsOpen(true);
+          }}
           onWidthChange={setSidebarWidth}
           onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
           selectedSessionKey={session?.sessionId ?? null}
@@ -405,23 +414,28 @@ export function App() {
           )}
         </main>
         </div>
-        <div
-          className="app-shell settings-shell"
-          hidden={workspaceView !== "settings"}
-          style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
-        >
-          <SettingsWorkspace
-            currentProjectRoot={session?.projectRoot}
-            currentWorkspaceKind={session?.workspaceKind}
-            onClose={() => setWorkspaceView("conversation")}
-            onOpenEvals={() => setWorkspaceView("evals")}
-            onWidthChange={setSidebarWidth}
-            onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
-            showEvals={Boolean(DeveloperEvalWorkspace && config?.evalsEnabled)}
-            sidebarWidth={sidebarWidth}
-            visible={workspaceView === "settings"}
-          />
-        </div>
+        {DeveloperSettingsWorkspace && (
+          <div
+            className="app-shell settings-shell"
+            hidden={workspaceView !== "settings"}
+            style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+          >
+            <Suspense fallback={<main className="workspace"><div className="surface-state">正在加载设置...</div></main>}>
+              <DeveloperSettingsWorkspace
+                authState={authState}
+                currentProjectRoot={session?.projectRoot}
+                currentWorkspaceKind={session?.workspaceKind}
+                onClose={() => setWorkspaceView("conversation")}
+                onOpenEvals={() => setWorkspaceView("evals")}
+                onWidthChange={setSidebarWidth}
+                onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+                showEvals={Boolean(DeveloperEvalWorkspace && config?.evalsEnabled)}
+                sidebarWidth={sidebarWidth}
+                visible={workspaceView === "settings"}
+              />
+            </Suspense>
+          </div>
+        )}
         {DeveloperEvalWorkspace && config?.evalsEnabled && (
           <div
             className={`app-shell eval-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}`}
@@ -440,6 +454,9 @@ export function App() {
               />
             </Suspense>
           </div>
+        )}
+        {!DeveloperSettingsWorkspace && quickSettingsOpen && (
+          <SettingsDialog authState={authState} onClose={() => setQuickSettingsOpen(false)} />
         )}
       </div>
     </AppErrorBoundary>
