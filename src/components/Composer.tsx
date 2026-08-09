@@ -4,6 +4,7 @@ import { AccessMode, FollowUp, Mode, Plan, PlanDecision, Question } from "../../
 import { ModelOption } from "../../shared/contracts/provider";
 import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
 import { FloatingSurface, IconButton, PillButton } from "../shared-ui/ControlPrimitives";
+import { usePopoverState } from "../shared-ui/usePopoverState";
 
 const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
   { description: "外部访问和有风险的操作会先询问", icon: ShieldAlert, key: "request_approval", label: "请求批准" },
@@ -68,7 +69,7 @@ export function Composer({
 }) {
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
   // textarea 自适应高度:初始 2 行,随内容增长最高到 8 行,超过 8 行内部滚动。
   // CSS 里 min-height/max-height 已经把范围限定到 2~8 行,JS 只需根据 scrollHeight 设置 height。
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -88,10 +89,10 @@ export function Composer({
   useLayoutEffect(() => {
     setDraft(presetPrompt ?? "");
   }, [presetPrompt, resetKey]);
-  const [accessMenuOpen, setAccessMenuOpen] = useState(false);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const accessMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
+  const addMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
-  const [contextSortMenuOpen, setContextSortMenuOpen] = useState(false);
+  const contextSortMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
   const [comments, setComments] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [questionIndex, setQuestionIndex] = useState(0);
@@ -224,14 +225,14 @@ export function Composer({
         </div>
         <footer className="interaction-footer">
           <div className="permission-selector">
-            <PillButton className="access-button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
+            <PillButton className="access-button" aria-expanded={accessMenu.open} onClick={accessMenu.toggle} ref={accessMenu.triggerRef}>
               <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
             </PillButton>
-            {accessMenuOpen && (
-              <FloatingSurface className="permission-menu" role="menu">
+            {accessMenu.open && (
+              <FloatingSurface className="permission-menu" ref={accessMenu.contentRef} role="menu">
                 {accessOptions.map((option) => {
                   const Icon = option.icon;
-                  return <button className={option.key === accessMode ? "is-selected" : ""} key={option.key} onClick={() => { onAccessModeChange(option.key); setAccessMenuOpen(false); }} role="menuitem" type="button"><Icon size={16} /><span><strong>{option.label}</strong><small>{option.description}</small></span>{option.key === accessMode && <Check size={15} />}</button>;
+                  return <button className={option.key === accessMode ? "is-selected" : ""} key={option.key} onClick={() => { onAccessModeChange(option.key); accessMenu.close(); }} role="menuitem" type="button"><Icon size={16} /><span><strong>{option.label}</strong><small>{option.description}</small></span>{option.key === accessMode && <Check size={15} />}</button>;
                 })}
               </FloatingSurface>
             )}
@@ -267,16 +268,16 @@ export function Composer({
       <div className="composer-row">
         <div className="composer-left">
           <div className="add-selector">
-            <IconButton className={`plain-icon ${mode === "plan" ? "is-active" : ""}`} label="添加" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((open) => !open)}><Plus size={20} /></IconButton>
-            {addMenuOpen && (
-              <FloatingSurface className="add-menu" role="menu">
+            <IconButton className={`plain-icon ${mode === "plan" ? "is-active" : ""}`} label="添加" aria-expanded={addMenu.open} onClick={addMenu.toggle} ref={addMenu.triggerRef}><Plus size={20} /></IconButton>
+            {addMenu.open && (
+              <FloatingSurface className="add-menu" ref={addMenu.contentRef} role="menu">
                 <header>添加</header>
                 <button
                   className={mode === "plan" ? "is-selected" : ""}
                   disabled={isRunning || isWaiting}
                   onClick={() => {
                     onModeChange(mode === "plan" ? "work" : "plan");
-                    setAddMenuOpen(false);
+                    addMenu.close();
                   }}
                   role="menuitemcheckbox"
                   aria-checked={mode === "plan"}
@@ -290,11 +291,11 @@ export function Composer({
             )}
           </div>
           <div className="permission-selector">
-            <PillButton className="access-button" aria-expanded={accessMenuOpen} onClick={() => setAccessMenuOpen((open) => !open)}>
+            <PillButton className="access-button" aria-expanded={accessMenu.open} onClick={accessMenu.toggle} ref={accessMenu.triggerRef}>
               <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
             </PillButton>
-            {accessMenuOpen && (
-              <FloatingSurface className="permission-menu" role="menu">
+            {accessMenu.open && (
+              <FloatingSurface className="permission-menu" ref={accessMenu.contentRef} role="menu">
                 {accessOptions.map((option) => {
                   const Icon = option.icon;
                   return (
@@ -303,7 +304,7 @@ export function Composer({
                       key={option.key}
                       onClick={() => {
                         onAccessModeChange(option.key);
-                        setAccessMenuOpen(false);
+                        accessMenu.close();
                       }}
                       role="menuitem"
                       type="button"
@@ -330,11 +331,11 @@ export function Composer({
                 <strong>上下文容量</strong>
                 <div className="context-header-actions">
                   <span>{formatTokens(contextSummary.used)}/{formatTokens(contextSummary.windowTokens)} ({(contextSummary.utilization * 100).toFixed(1)}%)</span>
-                  <IconButton label="上下文分类排序" onClick={() => setContextSortMenuOpen((open) => !open)} title="排序"><ArrowUpDown size={12} /></IconButton>
-                  {contextSortMenuOpen && (
-                    <div className="context-sort-menu">
-                      <button className={contextSort === "protocol" ? "is-selected" : ""} onClick={() => { setContextSort("protocol"); setContextSortMenuOpen(false); }} type="button">按上下文顺序</button>
-                      <button className={contextSort === "tokens" ? "is-selected" : ""} onClick={() => { setContextSort("tokens"); setContextSortMenuOpen(false); }} type="button">按 Token 占比</button>
+                  <IconButton aria-expanded={contextSortMenu.open} label="上下文分类排序" onClick={contextSortMenu.toggle} ref={contextSortMenu.triggerRef} title="排序"><ArrowUpDown size={12} /></IconButton>
+                  {contextSortMenu.open && (
+                    <div className="context-sort-menu" ref={contextSortMenu.contentRef}>
+                      <button className={contextSort === "protocol" ? "is-selected" : ""} onClick={() => { setContextSort("protocol"); contextSortMenu.close(); }} type="button">按上下文顺序</button>
+                      <button className={contextSort === "tokens" ? "is-selected" : ""} onClick={() => { setContextSort("tokens"); contextSortMenu.close(); }} type="button">按 Token 占比</button>
                     </div>
                   )}
                 </div>
@@ -358,12 +359,12 @@ export function Composer({
             </FloatingSurface>
           </div>
           <div className="model-selector-wrapper">
-            <PillButton aria-expanded={modelMenuOpen} className="model-button" disabled={isRunning} onClick={() => setModelMenuOpen((open) => !open)}><span>{models.find((item) => item.id === model)?.label ?? model}</span><ChevronDown size={13} /></PillButton>
-            {modelMenuOpen && (
-              <FloatingSurface className="model-menu">
+            <PillButton aria-expanded={modelMenu.open} className="model-button" disabled={isRunning} onClick={modelMenu.toggle} ref={modelMenu.triggerRef}><span>{models.find((item) => item.id === model)?.label ?? model}</span><ChevronDown size={13} /></PillButton>
+            {modelMenu.open && (
+              <FloatingSurface className="model-menu" ref={modelMenu.contentRef}>
                 <header><span>选择模型</span></header>
                 {models.map((option) => (
-                  <button className={"model-option" + (option.id === model ? " is-selected" : "")} key={option.id} onClick={() => { onModelChange(option.id); setModelMenuOpen(false); }} type="button">
+                  <button className={"model-option" + (option.id === model ? " is-selected" : "")} key={option.id} onClick={() => { onModelChange(option.id); modelMenu.close(); }} type="button">
                     <span><span className="model-option-label">{option.label}</span><span className="model-option-desc">{option.description}</span></span>
                     {option.id === model && <Check size={14} className="model-option-check" />}
                   </button>

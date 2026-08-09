@@ -10,31 +10,26 @@ function classes(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
 
-export function IconButton({
-  className,
-  label,
-  title,
-  type = "button",
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
-  return (
-    <button
-      {...props}
-      aria-label={props["aria-label"] ?? label}
-      className={classes("ui-icon-button", className)}
-      title={title ?? label}
-      type={type}
-    />
-  );
-}
+export const IconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { label: string }>(
+  function IconButton({ className, label, title, type = "button", ...props }, ref) {
+    return (
+      <button
+        {...props}
+        aria-label={props["aria-label"] ?? label}
+        className={classes("ui-icon-button", className)}
+        ref={ref}
+        title={title ?? label}
+        type={type}
+      />
+    );
+  }
+);
 
-export function PillButton({
-  className,
-  type = "button",
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button {...props} className={classes("ui-pill-button", className)} type={type} />;
-}
+export const PillButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
+  function PillButton({ className, type = "button", ...props }, ref) {
+    return <button {...props} className={classes("ui-pill-button", className)} ref={ref} type={type} />;
+  }
+);
 
 export function RowAction({
   className,
