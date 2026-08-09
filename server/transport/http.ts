@@ -1,7 +1,7 @@
 import Fastify, { FastifyInstance } from "fastify";
 import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, Session, WorkspaceKind } from "../../shared/contracts/runtime";
 import { MemoryFact } from "../../shared/contracts/context";
-import { Provider, ModelOption } from "../../shared/contracts/provider";
+import { Provider, ModelOption, ModelProtocol } from "../../shared/contracts/provider";
 import {
   accessInputSchema,
   approvalInputSchema,
@@ -35,8 +35,13 @@ import { ContextPort, EventPort, MemoryPort, SessionPort } from "../app/runtimeR
 import { SessionService } from "../app/sessionService";
 import { StartRun } from "../app/startRun";
 import { WorkspaceQueries } from "../app/workspaceQueries";
-import { StartEvalRunInput } from "../../shared/contracts/evals";
-import { EvalCaseSummary, EvalRunRecord } from "../../shared/contracts/evals";
+import {
+  EvalBatchRunRecord,
+  EvalCaseSummary,
+  EvalRunRecord,
+  StartEvalBatchInput,
+  StartEvalRunInput
+} from "../../shared/contracts/evals";
 
 export type HttpConfig = {
   authToken?: string;
@@ -57,7 +62,7 @@ export type HttpDeps = {
   evals?: DeveloperEvalService;
   followUps: FollowUpService;
   launcher: RunLaunchPort;
-  providerFor: (model: string) => { model: string; provider: Provider };
+  providerFor: (model: string, protocol?: ModelProtocol) => { model: string; provider: Provider };
   registry: RunRegistry;
   sessions: SessionService;
   startRun: StartRun;
@@ -66,12 +71,17 @@ export type HttpDeps = {
 };
 
 export type DeveloperEvalService = {
+  batches: () => EvalBatchRunRecord[];
   cases: () => EvalCaseSummary[];
-  close: () => void;
+  close: () => Promise<void>;
   get: (evalRunId: string) => EvalRunRecord | undefined;
+  pauseBatch: (batchId: string) => EvalBatchRunRecord | undefined;
+  resumeBatch: (batchId: string) => EvalBatchRunRecord | undefined;
   runs: () => EvalRunRecord[];
   session: (evalRunId: string) => Session | undefined;
+  shutdown: () => Promise<void>;
   start: (input: StartEvalRunInput) => Promise<EvalRunRecord>;
+  startBatch: (input: StartEvalBatchInput) => Promise<EvalBatchRunRecord>;
 };
 
 function statusFor(code: AppErrorCode): 400 | 404 | 409 {
@@ -120,6 +130,7 @@ function resumeRun(resume: ResumeRun): void {
   launcher.launch({
     continuation: true,
     model: resume.model,
+    protocol: resume.protocol,
     projectRoot: resume.projectRoot,
     prompt: resume.prompt,
     runId: resume.runId,
@@ -167,6 +178,7 @@ app.get("/api/config", async () => ({
 }));
 
 if (evals) {
+  app.get("/api/evals/batches", async () => ({ batches: evals.batches() }));
   app.get("/api/evals/cases", async () => ({ cases: evals.cases() }));
   app.get("/api/evals/runs", async () => ({ runs: evals.runs() }));
   app.get<{ Params: { evalRunId: string } }>("/api/evals/runs/:evalRunId", async (request, reply) => {
@@ -183,6 +195,21 @@ if (evals) {
     if (judge && judge !== "heuristic" && judge !== "provider") return reply.code(400).send({ error: "invalid judge" });
     const run = await evals.start({ caseId, judge, judgeModel, model, promptVersion });
     return reply.code(run.stage === "failed" ? 500 : 202).send({ run });
+  });
+  app.post<{ Body: StartEvalBatchInput }>("/api/evals/batches", async (request, reply) => {
+    const { judge, judgeModel, model, promptVersion } = request.body ?? {} as StartEvalBatchInput;
+    if (!model) return reply.code(400).send({ error: "model is required" });
+    if (judge && judge !== "heuristic" && judge !== "provider") return reply.code(400).send({ error: "invalid judge" });
+    const batch = await evals.startBatch({ judge, judgeModel, model, promptVersion });
+    return reply.code(202).send({ batch });
+  });
+  app.post<{ Params: { batchId: string } }>("/api/evals/batches/:batchId/pause", async (request, reply) => {
+    const batch = evals.pauseBatch(request.params.batchId);
+    return batch ? { batch } : reply.code(404).send({ error: "eval batch not found" });
+  });
+  app.post<{ Params: { batchId: string } }>("/api/evals/batches/:batchId/resume", async (request, reply) => {
+    const batch = evals.resumeBatch(request.params.batchId);
+    return batch ? { batch } : reply.code(404).send({ error: "eval batch not found" });
   });
 }
 

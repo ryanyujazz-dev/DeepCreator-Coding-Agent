@@ -226,6 +226,7 @@ export class ThinkingSummaryLoop {
       maxOutputTokens: 96,
       messages,
       model: this.input.model,
+      protocol: "chat",
       signal: this.abortController.signal,
       thinkingMode: "disabled",
       tools: []

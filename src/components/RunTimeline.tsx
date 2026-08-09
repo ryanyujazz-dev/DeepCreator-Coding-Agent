@@ -2,11 +2,13 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { Run, Changes, Plan, isRunDone } from "../../shared/contracts/runtime";
 import { projectDisplayTimeline } from "../../shared/projections/displaySegments";
+import { projectResponsesDisplayTimeline, responsesDisplayActivities } from "../../shared/projections/responsesDisplayTimeline";
 import { DisplayTimelineEntry } from "../../shared/projections/types";
 import { ActivityView } from "./ActivityView";
 import { ChangePanel } from "./ChangePanel";
 import { DisplaySegmentRenderer } from "./DisplaySegmentRenderer";
 import { MarkdownContent } from "./MarkdownContent";
+import { ResponsesDisplaySegmentRenderer } from "./ResponsesDisplaySegmentRenderer";
 
 type UserMessageEntry = Extract<DisplayTimelineEntry, { type: "activity" }>;
 
@@ -58,7 +60,10 @@ export function RunTimeline({
     : run.activities
         .filter((activity) => activity.kind === "message" && activity.body.trim() === run.answer.trim())
         .map((activity) => activity.activityId));
-  const timelineEntries = projectDisplayTimeline(run, run.activities, { suppressedContentActivityIds });
+  const displayActivities = run.protocol === "responses" ? responsesDisplayActivities(run) : run.activities;
+  const timelineEntries = run.protocol === "responses"
+    ? projectResponsesDisplayTimeline(run, { suppressedContentActivityIds })
+    : projectDisplayTimeline(run, run.activities, { suppressedContentActivityIds });
   const conversationTurns = splitTimelineIntoConversationTurns(run.runId, timelineEntries);
   const activeDisplaySegmentId = run.status === "running"
     ? [...timelineEntries].reverse().find((entry) => entry.type === "display_segment")?.entryId
@@ -96,6 +101,16 @@ export function RunTimeline({
                     <span>{active
                       ? (run.status === "waiting" ? "等待批准" : "正在工作")
                       : run.status === "completed" ? "工作完成" : run.status === "cancelled" ? "已取消" : "工作失败"}</span>
+                    <span
+                      className={`run-protocol-label is-${run.protocol === "responses" ? "responses" : "chat"}`}
+                      title={run.protocol === "responses"
+                        ? "此任务使用 Responses 新执行流"
+                        : run.protocol === "chat" ? "此任务使用 Chat 经典执行流" : "此历史任务未记录协议，按 Chat 经典执行流展示"}
+                    >
+                      {run.protocol === "responses"
+                        ? "新执行流 · Responses"
+                        : run.protocol === "chat" ? "经典执行流 · Chat" : "历史执行流 · Chat"}
+                    </span>
                     <span>{elapsed(run)}</span>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                   </button>
                 )}
@@ -103,9 +118,12 @@ export function RunTimeline({
                   <section className="work-process" aria-label="工作过程">
                     {turn.entries.map((entry) => {
                       if (entry.type === "display_segment") {
+                        const SegmentRenderer = run.protocol === "responses"
+                          ? ResponsesDisplaySegmentRenderer
+                          : DisplaySegmentRenderer;
                         return (
-                          <DisplaySegmentRenderer
-                            activities={run.activities}
+                          <SegmentRenderer
+                            activities={displayActivities}
                             changes={run.changes}
                             continuationActive={entry.entryId === activeDisplaySegmentId}
                             key={entry.entryId}
@@ -134,7 +152,10 @@ export function RunTimeline({
                 )}
                 {lastTurn && !active && Boolean((run.status === "failed" ? run.error : run.answer) || run.error) && (
                   <section className="final-answer">
-                    <MarkdownContent text={(run.status === "failed" ? run.error : undefined) || run.answer || run.error || ""} />
+                    <MarkdownContent
+                      citations={[...run.activities].reverse().find((activity) => activity.kind === "message")?.citations}
+                      text={(run.status === "failed" ? run.error : undefined) || run.answer || run.error || ""}
+                    />
                   </section>
                 )}
                 {lastTurn && !active && <ChangePanel delta={run.changes} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />}

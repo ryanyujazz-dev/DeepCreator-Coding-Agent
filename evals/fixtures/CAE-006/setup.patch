@@ -1,0 +1,20 @@
+diff --git a/server/infra/tools/security.ts b/server/infra/tools/security.ts
+--- a/server/infra/tools/security.ts
++++ b/server/infra/tools/security.ts
+@@ -19,7 +19,7 @@ export function workspaceRelativeTarget(projectRoot: string, rawTarget: string):
+
+ export function isSensitivePath(targetPath: string): boolean {
+   const base = path.basename(targetPath).toLowerCase();
+-  if (base === ".env.example") return false;
++  if (base === ".env.example") return true;
+   return (
+     base === ".npmrc" ||
+     base === ".pypirc" ||
+diff --git a/server/infra/tools/search.ts b/server/infra/tools/search.ts
+--- a/server/infra/tools/search.ts
++++ b/server/infra/tools/search.ts
+@@ -298,3 +298,3 @@
+   const suffix = notes.length > 0 ? `\n\n(${notes.join("；")})` : "";
+-  return redactSensitiveText(body + suffix);
++  return body + suffix;
+ }

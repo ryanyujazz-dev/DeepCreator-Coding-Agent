@@ -1,0 +1,11 @@
+{
+  "caseId": "CAE-016",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "assertions": [
+    { "id": "adr-complete", "kind": "command", "command": "node eval-fixture/verify-managed-command-adr.mjs", "expectedExitCode": 0, "points": 20 },
+    { "id": "docs-only", "kind": "git_diff_excludes", "paths": ["server", "shared", "src", "desktop", "tests", "package.json", "package-lock.json"], "points": 10 }
+  ],
+  "timeoutMs": 600000
+}

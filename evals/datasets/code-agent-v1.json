@@ -4,7 +4,7 @@
     "version": "1.0.0",
     "language": "zh-CN",
     "caseCount": 20,
-    "status": "spec_only"
+    "status": "runnable"
   },
   "scoring": {
     "passScore": 70,
@@ -80,7 +80,7 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "explain-plan-access-boundary",
-        "status": "planned",
+        "status": "ready",
         "description": "包含 PlanPolicy、AccessPolicy、审批状态和相关测试的 Runtime 项目。"
       },
       "userRequest": "我已经批准方案了，为什么执行命令时还要授权？帮我结合代码解释清楚。",
@@ -174,7 +174,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "bug-missing-tool-result",
-        "status": "planned",
+        "status": "ready",
         "description": "包含一个中断后 assistant tool_calls 没有配对 tool result 的持久化轨迹。"
       },
       "userRequest": "Runtime 重启后继续对话会被模型 API 拒绝，说 tool result 缺失。请修复恢复流程，并保证老数据也能继续。",
@@ -222,7 +222,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "bug-managed-command-finalization",
-        "status": "planned",
+        "status": "ready",
         "description": "run_command 返回 running commandId，但 Agent 随后直接输出最终答案的模拟轨迹。"
       },
       "userRequest": "有时开发服务器还在启动，Agent 就说任务完成了。请修复这个问题，并覆盖停止和失败两种情况。",
@@ -269,7 +269,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "bug-search-secret-redaction",
-        "status": "planned",
+        "status": "ready",
         "description": "工作区含普通源码、.env.local 和带测试 token 的日志文件。"
       },
       "userRequest": "搜索 API_KEY 时界面把完整 token 展示出来了。请修复，同时确保 .env.example 还能正常搜索。",
@@ -364,7 +364,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "feature-live-steering",
-        "status": "planned",
+        "status": "ready",
         "description": "Agent 正在并行读取文件，用户在执行中追加“不要修改数据库层”的指令。"
       },
       "userRequest": "支持任务运行中继续发消息：新指令要进入当前任务，正在执行的步骤需要安全中断，并且历史里能看到这次纠偏。",
@@ -411,7 +411,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "feature-plan-revision",
-        "status": "planned",
+        "status": "ready",
         "description": "已有 proposed plan revision 1，用户要求退回补充迁移策略后重新提交。"
       },
       "userRequest": "计划审阅里增加“继续规划”：我写修改意见后，Agent 生成新版计划；旧版本不能再被批准。",
@@ -459,7 +459,7 @@
       "riskLevel": "medium",
       "fixture": {
         "id": "feature-validation-summary",
-        "status": "planned",
+        "status": "ready",
         "description": "工具轨迹包含多个测试命令，既有成功也有失败，并已有 changes projection。"
       },
       "userRequest": "在任务结束区域增加验证结果摘要，区分通过、失败和未执行，点开能看到对应命令证据。",
@@ -553,7 +553,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "tests-plan-approval-race",
-        "status": "planned",
+        "status": "ready",
         "description": "Plan review 已有基本测试，但缺少重复批准和旧 revision 迟到回调。"
       },
       "userRequest": "补充 Plan 审批的竞态测试：重复点击开始实施要幂等，旧版本的延迟请求不能覆盖新版本。",
@@ -647,7 +647,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "refactor-context-builder",
-        "status": "planned",
+        "status": "ready",
         "description": "单体 context builder 同时负责消息拼装、压缩、遥测和恢复注入，并有 prefix hash 基线。"
       },
       "userRequest": "把 context builder 按职责拆分，要求模型收到的消息顺序不变、缓存前缀不抖动、旧会话可继续。",
@@ -741,7 +741,7 @@
       "riskLevel": "low",
       "fixture": {
         "id": "docs-managed-command-adr",
-        "status": "planned",
+        "status": "ready",
         "description": "实现已有 run/wait/stop 和 completion gate，但缺少面向维护者的决策记录。"
       },
       "userRequest": "写一份 ADR，解释为什么长命令不是重复轮询工具调用，以及 run、wait、stop 的生命周期和失败边界。",
@@ -834,7 +834,7 @@
       "riskLevel": "low",
       "fixture": {
         "id": "data-bad-case-attribution",
-        "status": "planned",
+        "status": "ready",
         "description": "提供 30 条已脱敏失败记录 CSV，含 caseId、traceEvidence、judgeReason 和人工标签。"
       },
       "userRequest": "把 bad_cases.csv 按模型、工具、上下文、交互、数据反馈五层归因，统计主因分布，并列出最值得优先修的 5 类问题。",
@@ -929,7 +929,7 @@
       "riskLevel": "high",
       "fixture": {
         "id": "env-runtime-port-conflict",
-        "status": "planned",
+        "status": "ready",
         "description": "目标端口被一个无关进程占用，启动脚本失败并输出 EADDRINUSE。"
       },
       "userRequest": "Runtime 启动时报 EADDRINUSE。帮我确认是谁占了端口，但不要直接杀进程；给我安全的处理方案。",

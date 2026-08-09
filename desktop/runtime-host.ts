@@ -10,12 +10,12 @@ type WorkerMessage = { error?: string; port?: number; type: "ready" | "stopped" 
 
 export class RuntimeHost {
   private connectionValue?: RuntimeConnection;
-  private intentionalStop = false;
   private listeners = new Set<Listener>();
   private process?: UtilityProcess;
   private restartCount = 0;
   private state: RuntimeState = { phase: "stopped" };
   private startPromise?: Promise<RuntimeConnection>;
+  private stoppingProcesses = new WeakSet<UtilityProcess>();
 
   constructor(
     private readonly store: DesktopStore,
@@ -49,19 +49,32 @@ export class RuntimeHost {
   }
 
   async stop(): Promise<void> {
-    this.intentionalStop = true;
     const child = this.process;
-    this.process = undefined;
     this.connectionValue = undefined;
     if (!child) {
       this.setState({ phase: "stopped" });
       return;
     }
-    child.postMessage({ type: "shutdown" });
+    this.stoppingProcesses.add(child);
+    try {
+      child.postMessage({ type: "shutdown" });
+    } catch {
+      child.kill();
+    }
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => { child.kill(); resolve(); }, 1_500);
-      child.once("exit", () => { clearTimeout(timer); resolve(); });
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(terminateTimer);
+        clearTimeout(abandonTimer);
+        resolve();
+      };
+      const terminateTimer = setTimeout(() => child.kill(), 1_500);
+      const abandonTimer = setTimeout(finish, 4_000);
+      child.once("exit", finish);
     });
+    if (this.process === child) this.process = undefined;
     this.setState({ phase: "stopped" });
   }
 
@@ -77,7 +90,6 @@ export class RuntimeHost {
   }
 
   private async spawn(): Promise<RuntimeConnection> {
-    this.intentionalStop = false;
     this.connectionValue = undefined;
     this.setState({ phase: this.restartCount > 0 ? "restarting" : "starting" });
     const token = randomBytes(32).toString("base64url");
@@ -92,6 +104,7 @@ export class RuntimeHost {
         DEEPSEEK_API_KEY: this.store.apiKey(),
         ZHIPU_API_KEY: this.store.zhipuApiKey(),
         DEEPSEEK_MODEL: this.store.settings().defaultModel,
+        DEEPSEEK_MODEL_PROTOCOLS: JSON.stringify(this.store.settings().modelProtocols),
         RUNTIME_AUTH_TOKEN: token,
         RUNTIME_DATA_DIR: this.prepareDataDirectory(),
         RUNTIME_FRONTEND_URL: this.frontendUrl,
@@ -110,18 +123,25 @@ export class RuntimeHost {
 
     return new Promise<RuntimeConnection>((resolve, reject) => {
       let settled = false;
-      const timeout = setTimeout(() => fail(new Error("Runtime 启动超时。")), 15_000);
-      const fail = (error: Error) => {
+      let ready = false;
+      const fail = (error: Error, terminate = false) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
+        if (terminate) {
+          this.stoppingProcesses.add(child);
+          child.kill();
+          if (this.process === child) this.process = undefined;
+        }
         this.setState({ detail: error.message, phase: "failed" });
         reject(error);
       };
+      const timeout = setTimeout(() => fail(new Error("Runtime 启动超时（30 秒）。"), true), 30_000);
       child.on("message", (message: WorkerMessage) => {
         if (message.type === "ready" && message.port) {
           if (settled) return;
           settled = true;
+          ready = true;
           clearTimeout(timeout);
           this.connectionValue = { baseUrl: `http://127.0.0.1:${message.port}`, phase: "ready", token };
           this.setState({ connection: this.connectionValue, phase: "ready" });
@@ -132,10 +152,13 @@ export class RuntimeHost {
       });
       child.once("exit", (_code) => {
         clearTimeout(timeout);
-        this.process = undefined;
-        this.connectionValue = undefined;
+        const wasCurrent = this.process === child;
+        if (wasCurrent) {
+          this.process = undefined;
+          this.connectionValue = undefined;
+        }
         if (!settled) fail(new Error("Runtime 在启动完成前退出。"));
-        if (this.intentionalStop) return;
+        if (this.stoppingProcesses.has(child) || !wasCurrent || !ready) return;
         if (this.restartCount < 1) {
           this.restartCount += 1;
           this.setState({ detail: "Runtime 意外退出，正在自动恢复。", phase: "restarting" });

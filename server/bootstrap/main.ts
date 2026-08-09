@@ -24,6 +24,7 @@ async function main(): Promise<void> {
     authToken: process.env.RUNTIME_AUTH_TOKEN,
     dataDirectory: path.resolve(process.env.RUNTIME_DATA_DIR ?? defaultDataDirectory()),
     defaultModel: process.env.DEEPSEEK_MODEL ?? userConfig.model,
+    modelProtocols: userConfig.modelProtocols,
     evalRepositoryRoot: workspaceRoot,
     evalServiceFactory: evalsEnabled ? async (deps) => {
       const { EvalService } = await import("../dev-evals/evalService");

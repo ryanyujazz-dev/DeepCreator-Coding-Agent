@@ -5,6 +5,7 @@ import { startRuntime } from "../../server/bootstrap/runtime";
 import { loadUserConfig } from "../../server/infra/userConfig";
 import { quoteRuntimeShellArgument } from "../../server/infra/shell";
 import { runShell } from "../../server/infra/tools/shellExecution";
+import { resolveEvalPlanInteraction } from "../../shared/domain/evalInteractionPolicy";
 import { findCase, loadDataset, loadFixture } from "./dataset";
 import { finalizeExistingEvalRun } from "./finalize";
 import { EvalExperimentSummary, EvalFixtureManifest, EvalResult } from "./types";
@@ -67,10 +68,14 @@ export async function resolveWaitingInteraction(
 ): Promise<boolean> {
   const run = session.runs.at(-1);
   if (!run || run.status !== "waiting") return false;
-  const plan = [...session.plans].reverse().find((candidate) => candidate.runId === run.runId && candidate.status === "proposed");
-  if (plan && interactions?.autoApprovePlan) {
-    await requestJson(`${baseUrl}/api/sessions/${encodeURIComponent(session.sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}/resolve`, {
-      body: JSON.stringify({ accessMode: "full_access", decision: "start_work" }),
+  const planResolution = resolveEvalPlanInteraction(session.plans, run.runId, interactions?.continuePlanningOnce);
+  if (planResolution) {
+    await requestJson(`${baseUrl}/api/sessions/${encodeURIComponent(session.sessionId)}/plans/${encodeURIComponent(planResolution.plan.planId)}/revisions/${planResolution.plan.revision}/resolve`, {
+      body: JSON.stringify({
+        accessMode: planResolution.decision === "start_work" ? "full_access" : undefined,
+        comments: planResolution.comments,
+        decision: planResolution.decision
+      }),
       method: "POST"
     });
     return true;

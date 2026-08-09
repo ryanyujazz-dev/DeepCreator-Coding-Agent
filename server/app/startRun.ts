@@ -6,6 +6,7 @@ import { SystemPort } from "./systemPort";
 import { WorkspacePort } from "./workspacePort";
 import { AppError } from "./appError";
 import { accessExceeds, agentDefinition, stricterAccess } from "./agentDefinitions";
+import { ModelProtocol } from "../../shared/contracts/provider";
 
 export type StartRunInput = {
   accessMode?: AccessMode;
@@ -40,6 +41,7 @@ export class StartRun {
     context: ContextConfig;
     defaultModel: string;
     launcher: RunLaunchPort;
+    protocolForModel?: (model: string) => ModelProtocol;
     store: EventPort & SessionPort;
     system: SystemPort;
     workspace: WorkspacePort;
@@ -137,8 +139,9 @@ export class StartRun {
     }
 
     const runId = this.deps.system.createId("run");
+    const protocol = this.deps.protocolForModel?.(model) ?? "chat";
     const started = {
-      data: { mode: session.mode, model, prompt, startedAt: this.deps.system.now() },
+      data: { mode: session.mode, model, prompt, protocol, startedAt: this.deps.system.now() },
       runId,
       sessionId: input.sessionId,
       type: "run.started" as const
@@ -154,7 +157,7 @@ export class StartRun {
     } else {
       this.deps.store.append(started);
     }
-    this.deps.launcher.launch({ model, projectRoot, prompt, runId, sessionId: input.sessionId });
+    this.deps.launcher.launch({ model, projectRoot, prompt, protocol, runId, sessionId: input.sessionId });
     return {
       run: this.deps.store.getRun(runId)!,
       session: this.deps.store.getSession(input.sessionId)!

@@ -1,6 +1,12 @@
 import { CSSProperties, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Beaker, MoreHorizontal, PanelRight } from "lucide-react";
-import { EvalCaseSummary, EvalRunRecord } from "../../../shared/contracts/evals";
+import {
+  DEFAULT_EVAL_JUDGE,
+  DEFAULT_EVAL_JUDGE_MODEL,
+  EvalBatchRunRecord,
+  EvalCaseSummary,
+  EvalRunRecord
+} from "../../../shared/contracts/evals";
 import { Changes, isRunDone, Plan, PlanDecision } from "../../../shared/contracts/runtime";
 import { ModelOption } from "../../../shared/contracts/provider";
 import { ApprovalDialog } from "../ApprovalDialog";
@@ -26,7 +32,7 @@ function latestRunByCase(runs: EvalRunRecord[]): Map<string, EvalRunRecord> {
 }
 
 function evalRunActive(run?: EvalRunRecord): boolean {
-  return Boolean(run && ["preparing", "running_agent", "verifying", "judging"].includes(run.stage));
+  return Boolean(run && ["queued", "preparing", "running_agent", "verifying", "judging"].includes(run.stage));
 }
 
 export function EvalWorkspace({
@@ -50,11 +56,14 @@ export function EvalWorkspace({
   const session = useSyncExternalStore(sessionStore.subscribe, sessionStore.getSnapshot, sessionStore.getSnapshot);
   const [cases, setCases] = useState<EvalCaseSummary[]>([]);
   const [runs, setRuns] = useState<EvalRunRecord[]>([]);
+  const [batches, setBatches] = useState<EvalBatchRunRecord[]>([]);
+  const [batchStarting, setBatchStarting] = useState(false);
+  const [batchControlBusy, setBatchControlBusy] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedEvalRunId, setSelectedEvalRunId] = useState<string | null>(null);
   const [model, setModel] = useState(config.hasApiKey ? config.defaultModel : "mock-agent");
-  const [judge, setJudge] = useState<"heuristic" | "provider">("heuristic");
-  const [judgeModel, setJudgeModel] = useState(config.defaultModel);
+  const [judge, setJudge] = useState<"heuristic" | "provider">(DEFAULT_EVAL_JUDGE);
+  const [judgeModel, setJudgeModel] = useState(DEFAULT_EVAL_JUDGE_MODEL);
   const [error, setError] = useState<string | null>(null);
   const [observerOpen, setObserverOpen] = useState(false);
   const [observerWidth, setObserverWidth] = useState(() => Number(browserPlatform.storage.get("deepcreator.evalObserverWidth")) || DEFAULT_OBSERVER_WIDTH);
@@ -81,34 +90,38 @@ export function EvalWorkspace({
     : undefined;
   const pendingApproval = activeRun?.approvals.find((approval) => approval.state === "pending");
   const evaluationBusy = evalRunActive(selectedJob);
-  const agentRunning = Boolean(activeRun && activeRun.status !== "waiting") || Boolean(selectedJob?.stage === "preparing" || selectedJob?.stage === "verifying" || selectedJob?.stage === "judging");
+  const agentRunning = Boolean(activeRun && activeRun.status !== "waiting") || Boolean(selectedJob?.stage === "queued" || selectedJob?.stage === "preparing" || selectedJob?.stage === "verifying" || selectedJob?.stage === "judging");
   const activeTask = currentRun?.tasks.find((task) => task.status === "running");
-  const workLabel = selectedJob?.stage === "preparing"
-    ? "正在准备隔离测试项目"
-    : selectedJob?.stage === "verifying"
-      ? "正在验证任务结果"
-      : selectedJob?.stage === "judging"
-        ? "正在评估过程 Content"
-        : activeTask?.label ?? "模型正在处理评测任务";
+  const workLabel = selectedJob?.stage === "queued"
+    ? "等待并发评测空位"
+    : selectedJob?.stage === "preparing"
+      ? "正在准备隔离测试项目"
+      : selectedJob?.stage === "verifying"
+        ? "正在验证任务结果"
+        : selectedJob?.stage === "judging"
+          ? "正在评估过程 Content"
+          : activeTask?.label ?? "模型正在处理评测任务";
   const observerMaximum = Math.max(360, Math.min(760, viewportWidth - sidebarWidth - 420));
   const effectiveObserverWidth = Math.min(observerWidth, observerMaximum);
   const pendingConversation = selectedJobActive && selectedJobEvalRunId && (!selectedJobSessionId || session?.sessionId !== selectedJobSessionId)
-    ? { key: selectedJobEvalRunId, label: "正在准备评测环境", prompt: selectedCase?.userRequest ?? "" }
+    ? { key: selectedJobEvalRunId, label: selectedJob?.stage === "queued" ? "正在等待并发评测空位" : "正在准备评测环境", prompt: selectedCase?.userRequest ?? "" }
     : undefined;
 
-  const refreshRuns = useCallback(async () => {
-    const response = await evalRuntimeApi.listRuns();
-    setRuns(response.runs);
-    return response.runs;
+  const refreshEvaluationState = useCallback(async () => {
+    const [runResponse, batchResponse] = await Promise.all([evalRuntimeApi.listRuns(), evalRuntimeApi.listBatches()]);
+    setRuns(runResponse.runs);
+    setBatches(batchResponse.batches);
+    return runResponse.runs;
   }, []);
 
   useEffect(() => {
     let disposed = false;
-    void Promise.all([evalRuntimeApi.listCases(), evalRuntimeApi.listRuns()])
-      .then(([caseResponse, runResponse]) => {
+    void Promise.all([evalRuntimeApi.listCases(), evalRuntimeApi.listRuns(), evalRuntimeApi.listBatches()])
+      .then(([caseResponse, runResponse, batchResponse]) => {
         if (disposed) return;
         setCases(caseResponse.cases);
         setRuns(runResponse.runs);
+        setBatches(batchResponse.batches);
         setSelectedCaseId((current) => current ?? caseResponse.cases.find((item) => item.status === "ready")?.caseId ?? caseResponse.cases[0]?.caseId ?? null);
       })
       .catch((nextError) => { if (!disposed) setError(nextError instanceof Error ? nextError.message : String(nextError)); });
@@ -117,17 +130,20 @@ export function EvalWorkspace({
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void refreshRuns().catch((nextError) => setError(nextError instanceof Error ? nextError.message : String(nextError)));
-    }, runs.some(evalRunActive) ? 800 : 3_000);
+      void refreshEvaluationState().catch((nextError) => setError(nextError instanceof Error ? nextError.message : String(nextError)));
+    }, runs.some(evalRunActive) || batches.some((batch) => batch.stage === "running") ? 800 : 3_000);
     return () => window.clearInterval(timer);
-  }, [refreshRuns, runs]);
+  }, [batches, refreshEvaluationState, runs]);
 
   useEffect(() => {
     if (!selectedJobExists) {
       sessionStore.update(null);
       return;
     }
-    if (!selectedJobSessionId || !selectedJobEvalRunId) return;
+    if (!selectedJobSessionId || !selectedJobEvalRunId) {
+      sessionStore.update(null);
+      return;
+    }
     let disposed = false;
     let closeStream: () => void = () => undefined;
     void evalRuntimeApi.getRunSession(selectedJobEvalRunId).then(({ session: snapshot }) => {
@@ -148,9 +164,14 @@ export function EvalWorkspace({
   useEffect(() => browserPlatform.storage.set("deepcreator.evalObserverWidth", String(Math.round(observerWidth))), [observerWidth]);
 
   useEffect(() => {
-    setJudge(selectedJob?.judge ?? "heuristic");
-    setJudgeModel(selectedJob?.judgeModel ?? config.defaultModel);
-  }, [config.defaultModel, selectedJob?.evalRunId, selectedJob?.judge, selectedJob?.judgeModel]);
+    if (!selectedEvalRunId) {
+      setJudge(DEFAULT_EVAL_JUDGE);
+      setJudgeModel(DEFAULT_EVAL_JUDGE_MODEL);
+      return;
+    }
+    setJudge(selectedJob?.judge ?? DEFAULT_EVAL_JUDGE);
+    setJudgeModel(selectedJob?.judgeModel ?? DEFAULT_EVAL_JUDGE_MODEL);
+  }, [selectedEvalRunId, selectedJob?.evalRunId, selectedJob?.judge, selectedJob?.judgeModel]);
 
   const selectCase = useCallback((caseId: string) => {
     setSelectedCaseId(caseId);
@@ -179,6 +200,47 @@ export function EvalWorkspace({
       return false;
     }
   }, [judge, judgeModel, model, selectedCase]);
+
+  const startBatchEvaluation = useCallback(async () => {
+    setBatchStarting(true);
+    setError(null);
+    try {
+      const response = await evalRuntimeApi.startBatch({
+        judge,
+        judgeModel: judge === "provider" ? judgeModel : undefined,
+        model,
+        promptVersion: "current"
+      });
+      setBatches((current) => [response.batch, ...current.filter((item) => item.batchId !== response.batch.batchId)]);
+      const nextRuns = await refreshEvaluationState();
+      const first = response.batch.cases[0];
+      const firstRun = first ? nextRuns.find((item) => item.evalRunId === first.evalRunId) : undefined;
+      if (firstRun) {
+        setSelectedCaseId(firstRun.caseId);
+        setSelectedEvalRunId(firstRun.evalRunId);
+      }
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setBatchStarting(false);
+    }
+  }, [judge, judgeModel, model, refreshEvaluationState]);
+
+  const setBatchPaused = useCallback(async (batchId: string, paused: boolean) => {
+    setBatchControlBusy(true);
+    setError(null);
+    try {
+      const response = paused
+        ? await evalRuntimeApi.pauseBatch(batchId)
+        : await evalRuntimeApi.resumeBatch(batchId);
+      setBatches((current) => current.map((item) => item.batchId === response.batch.batchId ? response.batch : item));
+      await refreshEvaluationState();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setBatchControlBusy(false);
+    }
+  }, [refreshEvaluationState]);
 
   const cancel = useCallback(async () => {
     if (!selectedJob?.runId) return;
@@ -213,7 +275,7 @@ export function EvalWorkspace({
 
   return (
     <>
-      <EvalSidebar cases={cases} onBack={onBack} onSelectCase={selectCase} onSelectRun={selectRun} onWidthChange={onWidthChange} onWidthReset={onWidthReset} runs={runs} selectedCaseId={selectedCase.caseId} selectedEvalRunId={selectedEvalRunId} sidebarWidth={sidebarWidth} />
+      <EvalSidebar batches={batches} batchControlBusy={batchControlBusy} batchStarting={batchStarting} cases={cases} onBack={onBack} onPauseBatch={(batchId) => void setBatchPaused(batchId, true)} onResumeBatch={(batchId) => void setBatchPaused(batchId, false)} onSelectCase={selectCase} onSelectRun={selectRun} onStartBatch={() => void startBatchEvaluation()} onWidthChange={onWidthChange} onWidthReset={onWidthReset} runs={runs} selectedCaseId={selectedCase.caseId} selectedEvalRunId={selectedEvalRunId} sidebarWidth={sidebarWidth} />
       <main className={`workspace conversation-workspace eval-workspace ${observerOpen ? "has-surface" : ""}`} style={{ "--surface-width": `${effectiveObserverWidth}px` } as CSSProperties}>
         <div className="conversation-main inspector-layout-none">
           <header className="thread-header">

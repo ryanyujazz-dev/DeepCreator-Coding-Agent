@@ -64,6 +64,7 @@ export class DelegationCoordinator {
     if (!message) throw new Error("message 不能为空。");
 
     const definition = agentDefinition(input.agent);
+    const protocol = this.store.getRun(input.parentRunId)?.protocol ?? "chat";
     const delegationId = this.system.createId("delegation");
     const childSessionId = this.system.createId("session_sub");
     const childRunId = this.system.createId("run_sub");
@@ -85,7 +86,7 @@ export class DelegationCoordinator {
       updatedAt: now
     };
     this.store.createDelegatedRun({
-      childRun: { mode: "work", model: input.model, prompt: message, runId: childRunId, startedAt: now },
+      childRun: { mode: "work", model: input.model, prompt: message, protocol, runId: childRunId, startedAt: now },
       childSession: {
         accessMode,
         agentId: definition.agentId,
@@ -113,6 +114,7 @@ export class DelegationCoordinator {
     this.childSubscriptions.set(childRunId, unsubscribe);
     this.launcher.launch({
       model: input.model,
+      protocol,
       projectRoot: input.projectRoot,
       prompt: message,
       runId: childRunId,

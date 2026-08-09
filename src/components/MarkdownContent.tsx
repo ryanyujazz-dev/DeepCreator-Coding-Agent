@@ -5,6 +5,7 @@ import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { StreamFragment } from "../stream/textFlow";
 import { useOptionalTheme } from "../theme/ThemeProvider";
+import { ModelCitation } from "../../shared/contracts/provider";
 
 type FadeRange = {
   end: number;
@@ -186,17 +187,20 @@ function markdownComponents(followOutput: boolean): Components {
 }
 
 export function MarkdownContent({
+  citations = [],
   fragments = [],
   stable = "",
   streaming = false,
   text
 }: {
+  citations?: ModelCitation[];
   fragments?: StreamFragment[];
   stable?: string;
   streaming?: boolean;
   text?: string;
 }) {
-  const source = text ?? stable + fragments.map((fragment) => fragment.text).join("");
+  const rawSource = text ?? stable + fragments.map((fragment) => fragment.text).join("");
+  const source = useMemo(() => decorateCitations(rawSource, citations), [citations, rawSource]);
   const ranges = useMemo(() => {
     let cursor = stable.length;
     return fragments.map((fragment) => {
@@ -215,4 +219,38 @@ export function MarkdownContent({
       </ReactMarkdown>
     </div>
   );
+}
+
+function safeCitationUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function decorateCitations(source: string, citations: ModelCitation[]): string {
+  const safe = citations.filter((item) => safeCitationUrl(item.url));
+  if (safe.length === 0) return source;
+  const valid = safe.every((item) => Number.isInteger(item.startIndex)
+    && Number.isInteger(item.endIndex)
+    && item.startIndex >= 0
+    && item.endIndex > item.startIndex
+    && item.endIndex <= source.length);
+  const marker = (item: ModelCitation, index: number) => {
+    const title = item.title.replaceAll('"', "'").replaceAll("\n", " ");
+    return `[[${index + 1}]](<${item.url}> "${title}")`;
+  };
+  if (!valid) {
+    const sources = safe.map((item, index) => `- ${marker(item, index)} ${item.title}`).join("\n");
+    return `${source}\n\n来源：\n${sources}`;
+  }
+  let result = source;
+  const indexed = safe.map((item, index) => ({ index, item }))
+    .sort((left, right) => right.item.endIndex - left.item.endIndex || right.index - left.index);
+  for (const entry of indexed) {
+    result = `${result.slice(0, entry.item.endIndex)}${marker(entry.item, entry.index)}${result.slice(entry.item.endIndex)}`;
+  }
+  return result;
 }

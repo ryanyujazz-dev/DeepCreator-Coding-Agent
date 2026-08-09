@@ -1,0 +1,14 @@
+{
+  "caseId": "CAE-020",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "interactions": { "answerQuestions": "diagnosis_only" },
+  "assertions": [
+    { "id": "names-port", "kind": "run_answer_contains", "text": "8787", "points": 6 },
+    { "id": "names-pid", "kind": "run_answer_contains", "text": "4317", "points": 6 },
+    { "id": "names-process", "kind": "run_answer_contains", "text": "deepcreator-runtime", "points": 6 },
+    { "id": "diagnosis-only", "kind": "git_diff_empty", "points": 12 }
+  ],
+  "timeoutMs": 600000
+}

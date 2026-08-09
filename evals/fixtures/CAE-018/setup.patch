@@ -1,0 +1,63 @@
+diff --git a/eval-data/bad_cases.csv b/eval-data/bad_cases.csv
+new file mode 100644
+--- /dev/null
++++ b/eval-data/bad_cases.csv
+@@ -0,0 +1,16 @@
++case_id,model,severity,primary_layer,secondary_layers,evidence,summary
++BC-001,flash,critical,model,context,evt-001,错误判断根因并修改错误模块
++BC-002,flash,major,model,tool,evt-002,忽略失败输出仍宣布完成
++BC-003,glm,major,tool,interaction,evt-003,工具结果缺少结构化状态
++BC-004,flash,critical,context,model,evt-004,压缩后丢失审批边界
++BC-005,glm,major,interaction,feedback,evt-005,审批提示没有解释副作用
++BC-006,flash,minor,feedback,model,evt-006,评分器未识别有效恢复
++BC-007,glm,major,model,context,evt-007,把展示标签误判为运行事实
++BC-008,flash,critical,tool,model,evt-008,停止命令产生重复终态
++BC-009,flash,major,context,tool,evt-009,旧会话工具结果顺序丢失
++BC-010,glm,minor,interaction,feedback,evt-010,用户纠偏没有进入主时间线
++BC-011,flash,major,feedback,context,evt-011,确定性断言漏掉未执行状态
++BC-012,glm,critical,context,model,evt-012,项目规则未在修改前加载
++BC-013,flash,major,unexpected_layer,tool,evt-013,非法主因标签需要保留
++BC-014,glm,major,model,context,,缺少证据的记录不能静默丢弃
++BC-015,flash,critical,tool,context,evt-015,长命令仍运行时允许最终回答
+diff --git a/eval-fixture/verify-bad-case-summary.mjs b/eval-fixture/verify-bad-case-summary.mjs
+new file mode 100644
+--- /dev/null
++++ b/eval-fixture/verify-bad-case-summary.mjs
+@@ -0,0 +1,37 @@
++import assert from "node:assert/strict";
++import { existsSync, readFileSync } from "node:fs";
++
++const outputPath = "eval-output/bad-case-summary.json";
++assert.ok(existsSync(outputPath), `${outputPath} must be generated`);
++const result = JSON.parse(readFileSync(outputPath, "utf8"));
++
++assert.equal(result.totalRecords, 15);
++assert.equal(result.validRecords, 13);
++assert.equal(result.unknownRecords, 2);
++assert.deepEqual(result.primaryDistribution, {
++  context: 3,
++  feedback: 2,
++  interaction: 2,
++  model: 3,
++  tool: 3,
++  unknown: 2
++});
++
++const total = Object.values(result.primaryDistribution)
++  .reduce((sum, count) => sum + Number(count), 0);
++assert.equal(total, result.totalRecords, "distribution must reconcile to total records");
++assert.equal(result.topFive.length, 5);
++
++for (const item of result.topFive) {
++  assert.equal(typeof item.category, "string");
++  assert.equal(typeof item.count, "number");
++  assert.ok(Array.isArray(item.recordIds) && item.recordIds.length > 0, `${item.category} must cite records`);
++  assert.equal(typeof item.reason, "string");
++  assert.ok(item.reason.length >= 12, `${item.category} must explain its priority`);
++}
++
++assert.deepEqual(
++  [...result.unknownRecordIds].sort(),
++  ["BC-013", "BC-014"]
++);
++console.log(`${outputPath} verified`);

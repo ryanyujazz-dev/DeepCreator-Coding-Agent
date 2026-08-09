@@ -83,8 +83,13 @@ function registerIpc(): void {
   ipcMain.handle("desktop:settings:save", async (event, input: DesktopSettingsInput) => {
     trusted(event);
     const settings = store.saveSettings(input);
-    const connection = await runtime.restart();
-    return { connection, settings };
+    try {
+      const connection = await runtime.restart();
+      return { connection, settings };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`配置已保存，但 Runtime 重新启动失败：${detail}`);
+    }
   });
   ipcMain.handle("desktop:themes:list", (event) => {
     trusted(event);

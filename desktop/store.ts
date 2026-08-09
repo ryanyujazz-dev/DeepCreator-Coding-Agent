@@ -94,7 +94,8 @@ export class DesktopStore {
     return {
       defaultModel: config.model || this.state.defaultModel,
       hasApiKey: Boolean(this.apiKey()),
-      hasZhipuApiKey: Boolean(config.zhipuApiKey)
+      hasZhipuApiKey: Boolean(config.zhipuApiKey),
+      modelProtocols: config.modelProtocols
     };
   }
 
@@ -123,6 +124,7 @@ export class DesktopStore {
     // 普通设置统一写入 ~/.deepcreator/config.json；desktop.json 仅保留旧版本兼容字段。
     const config = loadUserConfig();
     config.model = defaultModel;
+    if (input.modelProtocols) config.modelProtocols = { ...input.modelProtocols };
     if (input.zhipuApiKey !== undefined) config.zhipuApiKey = input.zhipuApiKey.trim();
     saveUserConfig(config);
     this.write();

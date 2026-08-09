@@ -177,3 +177,140 @@ test("aborts a balance request when the provider does not respond", async () => 
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
+
+test("decodes Responses semantic events without a DONE sentinel and preserves native search citations", async () => {
+  let requestBody = "";
+  let requestPath = "";
+  const server = createServer((request, response) => {
+    requestPath = request.url ?? "";
+    request.on("data", (chunk) => (requestBody += chunk.toString()));
+    request.on("end", () => {
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      const events = [
+        { type: "response.created", sequence_number: 0 },
+        { type: "response.output_item.added", sequence_number: 1, output_index: 0, item: { id: "rs_1", type: "reasoning", status: "in_progress" } },
+        { type: "response.reasoning_text.delta", sequence_number: 2, output_index: 0, item_id: "rs_1", delta: "先搜索" },
+        { type: "response.output_item.done", sequence_number: 3, output_index: 0, item: { id: "rs_1", type: "reasoning", status: "completed" } },
+        { type: "response.output_item.added", sequence_number: 4, output_index: 1, item: { id: "ws_1", type: "web_search_call", status: "in_progress", action: { type: "search", query: "Responses API" } } },
+        { type: "response.web_search_call.searching", sequence_number: 5, output_index: 1, item_id: "ws_1" },
+        { type: "response.web_search_call.completed", sequence_number: 6, output_index: 1, item_id: "ws_1" },
+        { type: "response.output_item.done", sequence_number: 7, output_index: 1, item: { id: "ws_1", type: "web_search_call", status: "completed", action: { type: "search", query: "Responses API" } } },
+        { type: "response.output_item.added", sequence_number: 8, output_index: 2, item: { id: "msg_1", type: "message", status: "in_progress", content: [] } },
+        { type: "response.output_text.delta", sequence_number: 9, output_index: 2, item_id: "msg_1", delta: "来源" },
+        { type: "response.output_text.annotation.added", sequence_number: 10, output_index: 2, item_id: "msg_1", annotation: { type: "url_citation", start_index: 0, end_index: 2, title: "官方文档", url: "https://example.com/docs" } },
+        { type: "response.output_item.done", sequence_number: 11, output_index: 2, item: { id: "msg_1", type: "message", status: "completed", content: [{ type: "output_text", text: "来源", annotations: [{ type: "url_citation", start_index: 0, end_index: 2, title: "官方文档", url: "https://example.com/docs" }] }] } },
+        { type: "response.output_item.added", sequence_number: 12, output_index: 3, item: { id: "fc_1", type: "function_call", call_id: "call_1", name: "read_file", status: "in_progress", arguments: "" } },
+        { type: "response.function_call_arguments.delta", sequence_number: 13, output_index: 3, item_id: "fc_1", delta: "{\"path\":\"src/App.tsx\"}" },
+        { type: "response.output_item.done", sequence_number: 14, output_index: 3, item: { id: "fc_1", type: "function_call", call_id: "call_1", name: "read_file", status: "completed", arguments: "{\"path\":\"src/App.tsx\"}" } },
+        { type: "response.completed", sequence_number: 15, response: { usage: { input_tokens: 100, output_tokens: 20, input_tokens_details: { cached_tokens: 40 } } } }
+      ];
+      for (const event of events) response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      response.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const fragments: string[] = [];
+    const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}/chat/completions`);
+    const result = await provider.stream({
+      messages: [{ role: "user", text: "查资料后读文件" }],
+      model: "deepseek-v4-flash",
+      modelStepId: "step_responses",
+      onFragment: (fragment) => fragments.push(fragment.kind),
+      protocol: "responses",
+      tools: [
+        { name: "web_search", description: "search", inputSchema: { type: "object" } },
+        { name: "read_file", description: "read", inputSchema: { type: "object" } }
+      ]
+    });
+    assert.equal(requestPath, "/responses");
+    const body = JSON.parse(requestBody) as { input: unknown[]; tools: Array<Record<string, unknown>> };
+    assert.ok(body.tools.some((tool) => tool.type === "web_search"));
+    assert.equal(body.tools.some((tool) => recordFunctionName(tool) === "web_search"), false);
+    assert.equal(result.thinking, "先搜索");
+    assert.equal(result.answer, "来源");
+    assert.deepEqual(result.toolCalls, [{ argumentsText: "{\"path\":\"src/App.tsx\"}", callId: "call_1", index: 3, name: "read_file" }]);
+    assert.equal(result.usage?.cacheHitTokens, 40);
+    assert.equal(result.continuationMessage.outputItems?.find((item) => item.itemId === "msg_1")?.citations?.[0].title, "官方文档");
+    assert.ok(fragments.includes("output_item"));
+    assert.ok(fragments.includes("thinking"));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+function recordFunctionName(tool: Record<string, unknown>): string | undefined {
+  return tool.type === "function" && typeof tool.name === "string" ? tool.name : undefined;
+}
+
+test("streams custom apply_patch input as an unapplied tool call", async () => {
+  let requestBody = "";
+  const patch = "*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch";
+  const server = createServer((request, response) => {
+    request.on("data", (chunk) => (requestBody += chunk.toString()));
+    request.on("end", () => {
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      const events = [
+        { type: "response.output_item.added", sequence_number: 1, output_index: 0, item: { id: "ct_1", type: "custom_tool_call", call_id: "patch_1", name: "apply_patch", status: "in_progress", input: "" } },
+        { type: "response.custom_tool_call_input.delta", sequence_number: 2, output_index: 0, item_id: "ct_1", delta: patch },
+        { type: "response.output_item.done", sequence_number: 3, output_index: 0, item: { id: "ct_1", type: "custom_tool_call", call_id: "patch_1", name: "apply_patch", status: "completed", input: patch } },
+        { type: "response.completed", sequence_number: 4, response: { usage: { input_tokens: 10, output_tokens: 10 } } }
+      ];
+      for (const event of events) response.write(`data: ${JSON.stringify(event)}\n\n`);
+      response.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}/chat/completions`);
+    const result = await provider.stream({
+      messages: [{ role: "user", text: "创建文件" }],
+      model: "deepseek-v4-flash",
+      modelStepId: "step_patch",
+      protocol: "responses",
+      tools: [{ name: "apply_patch", description: "patch", inputSchema: { type: "object" } }]
+    });
+    const body = JSON.parse(requestBody) as { tools: Array<Record<string, unknown>> };
+    assert.deepEqual(body.tools[0], { type: "custom", name: "apply_patch", description: "patch" });
+    assert.equal(result.toolCalls[0].name, "apply_patch");
+    assert.equal(JSON.parse(result.toolCalls[0].argumentsText).patch, patch);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("fails unsealed Responses calls without emitting a Runtime tool call", async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    const events = [
+      { type: "response.output_item.added", sequence_number: 1, output_index: 0, item: { id: "fc_open", type: "function_call", call_id: "call_open", name: "read_file", status: "in_progress", arguments: "" } },
+      { type: "response.function_call_arguments.delta", sequence_number: 2, output_index: 0, item_id: "fc_open", delta: "{\"path\":" },
+      { type: "response.failed", sequence_number: 3, response: { error: { message: "provider stopped" } } }
+    ];
+    for (const event of events) response.write(`data: ${JSON.stringify(event)}\n\n`);
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const fragments: Array<{ kind: string; status?: string }> = [];
+  try {
+    const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}/chat/completions`);
+    await assert.rejects(provider.stream({
+      messages: [{ role: "user", text: "读取文件" }],
+      model: "deepseek-v4-flash",
+      modelStepId: "step_failed",
+      onFragment: (fragment) => fragments.push({ kind: fragment.kind, status: fragment.kind === "output_item" ? fragment.item.status : undefined }),
+      protocol: "responses",
+      tools: [{ name: "read_file", description: "read", inputSchema: { type: "object" } }]
+    }), /provider stopped/);
+    assert.equal(fragments.some((fragment) => fragment.kind === "tool_call"), false);
+    assert.equal(fragments.filter((fragment) => fragment.kind === "output_item").at(-1)?.status, "failed");
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});

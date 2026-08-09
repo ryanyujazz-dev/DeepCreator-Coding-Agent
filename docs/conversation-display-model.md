@@ -22,6 +22,22 @@ The conversation view only needs to render three user-visible categories of mode
 
 Provider-specific fields such as `reasoning_content` must be projected into those categories before they reach the UI. The provider protocol shape is not part of the public Event contract.
 
+## Chat And Responses Protocols
+
+A Run may record `protocol: "chat" | "responses"`. Historical Runs without that field are projected as Chat. The protocol is selected from the model setting when a new Run or follow-up starts and does not change an already-started Run.
+
+Chat and Responses have separate display projectors, but both obey the segment, slot, aggregate, and held-label rules in this document. Responses first normalizes its semantic SSE stream into provider-neutral `ModelOutputItem` lifecycle facts; the renderer never displays raw SSE events as timeline rows.
+
+The Responses projection adds these invariants:
+
+- A function or custom output item becoming `completed` only seals model generation. It is not tool execution `done`, does not create a completed Activity, and does not enter the aggregate.
+- Function-call arguments remain buffered until the whole model step seals. The Tool Pipeline creates the public Activity only when execution really starts.
+- A native Web Search output item represents real server-side tool work. Its preparing, searching, and completed updates retain one identity; real completion may enter the aggregate and a following message starts the next segment.
+- An `apply_patch` custom-input delta is an unapplied draft. It may occupy the seed slot and show a preview, but must not write `liveFiles`, `activity.files`, or `run.changes`.
+- After a patch is sealed and validated, approval and execution reuse the same visible activity identity. Only Git-derived facts published after successful execution count as file changes or completed mutation work.
+- Responses failure or incompletion retains already received content and unapplied drafts, fails any open provider-hosted activity explicitly, and never silently retries through Chat.
+- Message URL citations belong to the message content. Valid HTTP(S) citations are clickable; invalid annotation indices degrade to a source list rather than corrupting the text.
+
 ## Event Truth vs Render Truth
 
 There are two separate layers:
@@ -62,7 +78,7 @@ Reasoning has two projections with different jobs. The conversation timeline may
 - After the first reasoning delta, the inspector header starts as `正在思考`. The first thinking step may produce one early title after a natural paragraph, a hard size boundary, or a bounded wait. After that exception, Runtime submits reasoning only when each model step seals, so one step can produce at most one title candidate.
 - A successful early title consumes the first step's title opportunity; the step boundary does not generate a second title. If that first attempt fails validation or transport, the sealed boundary may retry it once.
 - Runtime asynchronously persists accepted titles through `reasoning.title.updated`; a title summarizes the current thinking stage and never replaces or edits the underlying reasoning text. If summary work falls behind, only the latest sealed pending step is retained, preventing old titles from replaying late.
-- The reasoning title is presentation state, not a tool, task, completion claim, or lifecycle boundary. Summary failures leave the previous title intact and must not delay ordinary model or tool execution.
+- The reasoning presentation title is Runtime-generated presentation state, not a provider-native reasoning summary, tool, task, completion claim, or lifecycle boundary. Summary failures leave the previous title intact and must not delay ordinary model or tool execution.
 
 ## Live File Mutations
 

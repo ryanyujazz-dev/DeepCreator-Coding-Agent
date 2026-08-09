@@ -1,0 +1,16 @@
+diff --git a/shared/domain/toolProtocol.ts b/shared/domain/toolProtocol.ts
+--- a/shared/domain/toolProtocol.ts
++++ b/shared/domain/toolProtocol.ts
+@@ -65,11 +65,7 @@ export function protocolSafeModelMessages(records: ContextEntry[]): ModelMessage
+         messages.push(modelMessageFromEntry(result)!);
+         continue;
+       }
+-      messages.push({
+-        role: "tool",
+-        text: `工具调用 ${call.name} (${call.callId}) 没有持久化结果，Runtime 将其视为已中断；不得假设该工具执行成功。`,
+-        toolCallKey: call.callId
+-      });
++      // Regression fixture: legacy interrupted calls currently disappear here.
+     }
+   }
+

@@ -63,6 +63,25 @@ test("groups reasoning deltas by model step while preserving the aggregate", () 
   assert.equal(result.runs[0].reasoning, "先定位文件。\n\n再验证实现。");
 });
 
+test("persists the selected protocol and replaces semantic output item snapshots by item id", () => {
+  const result = reduceEvents(createSession(registration, 1), [
+    event(2, "run.started", { model: "deepseek-v4-flash", prompt: "分析", protocol: "responses", startedAt: registration.createdAt }),
+    event(3, "model.output_item.changed", { item: { itemId: "item_1", modelStepId: "step_1", outputIndex: 0, sequence: 1, status: "generating", text: "先", type: "reasoning" } }),
+    event(4, "model.output_item.changed", { item: { itemId: "item_1", modelStepId: "step_1", outputIndex: 0, sequence: 2, status: "completed", text: "先检查", type: "reasoning" } })
+  ]);
+  assert.equal(result.runs[0].protocol, "responses");
+  assert.deepEqual(result.runs[0].outputItems, [{ itemId: "item_1", modelStepId: "step_1", outputIndex: 0, sequence: 2, status: "completed", text: "先检查", type: "reasoning" }]);
+});
+
+test("keeps repeated provider item ids distinct across model steps", () => {
+  const result = reduceEvents(createSession(registration, 1), [
+    event(2, "run.started", { model: "deepseek-v4-flash", prompt: "分析", protocol: "responses", startedAt: registration.createdAt }),
+    event(3, "model.output_item.changed", { item: { itemId: "item_1", modelStepId: "step_1", outputIndex: 0, sequence: 1, status: "completed", type: "message" } }),
+    event(4, "model.output_item.changed", { item: { itemId: "item_1", modelStepId: "step_2", outputIndex: 0, sequence: 1, status: "completed", type: "message" } })
+  ]);
+  assert.deepEqual(result.runs[0].outputItems?.map((item) => item.modelStepId), ["step_1", "step_2"]);
+});
+
 test("keeps unkeyed legacy reasoning out of the visual step projection", () => {
   const result = reduceEvents(createSession(registration, 1), [
     event(2, "run.started", { model: "deepseek-chat", prompt: "分析", startedAt: registration.createdAt }),

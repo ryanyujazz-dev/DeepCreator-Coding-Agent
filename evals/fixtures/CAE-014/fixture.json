@@ -1,0 +1,12 @@
+{
+  "caseId": "CAE-014",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "interactions": { "autoApprovePlan": true },
+  "assertions": [
+    { "id": "context-equivalence", "kind": "command", "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/contextEngineering.test.ts tests/toolProtocol.test.ts tests/runtimeV2.test.ts", "expectedExitCode": 0, "points": 20 },
+    { "id": "context-modules-split", "kind": "command", "command": "node eval-fixture/verify-context-modules.mjs", "expectedExitCode": 0, "points": 10 }
+  ],
+  "timeoutMs": 900000
+}

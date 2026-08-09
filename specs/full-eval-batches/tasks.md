@@ -1,0 +1,27 @@
+# Implementation Plan
+
+- [x] 1. 定义批次契约与加权计分
+  - 增加 queued Run、批次快照与 API 响应类型
+  - 增加难度加权纯函数和边界测试
+  - _Requirement: 3, 4_
+- [x] 2. 实现批次调度与持久化
+  - 创建全部子 Run 并以 4 个并发槽执行
+  - 子 Run 终止后推进队列、更新批次并支持重启恢复
+  - _Requirement: 1, 4_
+- [x] 3. 接入 HTTP 与 Renderer 数据流
+  - 增加批次列表、启动接口和契约解码
+  - 轮询批次与 Run，允许选择任一子 Run
+  - _Requirement: 1, 2_
+- [x] 4. 完成侧边栏交互
+  - 增加全量运行按钮和全量结果树
+  - 将现有区域改名为单次评测结果并去重
+  - _Requirement: 2, 5_
+- [x] 5. 验证
+  - 覆盖调度、评分、恢复、API 和侧边栏投影测试
+  - 完成浏览器交互、lint、完整测试和构建
+  - _Requirement: 1-5_
+- [x] 6. 增加暂停与统一 Judge 默认值
+  - 增加 paused 批次状态、暂停/继续 API 和调度门
+  - 增加侧边栏暂停/继续按钮与默认 DeepSeek LLM Judge
+  - 覆盖持久化、API、默认值与浏览器交互
+  - _Requirement: 6, 7_

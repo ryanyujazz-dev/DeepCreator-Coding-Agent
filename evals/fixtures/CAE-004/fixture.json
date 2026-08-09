@@ -1,0 +1,12 @@
+{
+  "caseId": "CAE-004",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "interactions": { "autoApprovePlan": true },
+  "assertions": [
+    { "id": "protocol-recovery", "kind": "command", "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/toolProtocol.test.ts tests/runLifecycle.test.ts", "expectedExitCode": 0, "points": 25 },
+    { "id": "legacy-fallback-restored", "kind": "file_contains", "path": "shared/domain/toolProtocol.ts", "text": "Runtime 将其视为已中断", "points": 5 }
+  ],
+  "timeoutMs": 900000
+}

@@ -89,6 +89,7 @@ export type EvalFixtureManifest = {
   interactions?: {
     autoApprovePlan?: boolean;
     answerQuestions?: "first_option" | "diagnosis_only";
+    continuePlanningOnce?: string;
   };
   assertions: FixtureAssertion[];
   timeoutMs?: number;

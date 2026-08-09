@@ -1,0 +1,40 @@
+diff --git a/eval-fixture/verify-managed-command-adr.mjs b/eval-fixture/verify-managed-command-adr.mjs
+new file mode 100644
+--- /dev/null
++++ b/eval-fixture/verify-managed-command-adr.mjs
+@@ -0,0 +1,34 @@
++import assert from "node:assert/strict";
++import { existsSync, readFileSync } from "node:fs";
++
++const adrPath = "docs/adr/010-managed-command-lifecycle.md";
++assert.ok(existsSync(adrPath), `${adrPath} must be created`);
++const source = readFileSync(adrPath, "utf8");
++
++for (const heading of [
++  "背景",
++  "决策",
++  "状态机",
++  "失败边界",
++  "替代方案",
++  "后果"
++]) {
++  assert.match(source, new RegExp(`^##+\\s+.*${heading}`, "m"), `missing ADR heading: ${heading}`);
++}
++
++for (const fact of [
++  "run_command",
++  "wait_command",
++  "stop_command",
++  "commandId",
++  "Activity",
++  "completion gate",
++  "running",
++  "completed",
++  "failed",
++  "cancelled"
++]) {
++  assert.ok(source.includes(fact), `ADR missing lifecycle fact: ${fact}`);
++}
++
++assert.ok(source.length >= 1800, "ADR must explain the decision rather than list API names only");
++console.log(`${adrPath} verified`);

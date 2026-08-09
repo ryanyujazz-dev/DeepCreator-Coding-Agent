@@ -1,7 +1,7 @@
 import { ModelDelta } from "../../shared/contracts/provider";
 
 export type ModelStepStreamCallbacks = {
-  appendAnswer: (text: string, firstFragment: boolean) => void;
+  appendAnswer: (text: string, firstFragment: boolean, source?: { itemId?: string; outputIndex?: number }) => void;
   appendReasoning: (text: string) => void;
   appendThinking: (text: string) => void;
   endThinking: () => void;
@@ -33,7 +33,7 @@ export class ModelStepStream {
       this.flushReasoning();
       if (!this.answerStarted) {
         this.answerStarted = true;
-        this.callbacks.appendAnswer(fragment.text, true);
+        this.callbacks.appendAnswer(fragment.text, true, { itemId: fragment.itemId, outputIndex: fragment.outputIndex });
       } else {
         this.bufferAnswer(fragment.text);
       }

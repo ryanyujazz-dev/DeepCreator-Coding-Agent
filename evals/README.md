@@ -4,7 +4,7 @@
 
 这套数据集用于评价 Code Agent 是否不仅“给出了最终答案”，而且在整个任务过程中持续输出真实、适时、有信息增量的 Content，并通过正确的工具轨迹完成、验证和交付任务。
 
-v1 包含 8 类场景、20 条 Eval Case、统一评分规则和 Bad Case 归因字段。Eval Runner、Trace 规则评分、启发式/Provider Content Judge 以及 Markdown、HTML、CSV 报表已经接入；当前有 8 条可运行 Fixture，分别覆盖代码解释、Bug 修复、功能实现、测试补全、重构优化、文档生成、数据处理、环境与依赖排查，其余 12 条继续标记为 `planned`。
+v1 包含 8 类场景、20 条可运行 Eval Case、统一评分规则和 Bad Case 归因字段。Eval Runner、Trace 规则评分、启发式/Provider Content Judge 以及 Markdown、HTML、CSV 报表已经接入。所有 Case 都以当前仓库 `HEAD` 创建隔离 Git Worktree，并按需应用 Fixture Patch；不会直接修改开发者工作区。
 
 ## 快速开始
 
@@ -35,11 +35,13 @@ npm run eval:run -- \
 
 ### 开发者评测中心
 
-运行 `npm run dev:all` 或 `npm run dev:desktop` 后，在设置侧边栏打开“评测中心”。选择左侧 Case，题目会以只读内容进入现有输入框；选择被测模型并点击原发送按钮即可开始。中间画布复用真实任务的对话、工具、Diff 与验证事件流，右侧“评测观察器”用于选择评分模式、Judge 模型并查看 100 分评分明细。
+运行 `npm run dev:all` 或 `npm run dev:desktop` 后，在设置侧边栏打开“评测中心”。选择左侧 Case，题目会以只读内容进入现有输入框；选择被测模型并点击原发送按钮即可开始。中间画布复用真实任务的对话、工具、Diff 与验证事件流，右侧“评测观察器”用于选择评分模式、Judge 模型并查看 100 分评分明细。单次、全量和 CLI 评测默认均使用 LLM Judge，默认 Judge 模型为 `deepseek-v4-flash`。
 
 该入口和执行服务仅在开发构建中加载。桌面发布构建不会注册 `/api/evals/*`，也不会打包评测工作区及其样式；普通任务列表会过滤评测专用会话。若需要在本地临时关闭开发评测服务，可使用 `DEEPCREATOR_EVALS=0 npm run dev:all`。
 
-当前可运行 Case：
+评测 Run 提交计划后会统一自动批准并继续执行，无需逐个 Fixture 配置 `autoApprovePlan`。需要验证计划修订流程的 Fixture 仍可通过 `continuePlanningOnce` 先退回一次，下一版计划会自动批准；问题回答继续使用 Fixture 的显式交互策略。
+
+每类代表 Case：
 
 | 场景 | Case | 交互方式 |
 | --- | --- | --- |
@@ -51,6 +53,8 @@ npm run eval:run -- \
 | 文档生成 | `CAE-015` | 文档集合与注册表确定性比对 |
 | 数据处理 | `CAE-017` | 使用带已知计数的脱敏 Trace |
 | 环境排查 | `CAE-019` | 仅诊断；若询问则由 Fixture 选择暂不修改 |
+
+其余同类 Case 同样可运行：`CAE-002`、`CAE-004`、`CAE-005`、`CAE-006`、`CAE-008`、`CAE-009`、`CAE-010`、`CAE-012`、`CAE-014`、`CAE-016`、`CAE-018`、`CAE-020`。需要方案审批的 Fixture 会自动处理最新 proposed revision；`CAE-009` 会先退回第一版并在新版生成后批准，诊断类 Fixture 只会选择“不修改”的安全选项。
 
 ## 2. 覆盖范围
 

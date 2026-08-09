@@ -130,6 +130,7 @@ export function reduceEvent(current: Session, event: Event): Session {
       changes: emptyChanges(),
       lastOffset: event.offset,
       model: data.model,
+      protocol: data.protocol,
       mode: data.mode ?? next.mode,
       tasks: [],
       prompt: data.prompt,
@@ -146,6 +147,14 @@ export function reduceEvent(current: Session, event: Event): Session {
   run.lastOffset = event.offset;
 
   switch (event.type) {
+    case "model.output_item.changed": {
+      run.outputItems ??= [];
+      const item = clone(event.data.item);
+      const existing = run.outputItems.findIndex((candidate) => candidate.itemId === item.itemId && candidate.modelStepId === item.modelStepId);
+      if (existing < 0) run.outputItems.push(item);
+      else run.outputItems[existing] = item;
+      break;
+    }
     case "reasoning.updated": {
       if (!event.data.modelStepId) {
         run.reasoning = (run.reasoning ?? "") + event.data.textDelta;
@@ -247,6 +256,8 @@ export function reduceEvent(current: Session, event: Event): Session {
         if (data.command) activity.command = { ...(activity.command ?? { command: data.command.command ?? "" }), ...clone(data.command) };
       if (data.argumentsDelta && activity.tool) activity.tool.argumentsPreview += data.argumentsDelta;
       if (data.files) activity.files = clone(data.files);
+      if (data.citations) activity.citations = clone(data.citations);
+      if (data.draft) activity.draft = clone(data.draft);
       if (data.liveFiles) activity.liveFiles = clone(data.liveFiles);
       if (data.status) activity.status = data.status;
       if (data.tool && activity.tool) Object.assign(activity.tool, clone(data.tool));

@@ -1,0 +1,30 @@
+diff --git a/eval-fixture/verify-context-modules.mjs b/eval-fixture/verify-context-modules.mjs
+new file mode 100644
+--- /dev/null
++++ b/eval-fixture/verify-context-modules.mjs
+@@ -0,0 +1,25 @@
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++
++const builderPath = "server/app/contextBuilder.ts";
++const source = readFileSync(builderPath, "utf8");
++const lines = source.split("\n").length;
++const imports = [...source.matchAll(/from \"\.\/(context[^\"]+)\"/g)].map((match) => match[1]);
++const responsibilityModules = imports.filter((name) => !["contextFingerprint", "contextQueries"].includes(name));
++
++assert.ok(
++  responsibilityModules.length >= 2,
++  `contextBuilder must delegate to at least two responsibility modules, found: ${responsibilityModules.join(", ") || "none"}`
++);
++assert.ok(lines < 560, `contextBuilder.ts must be reduced below 560 lines, found ${lines}`);
++
++for (const moduleName of responsibilityModules) {
++  const moduleSource = readFileSync(`server/app/${moduleName}.ts`, "utf8");
++  assert.ok(moduleSource.length > 300, `${moduleName}.ts is too small to represent an extracted responsibility`);
++}
++
++assert.match(source, /contextFingerprint/, "stable context fingerprinting must remain wired");
++console.log(JSON.stringify({
++  builderLines: lines,
++  extractedModules: responsibilityModules
++}));

@@ -1,0 +1,12 @@
+{
+  "caseId": "CAE-005",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "interactions": { "autoApprovePlan": true },
+  "assertions": [
+    { "id": "managed-command-lifecycle", "kind": "command", "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/completionGate.test.ts tests/commandManager.test.ts tests/runLifecycle.test.ts", "expectedExitCode": 0, "points": 25 },
+    { "id": "completion-gate-restored", "kind": "file_contains", "path": "server/app/completionGate.ts", "text": "input.runningCommandCount > 0", "points": 5 }
+  ],
+  "timeoutMs": 900000
+}

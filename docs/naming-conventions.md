@@ -29,6 +29,8 @@ Normative words such as **MUST**, **SHOULD**, and **MUST NOT** are intentional.
 9. UI wording and aggregation MUST NOT become persisted domain vocabulary.
 10. Abbreviations SHOULD be avoided unless they are established protocol or platform terms such as `API`, `HTTP`, `SSE`, `SQL`, `MCP`, or `UI`.
 
+`reasoning presentation title` is the canonical name for the short Runtime-generated label shown above reasoning. It MUST NOT be called `reasoning summary`, because that name is reserved for a provider-native response field or item.
+
 ## Core Language
 
 DeepCreator uses four primary nouns:

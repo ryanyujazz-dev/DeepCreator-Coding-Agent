@@ -5,12 +5,44 @@ export type ToolCall = {
   argumentsText: string;
 };
 
+export type ModelProtocol = "chat" | "responses";
+
+export type ModelCitation = {
+  endIndex: number;
+  startIndex: number;
+  title: string;
+  url: string;
+};
+
+export type ModelOutputItemType = "reasoning" | "message" | "function" | "custom" | "hosted_tool";
+export type ModelOutputItemStatus = "generating" | "running" | "completed" | "failed";
+
+/** Provider-neutral lifecycle snapshot for one semantic model output item. */
+export type ModelOutputItem = {
+  itemId: string;
+  modelStepId: string;
+  outputIndex: number;
+  sequence: number;
+  status: ModelOutputItemStatus;
+  type: ModelOutputItemType;
+  argumentsText?: string;
+  callId?: string;
+  citations?: ModelCitation[];
+  draft?: string;
+  error?: string;
+  searchQuery?: string;
+  searchStatus?: "in_progress" | "searching" | "completed";
+  text?: string;
+  toolName?: string;
+};
+
 export type ModelMessage = {
   role: "system" | "user" | "assistant" | "tool";
   text?: string | null;
   toolCallKey?: string;
   toolCalls?: ToolCall[];
   continuationThinking?: string;
+  outputItems?: ModelOutputItem[];
 };
 
 export type Usage = {
@@ -36,9 +68,10 @@ export type ModelIssue = {
 };
 
 export type ModelDelta =
-  | { kind: "thinking"; text: string }
-  | { kind: "answer"; text: string }
+  | { kind: "thinking"; text: string; itemId?: string; outputIndex?: number }
+  | { kind: "answer"; text: string; itemId?: string; outputIndex?: number }
   | { kind: "tool_call"; callId: string; index: number; name?: string; argumentsText?: string }
+  | { kind: "output_item"; item: Omit<ModelOutputItem, "modelStepId"> }
   | { kind: "usage"; usage: Usage };
 
 export type ModelResponse = {
@@ -59,12 +92,14 @@ export type ToolSpec = {
 
 export type ModelRequest = {
   model: string;
+  modelStepId?: string;
   messages: ModelMessage[];
   tools: ToolSpec[];
   maxOutputTokens?: number;
   thinkingMode?: "enabled" | "disabled";
   signal?: AbortSignal;
   onFragment?: (fragment: ModelDelta) => void;
+  protocol?: ModelProtocol;
 };
 
 export type SummaryRequest = {
@@ -113,6 +148,10 @@ export type ModelOption = {
   provider: ProviderFamily;
   /** 简短描述。 */
   description: string;
+  /** Protocol selected when this model has no persisted override. */
+  defaultProtocol?: ModelProtocol;
+  /** Protocols that can be selected in settings. */
+  supportedProtocols?: ModelProtocol[];
 };
 
 export interface Provider {

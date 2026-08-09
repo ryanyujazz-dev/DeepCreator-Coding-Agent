@@ -1,6 +1,6 @@
 import path from "node:path";
 import { RunRegistry } from "../app/runRegistry";
-import { RunLauncher } from "../app/runLauncher";
+import { RunLauncher, RunLaunchPort } from "../app/runLauncher";
 import { Runner } from "../app/runner";
 import { CancelRun } from "../app/cancelRun";
 import { ContextQueries } from "../app/contextQueries";
@@ -22,10 +22,11 @@ import { workspaceQueryPort } from "../infra/workspace";
 import { ensureScratchWorkspace } from "../infra/sessionWorkspace";
 import { nodeSystem } from "../infra/system";
 import { createHttp } from "../transport/http";
-import { ModelOption, ProviderFamily } from "../../shared/contracts/provider";
+import { ModelOption, ModelProtocol, ProviderFamily } from "../../shared/contracts/provider";
 import { DelegationCoordinator } from "../app/delegationCoordinator";
 import { DeveloperEvalService } from "../transport/http";
-import { EventPort, SessionPort } from "../app/runtimeRepo";
+import { ContextPort, EventPort, SessionPort } from "../app/runtimeRepo";
+import { SystemPort } from "../app/systemPort";
 
 export type RuntimeOptions = {
   apiKey?: string;
@@ -33,14 +34,17 @@ export type RuntimeOptions = {
   dataDirectory: string;
   defaultModel?: string;
   evalServiceFactory?: (deps: {
+    launchRun: RunLaunchPort;
     repositoryRoot: string;
     startRun: StartRun;
-    store: EventPort & SessionPort;
+    store: ContextPort & EventPort & SessionPort;
+    system: SystemPort;
   }) => Promise<DeveloperEvalService>;
   evalRepositoryRoot?: string;
   frontendUrl?: string;
   host?: string;
   migrationDirectory?: string;
+  modelProtocols?: Record<string, ModelProtocol>;
   port?: number;
   runtimeMode?: string;
   workspaceRoot: string;
@@ -65,31 +69,41 @@ export const MODEL_REGISTRY: ModelOption[] = [
     description: "DeepSeek V4 Flash — 快速、经济,适合日常编程任务",
     id: "deepseek-v4-flash",
     label: "DeepSeek V4 Flash",
-    provider: "deepseek"
+    provider: "deepseek",
+    defaultProtocol: "responses",
+    supportedProtocols: ["responses", "chat"]
   },
   {
     description: "DeepSeek V4 Pro — 旗舰推理模型,适合复杂分析和架构设计",
     id: "deepseek-v4-pro",
     label: "DeepSeek V4 Pro",
-    provider: "deepseek"
+    provider: "deepseek",
+    defaultProtocol: "chat",
+    supportedProtocols: ["chat"]
   },
   {
     description: "智谱 GLM-5.2 — 旗舰模型,深度思考与 Agent 能力强",
     id: "glm-5.2",
     label: "GLM-5.2",
-    provider: "zhipu"
+    provider: "zhipu",
+    defaultProtocol: "chat",
+    supportedProtocols: ["chat"]
   },
   {
     description: "智谱 GLM-5-Turbo — 轻量快速版,高性价比",
     id: "glm-5-turbo",
     label: "GLM-5-Turbo",
-    provider: "zhipu"
+    provider: "zhipu",
+    defaultProtocol: "chat",
+    supportedProtocols: ["chat"]
   },
   {
     description: "内置 Mock — 无需 API Key,用于离线测试",
     id: "mock-agent",
     label: "Mock Agent",
-    provider: "mock"
+    provider: "mock",
+    defaultProtocol: "chat",
+    supportedProtocols: ["chat"]
   }
 ];
 
@@ -108,6 +122,15 @@ function familyOf(modelId: string): ProviderFamily {
   return "deepseek";
 }
 
+function protocolOf(modelId: string, overrides: Record<string, ModelProtocol> = {}): ModelProtocol {
+  const model = MODEL_REGISTRY.find((item) => item.id === modelId);
+  const selected = overrides[modelId] ?? model?.defaultProtocol ?? "chat";
+  if (model?.supportedProtocols && !model.supportedProtocols.includes(selected)) {
+    throw new Error(`模型 ${modelId} 不支持 ${selected === "responses" ? "Responses" : "Chat"} 协议。`);
+  }
+  return selected;
+}
+
 export async function startRuntime(options: RuntimeOptions): Promise<RunningRuntime> {
   const host = options.host ?? "127.0.0.1";
   const defaultModel = options.defaultModel ?? "deepseek-v4-flash";
@@ -124,19 +147,21 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   const zhipuProvider = new ZhipuProvider(zhipuApiKey);
   const mockProvider = new MockProvider();
   // 模型路由:基于模型注册表的 provider 家族路由。
-  const providerFor = (model: string) => {
+  const providerFor = (model: string, protocol: ModelProtocol = protocolOf(model, options.modelProtocols)) => {
     const family = familyOf(model);
     const isMock = family === "mock" || options.runtimeMode === "mock" || (!apiKey && !zhipuApiKey);
-    if (isMock) return { model: "mock-agent", provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
+    if (isMock) return { model: "mock-agent", protocol, provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
     if (family === "zhipu") {
       if (!zhipuApiKey) throw new Error(`模型 ${model} 需要智谱 API Key，但未配置。请在 ~/.deepcreator/config.json 设置 zhipuApiKey。`);
-      return { model, provider: zhipuProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.zhipu };
+      if (protocol !== "chat") throw new Error(`模型 ${model} 目前只支持 Chat 协议。`);
+      return { model, protocol, provider: zhipuProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.zhipu };
     }
     if (family === "deepseek") {
       if (!apiKey) throw new Error(`模型 ${model} 需要 DeepSeek API Key，但未配置。`);
-      return { model, provider: deepseekProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.deepseek };
+      if (protocol === "responses" && model !== "deepseek-v4-flash") throw new Error(`模型 ${model} 目前不支持 Responses 协议。`);
+      return { model, protocol, provider: deepseekProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.deepseek };
     }
-    return { model: "mock-agent", provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
+    return { model: "mock-agent", protocol: "chat" as const, provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
   };
   const launcher = new RunLauncher(providerFor, registry, (input) => runner.run(input), store);
   const delegations = new DelegationCoordinator(launcher, registry, store, system);
@@ -146,6 +171,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     context,
     defaultModel,
     launcher,
+    protocolForModel: (model) => protocolOf(model, options.modelProtocols),
     store,
     system,
     workspace: {
@@ -168,9 +194,11 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
   const followUps = new FollowUpService({ registry, startRun, store, system });
   followUps.recover();
   const evals = options.evalServiceFactory ? await options.evalServiceFactory({
+    launchRun: launcher,
     repositoryRoot: path.resolve(options.evalRepositoryRoot ?? options.workspaceRoot),
     startRun,
-    store
+    store,
+    system
   }) : undefined;
   const app = createHttp({
     cancelRun: new CancelRun(registry, commandManager),
@@ -202,9 +230,10 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     if (closing) return;
     closing = true;
     app.server.closeAllConnections();
+    await evals?.shutdown();
     await registry.cancelAllAndWait();
     await commandManager.stopAll();
-    evals?.close();
+    await evals?.close();
     followUps.close();
     await app.close().catch(() => undefined);
     store.close();

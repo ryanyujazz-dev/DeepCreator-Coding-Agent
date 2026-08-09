@@ -15,6 +15,7 @@ const stageLabels: Record<EvalRunRecord["stage"], string> = {
   failed: "评测失败",
   judging: "正在评分",
   preparing: "准备测试项目",
+  queued: "等待并发评测空位",
   running_agent: "模型正在执行",
   verifying: "验证任务结果"
 };
@@ -71,7 +72,7 @@ export function EvalObserver({
   const changedFiles = useMemo(() => run?.changes.files ?? [], [run?.changes.files]);
   const [activePath, setActivePath] = useState("");
   const activeFile = useMemo(() => changedFiles.find((file) => file.path === activePath) ?? changedFiles[0], [activePath, changedFiles]);
-  const running = Boolean(job && ["preparing", "running_agent", "verifying", "judging"].includes(job.stage));
+  const running = Boolean(job && ["queued", "preparing", "running_agent", "verifying", "judging"].includes(job.stage));
 
   return (
     <aside className="workspace-surface-panel eval-observer is-open" style={{ width: panelWidth }}>

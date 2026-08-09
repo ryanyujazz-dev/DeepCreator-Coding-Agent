@@ -1,5 +1,6 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
+import { DEFAULT_EVAL_JUDGE, DEFAULT_EVAL_JUDGE_MODEL } from "../../shared/contracts/evals";
 import { fixtureManifestPath, loadDataset } from "./dataset";
 import { runEvalCase } from "./runner";
 
@@ -27,8 +28,8 @@ function usage(): string {
     "可选参数：",
     "  --experiment <id>       实验标识，默认 eval-YYYY-MM-DD",
     "  --attempt <n>           重复运行编号，默认 1",
-    "  --judge heuristic|provider  默认 heuristic",
-    "  --judge-model <model>    Provider Judge 模型",
+    "  --judge heuristic|provider  默认 provider",
+    "  --judge-model <model>    Provider Judge 模型，默认 deepseek-v4-flash",
     "  --keep-workspace         保留临时 Worktree"
   ].join("\n");
 }
@@ -56,14 +57,14 @@ async function main(): Promise<void> {
   const experimentId = args.get("experiment") ?? `eval-${new Date().toISOString().slice(0, 10)}`;
   const attempt = Number(args.get("attempt") ?? 1);
   if (!Number.isSafeInteger(attempt) || attempt <= 0) throw new Error("--attempt 必须是正整数。");
-  const judge = args.get("judge") ?? "heuristic";
+  const judge = args.get("judge") ?? DEFAULT_EVAL_JUDGE;
   if (judge !== "heuristic" && judge !== "provider") throw new Error("--judge 必须是 heuristic 或 provider。");
   const completed = await runEvalCase({
     attempt,
     caseId,
     experimentId,
     judge,
-    judgeModel: args.get("judge-model"),
+    judgeModel: judge === "provider" ? args.get("judge-model") ?? DEFAULT_EVAL_JUDGE_MODEL : undefined,
     keepWorkspace: args.get("keep-workspace") === "true",
     model,
     promptVersion,

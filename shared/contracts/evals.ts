@@ -8,6 +8,9 @@ export type EvalScenario =
   | "data_processing"
   | "environment_dependency";
 
+export const DEFAULT_EVAL_JUDGE = "provider" as const;
+export const DEFAULT_EVAL_JUDGE_MODEL = "deepseek-v4-flash";
+
 export type EvalCaseSummary = {
   allowedTools: string[];
   caseId: string;
@@ -76,6 +79,7 @@ export type EvalResultView = {
 };
 
 export type EvalRunStage =
+  | "queued"
   | "preparing"
   | "running_agent"
   | "verifying"
@@ -86,6 +90,7 @@ export type EvalRunStage =
 
 export type EvalRunRecord = {
   attempt: number;
+  batchId?: string;
   caseId: string;
   createdAt: string;
   error?: string;
@@ -102,9 +107,37 @@ export type EvalRunRecord = {
   stage: EvalRunStage;
 };
 
+export type EvalBatchCaseRecord = {
+  caseId: string;
+  difficulty: EvalCaseSummary["difficulty"];
+  evalRunId: string;
+  weight: number;
+};
+
+export type EvalBatchRunRecord = {
+  batchId: string;
+  cases: EvalBatchCaseRecord[];
+  completedCases: number;
+  concurrency: number;
+  createdAt: string;
+  error?: string;
+  experimentId: string;
+  failedCases: number;
+  finishedAt?: string;
+  judge: "heuristic" | "provider";
+  judgeModel?: string;
+  model: string;
+  passedCases: number;
+  promptVersion: string;
+  stage: "running" | "paused" | "completed" | "failed";
+  weightedAverage?: number;
+};
+
 export type EvalCasesResponse = { cases: EvalCaseSummary[] };
 export type EvalRunsResponse = { runs: EvalRunRecord[] };
 export type EvalRunResponse = { run: EvalRunRecord };
+export type EvalBatchesResponse = { batches: EvalBatchRunRecord[] };
+export type EvalBatchResponse = { batch: EvalBatchRunRecord };
 
 export type StartEvalRunInput = {
   caseId: string;
@@ -113,3 +146,5 @@ export type StartEvalRunInput = {
   model: string;
   promptVersion?: string;
 };
+
+export type StartEvalBatchInput = Omit<StartEvalRunInput, "caseId">;

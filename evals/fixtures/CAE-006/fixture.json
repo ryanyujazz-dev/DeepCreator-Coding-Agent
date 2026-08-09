@@ -1,0 +1,11 @@
+{
+  "caseId": "CAE-006",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "assertions": [
+    { "id": "grep-security-suite", "kind": "command", "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/grep.test.ts", "expectedExitCode": 0, "points": 25 },
+    { "id": "example-remains-searchable", "kind": "file_contains", "path": "server/infra/tools/security.ts", "text": "if (base === \".env.example\") return false;", "points": 5 }
+  ],
+  "timeoutMs": 600000
+}

@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { startRuntime } from "../server/bootstrap/runtime";
-import { EvalService, loadPersistedEvalRuns, loadPersistedEvalSession } from "../server/dev-evals/evalService";
-import { completedEvalRunsByCase, isEvalRunActive } from "../src/components/evals/evalSidebarProjection";
+import { EvalService, loadPersistedEvalBatches, loadPersistedEvalRuns, loadPersistedEvalSession } from "../server/dev-evals/evalService";
+import {
+  completedEvalRunsByCase,
+  completedSingleEvalRunsByCase,
+  groupEvalCasesByScenario,
+  isEvalRunActive
+} from "../src/components/evals/evalSidebarProjection";
+import { EvalCaseSummary, EvalScenario } from "../shared/contracts/evals";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
@@ -34,10 +41,156 @@ test("keeps active attempts in the dataset and archives only finished attempts a
     finishedAt: "2026-07-27T10:01:00.000Z",
     stage: "completed" as const
   };
-  const groupedResults = completedEvalRunsByCase([activeRun, finishedRun]);
+  const batchRun = { ...finishedRun, batchId: "evalbatch_01", evalRunId: "evalrun_batch" };
+  const groupedResults = completedEvalRunsByCase([activeRun, finishedRun, batchRun]);
+  const singleResults = completedSingleEvalRunsByCase([activeRun, finishedRun, batchRun]);
 
   assert.equal(isEvalRunActive(activeRun), true);
-  assert.deepEqual(groupedResults.get("CAE-001")?.map((run) => run.evalRunId), ["evalrun_finished"]);
+  assert.equal(isEvalRunActive({ ...activeRun, stage: "queued" }), true);
+  assert.deepEqual(groupedResults.get("CAE-001")?.map((run) => run.evalRunId), ["evalrun_finished", "evalrun_batch"]);
+  assert.deepEqual(singleResults.get("CAE-001")?.map((run) => run.evalRunId), ["evalrun_finished"]);
+});
+
+test("restores full evaluation batch summaries", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "deepcreator-eval-batches-"));
+  try {
+    const directory = path.join(root, "evals/runs/developer-ui-2026-08-01/batches");
+    const queuedAttempt = path.join(root, "evals/runs/developer-ui-2026-08-01/CAE-001/attempt-01");
+    mkdirSync(directory, { recursive: true });
+    mkdirSync(queuedAttempt, { recursive: true });
+    writeFileSync(path.join(directory, "evalbatch_01.json"), JSON.stringify({
+      batchId: "evalbatch_01",
+      cases: [],
+      completedCases: 0,
+      concurrency: 4,
+      createdAt: "2026-08-01T12:00:00.000Z",
+      experimentId: "developer-ui-2026-08-01",
+      failedCases: 0,
+      judge: "heuristic",
+      model: "mock-agent",
+      passedCases: 0,
+      promptVersion: "current",
+      stage: "paused",
+      weightedAverage: 88.5
+    }), "utf8");
+    writeFileSync(path.join(queuedAttempt, "eval-run.json"), JSON.stringify({
+      attempt: 1,
+      batchId: "evalbatch_01",
+      caseId: "CAE-001",
+      createdAt: "2026-08-01T12:00:00.000Z",
+      evalRunId: "evalrun_queued",
+      experimentId: "developer-ui-2026-08-01",
+      judge: "provider",
+      judgeModel: "deepseek-v4-flash",
+      model: "deepseek-v4-flash",
+      promptVersion: "current",
+      stage: "queued"
+    }), "utf8");
+
+    const batches = loadPersistedEvalBatches(root);
+    const preservedRuns = loadPersistedEvalRuns(root, new Set(["evalbatch_01"]));
+    assert.equal(batches.length, 1);
+    assert.equal(batches[0].batchId, "evalbatch_01");
+    assert.equal(batches[0].stage, "paused");
+    assert.equal(batches[0].weightedAverage, 88.5);
+    assert.equal(preservedRuns[0].stage, "queued");
+    assert.equal(loadPersistedEvalRuns(root)[0].stage, "failed");
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("shutdown drains queued workspace preparation before a late Eval Run can start", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "deepcreator-eval-shutdown-"));
+  try {
+    mkdirSync(path.join(root, "evals/datasets"), { recursive: true });
+    mkdirSync(path.join(root, "evals/fixtures/CAE-001"), { recursive: true });
+    writeFileSync(path.join(root, "README.md"), "fixture\n", "utf8");
+    writeFileSync(path.join(root, "evals/datasets/code-agent-v1.json"), JSON.stringify({
+      cases: [{
+        caseId: "CAE-001",
+        difficulty: "easy",
+        fixture: { status: "ready" },
+        idealTrajectory: [],
+        modeExpectation: { initialMode: "work" },
+        riskLevel: "low",
+        scenario: "bug_fix",
+        title: "Shutdown fixture",
+        tools: { allowed: [] },
+        userRequest: "不要在关闭后启动"
+      }]
+    }), "utf8");
+    writeFileSync(path.join(root, "evals/fixtures/CAE-001/fixture.json"), JSON.stringify({
+      base: { revision: "HEAD" },
+      status: "ready"
+    }), "utf8");
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "-A"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["-c", "user.name=Eval Test", "-c", "user.email=eval@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+
+    let starts = 0;
+    const service = new EvalService({
+      repositoryRoot: root,
+      startRun: {
+        execute: async () => {
+          starts += 1;
+          throw new Error("Run must not start after shutdown");
+        }
+      } as never,
+      store: {} as never
+    });
+    const starting = service.startBatch({ model: "mock-agent" });
+    await service.shutdown();
+    await starting;
+    await service.close();
+
+    assert.equal(starts, 0);
+    const worktrees = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" });
+    assert.equal((worktrees.match(/^worktree /gm) ?? []).length, 1);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("groups evaluation cases into the eight stable sidebar scenario sections", () => {
+  const scenarios: EvalScenario[] = [
+    "environment_dependency",
+    "feature_implementation",
+    "code_explanation",
+    "documentation",
+    "bug_fix",
+    "test_completion",
+    "data_processing",
+    "refactor_optimization",
+    "bug_fix"
+  ];
+  const cases = scenarios.map((scenario, index): EvalCaseSummary => ({
+    allowedTools: [],
+    caseId: `CAE-${String(index + 1).padStart(3, "0")}`,
+    difficulty: "medium",
+    idealStepCount: 3,
+    initialMode: "work",
+    riskLevel: "low",
+    scenario,
+    status: "ready",
+    title: `Case ${index + 1}`,
+    userRequest: "完成任务"
+  }));
+
+  const grouped = groupEvalCasesByScenario(cases);
+
+  assert.deepEqual(grouped.map((group) => group.label), [
+    "代码解释",
+    "Bug 修复",
+    "功能实现",
+    "测试补全",
+    "重构优化",
+    "文档生成",
+    "数据处理",
+    "环境与依赖排查"
+  ]);
+  assert.deepEqual(grouped.map((group) => group.cases.length), [1, 2, 1, 1, 1, 1, 1, 1]);
+  assert.deepEqual(grouped[1].cases.map((item) => item.caseId), ["CAE-005", "CAE-009"]);
 });
 
 test("restores every developer UI attempt from persisted evaluation results", () => {
@@ -102,6 +255,7 @@ test("registers evaluation APIs only when developer evaluation mode is enabled",
     const config = await fetch(`${baseUrl}/api/config`).then((response) => response.json()) as { evalsEnabled: boolean };
     assert.equal(config.evalsEnabled, false);
     assert.equal((await fetch(`${baseUrl}/api/evals/cases`)).status, 404);
+    assert.equal((await fetch(`${baseUrl}/api/evals/batches`)).status, 404);
   } finally {
     await disabled.close();
     rmSync(disabledData, { force: true, recursive: true });
@@ -118,9 +272,20 @@ test("registers evaluation APIs only when developer evaluation mode is enabled",
     const baseUrl = `http://${enabled.host}:${enabled.port}`;
     const config = await fetch(`${baseUrl}/api/config`).then((response) => response.json()) as { evalsEnabled: boolean };
     const cases = await fetch(`${baseUrl}/api/evals/cases`).then((response) => response.json()) as { cases: Array<{ status: string }> };
+    const batchesResponse = await fetch(`${baseUrl}/api/evals/batches`);
+    const batches = await batchesResponse.json() as { batches: unknown[] };
     assert.equal(config.evalsEnabled, true);
     assert.equal(cases.cases.length, 20);
-    assert.equal(cases.cases.filter((item) => item.status === "ready").length, 8);
+    assert.equal(cases.cases.filter((item) => item.status === "ready").length, 20);
+    assert.equal(batchesResponse.status, 200);
+    assert.equal(Array.isArray(batches.batches), true);
+    assert.equal((await fetch(`${baseUrl}/api/evals/batches`, {
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    })).status, 400);
+    assert.equal((await fetch(`${baseUrl}/api/evals/batches/missing/pause`, { method: "POST" })).status, 404);
+    assert.equal((await fetch(`${baseUrl}/api/evals/batches/missing/resume`, { method: "POST" })).status, 404);
   } finally {
     await enabled.close();
     rmSync(enabledData, { force: true, recursive: true });

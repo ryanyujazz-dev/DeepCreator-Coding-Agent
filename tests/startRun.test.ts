@@ -31,6 +31,7 @@ test("starts a Run through an application use case without transport concerns", 
       model: "mock-agent",
       projectRoot: directory,
       prompt: "先规划企业架构，不要修改",
+      protocol: "chat",
       runId: "run_use_case",
       sessionId: "session_use_case"
     }]);

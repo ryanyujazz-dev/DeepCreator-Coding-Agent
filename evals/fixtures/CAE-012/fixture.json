@@ -1,0 +1,12 @@
+{
+  "caseId": "CAE-012",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "assertions": [
+    { "id": "plan-race-suite", "kind": "command", "command": "npx tsx --tsconfig tsconfig.tests.json --test tests/planMode.test.ts", "expectedExitCode": 0, "points": 20 },
+    { "id": "idempotent-test-added", "kind": "file_contains", "path": "tests/planMode.test.ts", "text": "duplicate start_work remains idempotent", "points": 5 },
+    { "id": "stale-test-added", "kind": "file_contains", "path": "tests/planMode.test.ts", "text": "stale revision cannot replace the current plan", "points": 5 }
+  ],
+  "timeoutMs": 600000
+}

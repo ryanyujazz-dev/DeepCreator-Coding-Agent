@@ -1,0 +1,11 @@
+{
+  "caseId": "CAE-018",
+  "status": "ready",
+  "base": { "kind": "git", "revision": "HEAD" },
+  "setupPatch": "setup.patch",
+  "assertions": [
+    { "id": "bad-case-counts", "kind": "command", "command": "node eval-fixture/verify-bad-case-summary.mjs", "expectedExitCode": 0, "points": 25 },
+    { "id": "source-data-unchanged", "kind": "git_diff_excludes", "paths": ["eval-data/bad_cases.csv"], "points": 5 }
+  ],
+  "timeoutMs": 600000
+}
