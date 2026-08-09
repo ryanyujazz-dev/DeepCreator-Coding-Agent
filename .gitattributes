@@ -1,0 +1,6 @@
+# Normalize all text files to LF in the repository, regardless of platform.
+# This prevents CRLF from leaking into committed blobs via paths that bypass
+# git's own line-ending normalization (e.g. direct API uploads). `text=auto`
+# lets git auto-detect binary files and leave them untouched; `eol=lf` pins the
+# working tree to LF everywhere so Windows checkouts stay consistent with CI.
+* text=auto eol=lf

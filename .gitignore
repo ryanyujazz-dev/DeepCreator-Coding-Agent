@@ -6,7 +6,11 @@ out/
 .playwright-cli/
 output/
 .DS_Store
+.claude/settings.local.json
+.env
 .env.local
+.env.*
+!.env.example
 .playwright-mcp/
 .deepcreator/
 .deepseeker/

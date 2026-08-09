@@ -1,0 +1,69 @@
+/* 侧边栏开合两段式动画 —— 对话区先冻结、侧边栏滑完后再自适应。
+   背景:.app-shell 的 grid-template-columns 180ms 过渡会同时动画「侧边栏列收缩」与「对话列扩张」,
+   叠加居中限宽的对话列重新居中 → 对话内容「弹一下」。拆成两段串行:
+     Phase 1(0–180ms):侧边栏以 transform 滑入/滑出,网格冻结 → 对话列不重排、不移动。
+     Phase 2(180–360ms):翻转网格 → 对话列平滑扩张/收缩(一次、独立、无侧边栏联动)。
+   App.tsx 用 sidebarAnim(closing/opening)驱动:0ms 设方向类、180ms 翻转 sidebarOpen、360ms 清动画态。
+   收起静止态停在 translateX(-100%)(屏幕外),开合对称、无跳变。
+   本文件在 index.css 中晚于 styles.css 导入,同选择器即覆盖既有规则。 */
+
+/* 收起静止态:由 styles.css 的「常规流 + translateX(-12px)」改为「叠层 + translateX(-100%)」。
+   矩形(left:0 + width 与网格轨道同宽)与常规流一致 → 翻为 absolute 时无跳变。 */
+.app-shell.sidebar-collapsed .sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--sidebar-width, var(--layout-sidebar-width));
+  transform: translateX(-100%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 侧边栏收起静止态与动画期间都是 position:absolute,脱离 .app-shell 网格流。
+   若不给对话工作区显式钉到第 2 列,Chromium 会把它自动放进第 1 列(侧边栏的原单元格,
+   收起时宽 0px)→ 对话区被挤没。compact 路径(styles.css)已有同款 grid-column:2 钉位,此处对齐。 */
+.app-shell.sidebar-collapsed > .conversation-workspace,
+.app-shell.sidebar-animating > .conversation-workspace {
+  grid-column: 2;
+}
+
+/* 动画期间侧边栏全程叠层(position:absolute),不受网格轨道变化影响,
+   故 Phase 2 对话列扩张/收缩时它不会再「弹一次」。基座提供叠层矩形 + 可见可点;
+   方向类(3 类选择器)盖过上面的收起静止态(2 类),仅改 transform/opacity 驱动滑动。
+   transform/opacity 的过渡沿用 styles.css 中 .sidebar 既有的 transition。 */
+.app-shell.sidebar-animating .sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--sidebar-width, var(--layout-sidebar-width));
+  z-index: 22;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.app-shell.sidebar-animating.sidebar-closing .sidebar {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+.app-shell.sidebar-animating.sidebar-opening .sidebar {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+/* 拖拽侧边栏分隔条调宽时,.app-shell 的 grid-template-columns 180ms 过渡会让每帧重排滞后、
+   明显卡顿(既有 bug)。拖拽期间禁用该过渡,宽度即时跟随指针;松手后恢复,供两段式开合继续使用。 */
+body.is-resizing-panel .app-shell {
+  transition: none;
+}
+
+/* 降级用户:侧边栏开合与对话列网格过渡都改为即时,无 360ms 两段式动效。 */
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .app-shell .sidebar {
+    transition: none !important;
+  }
+}

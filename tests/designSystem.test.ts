@@ -59,12 +59,12 @@ test("anchors the scroll-to-bottom control to the responsive composer center", (
   assert.match(conversation, /createPortal\([\s\S]*className="scroll-to-bottom-button"[\s\S]*composerPortalTarget/s);
 });
 
-test("floats the composer and reserves its bottom offset plus 30px in the conversation flow", () => {
+test("floats the composer and reserves its bottom offset plus 60px in the conversation flow", () => {
   assert.match(followUpStyles, /\.conversation-main > \.composer-stack\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*18px/s);
   assert.match(followUpStyles, /\.queued-follow-ups\s*\{[^}]*background:\s*color-mix/s);
   const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
   assert.match(conversation, /setComposerBottomOffset\(portalTarget\.clientHeight - composer\.offsetTop\)/);
-  assert.match(conversation, /conversation-column-bottom-spacer" style=\{\{ height: `\$\{composerBottomOffset \+ 30\}px` \}\}/);
+  assert.match(conversation, /conversation-column-bottom-spacer" style=\{\{ height: `\$\{composerBottomOffset \+ 60\}px` \}\}/);
 });
 
 test("floats runtime errors at the centered top of the conversation flow", () => {

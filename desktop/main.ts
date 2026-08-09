@@ -23,6 +23,11 @@ let skills: SkillStore;
 let themes: ThemeStore;
 let gracefulQuit = false;
 
+// Fully transparent so the Windows caption buttons sit directly on the menubar. An opaque overlay
+// would paint a chrome block over the top-right corner and clip the floating canvas shadow there,
+// making the top bar look disconnected on Windows.
+const TITLEBAR_OVERLAY_COLOR = "#00000000";
+
 function trusted(event: Electron.IpcMainInvokeEvent): void {
   if (!mainWindow || event.sender.id !== mainWindow.webContents.id) throw new Error("Untrusted desktop IPC sender.");
 }
@@ -74,7 +79,7 @@ function registerIpc(): void {
       mainWindow?.setVibrancy(theme.translucentSidebar ? "sidebar" : null);
     } else if (process.platform === "win32") {
       mainWindow?.setBackgroundMaterial(theme.translucentSidebar ? "mica" : "none");
-      mainWindow?.setTitleBarOverlay({ color: theme.backgroundColor, height: 42, symbolColor: theme.symbolColor });
+      mainWindow?.setTitleBarOverlay({ color: TITLEBAR_OVERLAY_COLOR, height: 42, symbolColor: theme.symbolColor });
     }
   });
   ipcMain.handle("runtime:connection", (event) => { trusted(event); authenticated(); return runtime.connection(); });
@@ -268,7 +273,7 @@ function createWindow(): BrowserWindow {
       ? { titleBarStyle: "hiddenInset" as const }
       : {
           titleBarOverlay: {
-            color: startupVariant.colors.sidebar,
+            color: TITLEBAR_OVERLAY_COLOR,
             height: 42,
             symbolColor: startupVariant.colors.muted
           },

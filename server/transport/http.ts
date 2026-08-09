@@ -274,6 +274,10 @@ app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/workspace",
   return { workspace: await workspace.describe(request.params.sessionId) };
 });
 
+app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/changes", { schema: sessionParamsSchema }, async (request) => {
+  return workspace.changes(request.params.sessionId);
+});
+
 app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/context-telemetry", { schema: sessionParamsSchema }, async (request) => {
   return { telemetry: contextQueries.telemetry(request.params.sessionId) };
 });

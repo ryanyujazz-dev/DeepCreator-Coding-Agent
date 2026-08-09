@@ -5,6 +5,7 @@ import {
   FolderOpen,
   MessageCircle,
   MoreHorizontal,
+  PanelLeft,
   Pencil,
   Pin,
   Search,
@@ -93,6 +94,7 @@ export function SessionSidebar({
   onSearch,
   onSettings,
   onSelectSession,
+  onToggleSidebar,
   onWidthChange,
   onWidthReset,
   projects = [],
@@ -113,6 +115,7 @@ export function SessionSidebar({
   onSearch: (query: string) => void;
   onSettings?: () => void;
   onSelectSession: (sessionId: string) => void;
+  onToggleSidebar: () => void;
   onWidthChange: (width: number) => void;
   onWidthReset: () => void;
   selectedSessionKey: string | null;
@@ -319,7 +322,10 @@ export function SessionSidebar({
     <aside className="sidebar">
       <div className="sidebar-brand-row">
         <div className="sidebar-brand-lockup"><strong className="sidebar-brand">DeepCreator</strong></div>
-        <IconButton className="icon-button" label="搜索任务" onClick={() => setSearchOpen((open) => !open)}><Search size={15} /></IconButton>
+        <div className="sidebar-brand-actions">
+          <IconButton className="icon-button" label="搜索任务" onClick={() => setSearchOpen((open) => !open)}><Search size={16} /></IconButton>
+          <IconButton className="icon-button" label="切换侧边栏" onClick={onToggleSidebar}><PanelLeft size={16} /></IconButton>
+        </div>
       </div>
       {searchOpen && (
         <div className="session-search">

@@ -1,5 +1,5 @@
-import { Component, CSSProperties, lazy, ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { Folder, MoreHorizontal, PanelRight, SlidersHorizontal } from "lucide-react";
+import { Component, CSSProperties, lazy, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Folder, PanelLeft, PanelRight } from "lucide-react";
 import { AppTopbar } from "./components/AppTopbar";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
@@ -56,7 +56,11 @@ export function App({ authState }: { authState?: AuthState }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepcreator.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
   const [compactSidebar, setCompactSidebar] = useState(() => resolveCompactSidebar(browserPlatform.viewportWidth(), DEFAULT_SIDEBAR_WIDTH));
   const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false);
+  // 两段式开合动画:Phase 1(0–180ms)侧边栏叠层滑动、网格冻结;Phase 2(180–360ms)翻转 sidebarOpen,
+  // 让 .app-shell 既有的 grid-template-columns 过渡驱动对话列平滑扩张/收缩。null = 静止。
+  const [sidebarAnim, setSidebarAnim] = useState<null | "closing" | "opening">(null);
   const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepcreator.surfaceWidth", DEFAULT_SURFACE_WIDTH));
+  const [surfacePanelOpen, setSurfacePanelOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(browserPlatform.viewportWidth);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [projectsReady, setProjectsReady] = useState(!desktopBridge());
@@ -141,8 +145,19 @@ export function App({ authState }: { authState?: AuthState }) {
     openReviewSurface,
     setActiveSurfaceId,
     surfaceClosing,
-    surfaces
+    surfaces,
+    updateReviewSurface
   } = useSurfaceWorkspace(session);
+  const previousSurfaceCount = useRef(surfaces.length);
+  useEffect(() => {
+    if (surfaces.length > previousSurfaceCount.current) setSurfacePanelOpen(true);
+    else if (surfaces.length === 0) setSurfacePanelOpen(false);
+    previousSurfaceCount.current = surfaces.length;
+  }, [surfaces.length]);
+  const handleSurfaceClose = useCallback(() => {
+    if (surfaces.length <= 1) setSurfacePanelOpen(false);
+    closeActiveSurface();
+  }, [closeActiveSurface, surfaces.length]);
   const compactWorkspace = viewportWidth <= 760;
   const visibleSidebarWidth = compactSidebar || !sidebarOpen ? 0 : sidebarWidth;
   const conversationMinimum = compactWorkspace ? 280 : 420;
@@ -225,18 +240,37 @@ export function App({ authState }: { authState?: AuthState }) {
       setDraftWorkspace({ kind: "scratch" });
     });
   }, [activateDraftWorkspace, config, desktop, draftWorkspace, projectsReady, reportError, selectableProjects, session, setDraftWorkspace]);
+  const toggleSidebar = () => {
+    if (compactSidebar) {
+      setSidebarOverlayOpen((open) => !open);
+      return;
+    }
+    // 动画进行中忽略重复点击,避免方向抖动;只设方向,sidebarOpen 由时序 effect 在 180ms 后翻转。
+    if (sidebarAnim) return;
+    setSidebarAnim(sidebarOpen ? "closing" : "opening");
+  };
+  const sidebarHidden = workspaceView === "conversation" && (compactSidebar ? !sidebarOverlayOpen : !sidebarOpen);
+  // 两段式时序:180ms 时翻转 sidebarOpen(触发 Phase 2 对话列网格过渡);360ms 时清掉动画态,
+  // 侧边栏从叠层落回收起静止态(或展开后的常规流)。卸载/重置时清两个定时器。
+  useEffect(() => {
+    if (!sidebarAnim) return;
+    const flipGrid = window.setTimeout(() => {
+      setSidebarOpen(sidebarAnim === "closing" ? false : true);
+    }, 180);
+    const clearAnim = window.setTimeout(() => {
+      setSidebarAnim(null);
+    }, 360);
+    return () => {
+      window.clearTimeout(flipGrid);
+      window.clearTimeout(clearAnim);
+    };
+  }, [sidebarAnim]);
   return (
     <AppErrorBoundary>
       <div className="app-frame">
-        <AppTopbar onToggleSidebar={() => {
-          if (compactSidebar) {
-            setSidebarOverlayOpen((open) => !open);
-            return;
-          }
-          setSidebarOpen((open) => !open);
-        }} />
+        <AppTopbar />
         <div
-          className={`app-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}${sidebarOverlayOpen ? " sidebar-overlay-open" : ""}`}
+          className={`app-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}${sidebarOverlayOpen ? " sidebar-overlay-open" : ""}${sidebarAnim && !compactSidebar ? ` sidebar-animating${sidebarAnim === "closing" ? " sidebar-closing" : " sidebar-opening"}` : ""}`}
           hidden={workspaceView !== "conversation"}
           style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
@@ -253,6 +287,7 @@ export function App({ authState }: { authState?: AuthState }) {
           onRenameProject={desktop ? async (root, name) => setProjects(await desktop.projects.rename(root, name)) : undefined}
           onSearch={searchSessions}
           onSelectSession={(sessionId) => void openSession(sessionId)}
+          onToggleSidebar={toggleSidebar}
           onSettings={() => setWorkspaceView("settings")}
           onWidthChange={setSidebarWidth}
           onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
@@ -270,15 +305,18 @@ export function App({ authState }: { authState?: AuthState }) {
           />
         )}
         <main
-          className={`workspace conversation-workspace ${surfaces.length > 0 ? "has-surface" : ""}`}
+          className={`workspace conversation-workspace ${surfacePanelOpen ? "has-surface" : ""}`}
           style={{ "--surface-width": `${effectiveSurfaceWidth}px` } as CSSProperties}
         >
           <div className={`conversation-main inspector-layout-${inspectorLayout}`} ref={conversationMainRef}>
             <header className="thread-header">
-              <div className="thread-title"><Folder size={16} /><span>{session?.title ?? "DeepCreator CodeAgent"}</span><MoreHorizontal size={14} /></div>
+              <div className="thread-title-group">
+                {sidebarHidden && <IconButton className="icon-button" label="展开侧边栏" onClick={toggleSidebar}><PanelLeft size={16} /></IconButton>}
+                <div className="thread-title"><Folder size={16} /><span>{session?.title ?? "DeepCreator CodeAgent"}</span></div>
+              </div>
               <ConnectionStatus onRetry={desktop ? () => void retryRuntime() : undefined} phase={connection} />
             </header>
-            <div className="window-actions"><IconButton className="icon-button" label="视图设置"><SlidersHorizontal size={14} /></IconButton><IconButton className="icon-button" label="工作区面板"><PanelRight size={14} /></IconButton></div>
+            <div className="window-actions"><IconButton className={surfacePanelOpen ? "is-active" : undefined} label={surfacePanelOpen ? "收起工作区面板" : "展开工作区面板"} onClick={() => setSurfacePanelOpen((open) => !open)}><PanelRight size={16} /></IconButton></div>
             <Inspector
               compact={inspectorLayout === "compact"}
               connection={connection}
@@ -342,28 +380,31 @@ export function App({ authState }: { authState?: AuthState }) {
               />
             </div>
           </div>
-          <Suspense fallback={<aside className="workspace-surface-panel surface-state is-loading">正在加载工作区面板...</aside>}>
-            <SurfacePane
-              activeSurfaceId={activeSurface?.id ?? null}
-              file={activeFileState?.file ?? null}
-              fileError={activeFileState?.error ?? null}
-              fileLoading={activeFileState?.loading ?? false}
-              isClosing={surfaceClosing}
-              onClose={closeActiveSurface}
-              onCloseSurface={closeSurfaceTab}
-              onOpenFile={openFileSurface}
-              onOpenReview={openReviewSurface}
-              onRevisePlan={revisePlan}
-              onSelectSurface={setActiveSurfaceId}
-              onWidthChange={setSurfaceWidth}
-              onWidthReset={() => setSurfaceWidth(DEFAULT_SURFACE_WIDTH)}
-              panelMaxWidth={() => surfaceMaxWidth}
-              panelWidth={effectiveSurfaceWidth}
-              surfaces={surfaces}
-              plans={session?.plans ?? []}
-              runs={session?.runs ?? []}
-            />
-          </Suspense>
+          {surfacePanelOpen && (
+            <Suspense fallback={<aside className="workspace-surface-panel surface-state is-loading">正在加载工作区面板...</aside>}>
+              <SurfacePane
+                activeSurfaceId={activeSurface?.id ?? null}
+                file={activeFileState?.file ?? null}
+                fileError={activeFileState?.error ?? null}
+                fileLoading={activeFileState?.loading ?? false}
+                isClosing={surfaceClosing}
+                onClose={handleSurfaceClose}
+                onCloseSurface={closeSurfaceTab}
+                onOpenFile={openFileSurface}
+                onOpenReview={openReviewSurface}
+                onUpdateReview={updateReviewSurface}
+                onRevisePlan={revisePlan}
+                onSelectSurface={setActiveSurfaceId}
+                onWidthChange={setSurfaceWidth}
+                onWidthReset={() => setSurfaceWidth(DEFAULT_SURFACE_WIDTH)}
+                panelMaxWidth={() => surfaceMaxWidth}
+                panelWidth={effectiveSurfaceWidth}
+                surfaces={surfaces}
+                plans={session?.plans ?? []}
+                runs={session?.runs ?? []}
+              />
+            </Suspense>
+          )}
         </main>
         </div>
         <div

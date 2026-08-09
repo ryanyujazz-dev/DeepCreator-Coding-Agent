@@ -157,6 +157,11 @@ export function Conversation({
   // - 滚动按钮:由 Composer 作为定位父级，因此始终跟随输入框的真实中心。
   const overlays = portalTarget ? createPortal(
     <>
+      <div
+        className="conversation-bottom-mask"
+        style={{ height: `${composerBottomOffset}px` }}
+        aria-hidden="true"
+      />
       {notAtTop && (
         <div
           className="conversation-fade-top"
@@ -203,7 +208,7 @@ export function Conversation({
               </button>
             </div>
           </div>
-          <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 30}px` }} />
+          <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 60}px` }} />
         </div>
       ) : session && session.runs.length > 0 ? (
         <div className="conversation-column">
@@ -222,7 +227,7 @@ export function Conversation({
               plans={session.plans.filter((plan) => plan.runId === run.runId)}
             />
           ))}
-          <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 30}px` }} />
+          <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 60}px` }} />
         </div>
       ) : (
         <div className="conversation-empty-state"><h1>让我们一起深度创造</h1></div>
