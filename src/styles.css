@@ -7499,7 +7499,9 @@ body {
   /* The corridor ends at the panel's real left edge. Collision spacing only
      determines when the layout changes; it must not bias the visual center. */
   --inspector-boundary-offset: 337px;
-  --inspector-center-shift: -188.5px;
+  /* composer 居中于面板左侧的 corridor,故 shift 必须随 boundary 收紧(= -boundary/2),
+     不能是固定值——否则缩窄面板时 composer 会对齐偏移。用 calc 锁死三者关系。 */
+  --inspector-center-shift: calc(var(--inspector-boundary-offset) / -2);
 }
 
 .environment-panel {
