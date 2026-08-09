@@ -1,0 +1,402 @@
+.auth-shell {
+  min-height: 100vh;
+  background: var(--app-chrome);
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+}
+
+.auth-window-bar {
+  display: flex;
+  align-items: center;
+  height: 42px;
+  padding: 0 var(--space-4);
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--type-control-size);
+  -webkit-app-region: drag;
+}
+
+.auth-window-bar strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.auth-window-bar span {
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--color-border);
+}
+
+.auth-stage {
+  display: grid;
+  min-height: calc(100vh - 42px);
+  place-items: center;
+  border-radius: var(--radius-surface) var(--radius-surface) 0 0;
+  background: var(--app-canvas);
+  box-shadow: var(--shadow-canvas);
+}
+
+.auth-panel {
+  display: flex;
+  width: min(420px, calc(100vw - 48px));
+  flex-direction: column;
+  padding: var(--space-8) 0;
+  gap: var(--space-4);
+}
+
+.auth-kicker,
+.auth-status-line,
+.auth-actions,
+.auth-panel footer,
+.settings-account-status,
+.account-provider-value,
+.settings-account-actions,
+.settings-account-actions button {
+  display: flex;
+  align-items: center;
+}
+
+.auth-kicker {
+  gap: var(--space-2);
+  color: var(--theme-blue);
+  font-size: var(--type-control-size);
+  font-weight: 600;
+}
+
+.auth-panel h1 {
+  margin: var(--space-2) 0 0;
+  font-size: var(--type-display-size);
+  line-height: var(--type-display-line-height);
+  font-weight: 650;
+}
+
+.auth-introduction {
+  min-height: 48px;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
+}
+
+.auth-status-line {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
+  border-radius: var(--radius-row);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--type-control-size);
+}
+
+.auth-spinner {
+  animation: auth-spin 0.9s linear infinite;
+}
+
+.auth-error {
+  padding: var(--space-3);
+  border-radius: var(--radius-small);
+  background: var(--color-danger-surface);
+  color: var(--color-danger);
+  font-size: var(--type-meta-size);
+  line-height: var(--type-meta-line-height);
+}
+
+.auth-actions {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.auth-actions .ui-pill-button {
+  gap: var(--space-2);
+}
+
+.auth-primary-action {
+  border-color: var(--theme-blue);
+  background: var(--theme-blue);
+  color: var(--color-on-accent);
+}
+
+.auth-primary-action:hover:not(:disabled) {
+  border-color: var(--theme-blue-dark);
+  background: var(--theme-blue-dark);
+}
+
+.auth-panel footer {
+  flex-wrap: wrap;
+  padding-top: var(--space-3);
+  gap: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--type-label-size);
+}
+
+.auth-panel footer span::before {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--color-success);
+  content: "";
+  vertical-align: 2px;
+}
+
+.account-avatar-image {
+  display: block;
+  object-fit: cover;
+}
+
+.profile-avatar {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-size: var(--type-control-size);
+  font-weight: 650;
+}
+
+.profile-avatar.is-blue {
+  background: var(--theme-blue-light);
+  color: var(--theme-blue-dark);
+}
+
+.profile-avatar.is-green {
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  color: var(--color-success);
+}
+
+.profile-avatar.is-amber {
+  background: color-mix(in srgb, var(--color-warning) 14%, var(--color-surface));
+  color: var(--color-warning);
+}
+
+.profile-avatar.is-slate {
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+}
+
+.profile-setup-field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.profile-setup-field > span,
+.profile-avatar-fieldset legend {
+  color: var(--color-text);
+  font-size: var(--type-control-size);
+  font-weight: 620;
+}
+
+.profile-setup-field input {
+  width: 100%;
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  outline: none;
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.profile-setup-field input:focus-visible {
+  border-color: var(--theme-blue);
+  box-shadow: var(--focus-ring);
+}
+
+.profile-setup-field small,
+.settings-profile-avatar-row small {
+  color: var(--color-text-muted);
+  font-size: var(--type-label-size);
+}
+
+.profile-avatar-fieldset,
+.settings-profile-avatar-row {
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+
+.profile-avatar-options {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.profile-avatar-fieldset .profile-avatar-options {
+  margin-top: var(--space-2);
+}
+
+.profile-avatar-options button {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 4px;
+  place-items: center;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.profile-avatar-options button:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.profile-avatar-options button:focus-visible,
+.profile-avatar-options button[aria-pressed="true"] {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.profile-setup-actions {
+  justify-content: flex-end;
+}
+
+.settings-account-identity {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  padding: var(--space-4) 0 var(--space-6);
+  gap: var(--space-3);
+}
+
+.settings-account-identity > img,
+.settings-account-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+
+.settings-account-identity > img {
+  object-fit: cover;
+}
+
+.settings-account-avatar {
+  display: grid;
+  place-items: center;
+  background: var(--theme-blue-light);
+  color: var(--theme-blue-dark);
+  font-size: var(--type-section-size);
+  font-weight: 650;
+}
+
+.settings-account-identity > div:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-account-identity > div:nth-child(2) strong {
+  overflow: hidden;
+  font-size: var(--type-section-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-account-identity > div:nth-child(2) span {
+  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+}
+
+.settings-account-status,
+.account-provider-value {
+  gap: var(--space-1);
+}
+
+.settings-account-status {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-subtle);
+  color: var(--color-success);
+  font-size: var(--type-label-size);
+}
+
+.settings-account-status.is-offline {
+  color: var(--color-warning);
+}
+
+.settings-account-actions {
+  justify-content: flex-end;
+  padding-top: var(--space-4);
+  gap: var(--space-2);
+}
+
+.settings-account-actions button {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-account-actions button:hover,
+.settings-account-actions button:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.settings-account-actions button.is-danger {
+  color: var(--color-danger);
+}
+
+.settings-profile-avatar-row {
+  display: flex;
+  min-height: 64px;
+  padding: var(--space-2) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--app-border);
+  gap: var(--space-4);
+}
+
+.settings-profile-avatar-row legend {
+  display: grid;
+  float: left;
+  gap: 2px;
+}
+
+.settings-profile-form footer {
+  display: flex;
+  padding: var(--space-3) var(--space-4);
+  justify-content: flex-end;
+}
+
+@keyframes auth-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-spinner { animation: none; }
+}
+
+@media (max-width: 760px) {
+  .auth-stage {
+    place-items: start stretch;
+    box-shadow: none;
+  }
+
+  .auth-panel {
+    width: auto;
+    padding: var(--space-8) var(--space-4);
+  }
+
+  .settings-account-identity {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .settings-account-status {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .settings-profile-avatar-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

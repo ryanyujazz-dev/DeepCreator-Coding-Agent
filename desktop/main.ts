@@ -1,24 +1,23 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
 import { realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { AuthDeleteInput, LocalProfileInput } from "../shared/contracts/auth";
 import { DesktopSettingsInput } from "../shared/contracts/desktop";
 import { SkillInstallInput, SkillTargetInput } from "../shared/contracts/skill";
 import { ThemeImportInput, ThemePack, ThemePreference, WindowChromeTheme } from "../shared/contracts/theme";
 import { DEFAULT_THEME_ID, isHexColor } from "../shared/themeCatalog";
 import { migratePreviousDesktopData } from "./brandMigration";
+import { AuthManager } from "./authManager";
 import { RuntimeHost } from "./runtime-host";
 import { DesktopStore } from "./store";
 import { importThemeFile } from "./themeImport";
 import { ThemeStore } from "./themeStore";
 import { SkillStore } from "./skillStore";
-import { ensureUserConfig } from "../server/infra/userConfig";
-
-// ADR-009: 普通配置统一从 ~/.deepcreator/config.json 读取；密钥由宿主边界解析。
-ensureUserConfig();
 console.log("[desktop] main started");
 
 let mainWindow: BrowserWindow | null = null;
 let runtime: RuntimeHost;
+let auth: AuthManager;
 let store: DesktopStore;
 let skills: SkillStore;
 let themes: ThemeStore;
@@ -42,7 +41,23 @@ function trustedProjectRoot(projectRoot?: string): string | undefined {
   throw new Error("只能管理最近项目或当前临时任务中的 Skill。");
 }
 
+function authenticated(): void {
+  if (!auth.authenticated()) throw new Error("DeepCreator Profile 尚未准备好。");
+}
+
 function registerIpc(): void {
+  ipcMain.handle("desktop:auth:get-state", (event) => { trusted(event); return auth.getState(); });
+  ipcMain.handle("desktop:auth:sign-in", (event) => { trusted(event); return auth.signIn(); });
+  ipcMain.handle("desktop:auth:cancel-sign-in", (event) => { trusted(event); return auth.cancelSignIn(); });
+  ipcMain.handle("desktop:auth:sign-out", (event) => { trusted(event); return auth.signOut(); });
+  ipcMain.handle("desktop:auth:update-local-profile", (event, input: LocalProfileInput) => {
+    trusted(event);
+    return auth.updateLocalProfile(input);
+  });
+  ipcMain.handle("desktop:auth:delete-account", (event, input: AuthDeleteInput) => {
+    trusted(event);
+    return auth.deleteAccount(input);
+  });
   ipcMain.handle("desktop:appearance:read", (event) => { trusted(event); return store.appearance(); });
   ipcMain.handle("desktop:appearance:save", (event, preference: ThemePreference) => {
     trusted(event);
@@ -62,11 +77,12 @@ function registerIpc(): void {
       mainWindow?.setTitleBarOverlay({ color: theme.backgroundColor, height: 42, symbolColor: theme.symbolColor });
     }
   });
-  ipcMain.handle("runtime:connection", (event) => { trusted(event); return runtime.connection(); });
-  ipcMain.handle("runtime:retry", (event) => { trusted(event); return runtime.restart(); });
-  ipcMain.handle("desktop:recent-projects", (event) => { trusted(event); return store.recentProjects(); });
+  ipcMain.handle("runtime:connection", (event) => { trusted(event); authenticated(); return runtime.connection(); });
+  ipcMain.handle("runtime:retry", (event) => { trusted(event); authenticated(); return runtime.restart(); });
+  ipcMain.handle("desktop:recent-projects", (event) => { trusted(event); authenticated(); return store.recentProjects(); });
   ipcMain.handle("desktop:activate-project", (event, projectPath: string) => {
     trusted(event);
+    authenticated();
     const resolved = path.resolve(projectPath);
     if (!store.recentProjects().some((project) => project.path === resolved)) throw new Error("只能激活最近项目列表中的目录。");
     store.addProject(resolved);
@@ -74,18 +90,22 @@ function registerIpc(): void {
   });
   ipcMain.handle("desktop:pin-project", (event, projectPath: string, pinned: boolean) => {
     trusted(event);
+    authenticated();
     return store.pinProject(projectPath, Boolean(pinned));
   });
   ipcMain.handle("desktop:rename-project", (event, projectPath: string, name: string) => {
     trusted(event);
+    authenticated();
     return store.renameProject(projectPath, name);
   });
   ipcMain.handle("desktop:remove-project", (event, projectPath: string) => {
     trusted(event);
+    authenticated();
     return store.removeProject(projectPath);
   });
   ipcMain.handle("desktop:open-project", async (event, projectPath: string) => {
     trusted(event);
+    authenticated();
     const resolved = path.resolve(projectPath);
     if (!store.recentProjects().some((project) => project.path === resolved)) throw new Error("只能打开最近项目列表中的目录。");
     const error = await shell.openPath(resolved);
@@ -93,12 +113,14 @@ function registerIpc(): void {
   });
   ipcMain.handle("desktop:pick-project", async (event) => {
     trusted(event);
+    authenticated();
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ["openDirectory", "createDirectory"], title: "选择项目文件夹" });
     return result.canceled || !result.filePaths[0] ? null : store.addProject(result.filePaths[0]);
   });
-  ipcMain.handle("desktop:settings:read", (event) => { trusted(event); return store.settings(); });
+  ipcMain.handle("desktop:settings:read", (event) => { trusted(event); authenticated(); return store.settings(); });
   ipcMain.handle("desktop:settings:save", async (event, input: DesktopSettingsInput) => {
     trusted(event);
+    authenticated();
     const settings = store.saveSettings(input);
     try {
       const connection = await runtime.restart();
@@ -110,10 +132,12 @@ function registerIpc(): void {
   });
   ipcMain.handle("desktop:skills:list", (event, projectRoot?: string) => {
     trusted(event);
+    authenticated();
     return skills.list(trustedProjectRoot(projectRoot));
   });
   ipcMain.handle("desktop:skills:preview-local", async (event) => {
     trusted(event);
+    authenticated();
     const result = await dialog.showOpenDialog(mainWindow!, {
       filters: [{ extensions: ["deepcreator-skill", "zip"], name: "DeepCreator Skill" }],
       properties: ["openFile", "openDirectory"],
@@ -123,10 +147,12 @@ function registerIpc(): void {
   });
   ipcMain.handle("desktop:skills:preview-github", (event, url: string) => {
     trusted(event);
+    authenticated();
     return skills.previewGitHub(String(url));
   });
   ipcMain.handle("desktop:skills:install", async (event, input: SkillInstallInput) => {
     trusted(event);
+    authenticated();
     const normalized = { ...input, projectRoot: trustedProjectRoot(input.projectRoot) };
     const result = skills.install(normalized);
     await runtime.restart();
@@ -134,22 +160,26 @@ function registerIpc(): void {
   });
   ipcMain.handle("desktop:skills:set-enabled", async (event, input: SkillTargetInput & { enabled: boolean }) => {
     trusted(event);
+    authenticated();
     const result = skills.setEnabled({ ...input, projectRoot: trustedProjectRoot(input.projectRoot) });
     await runtime.restart();
     return result;
   });
   ipcMain.handle("desktop:skills:remove", async (event, input: SkillTargetInput) => {
     trusted(event);
+    authenticated();
     const result = await skills.remove({ ...input, projectRoot: trustedProjectRoot(input.projectRoot) });
     await runtime.restart();
     return result;
   });
   ipcMain.handle("desktop:skills:check-updates", (event, projectRoot?: string) => {
     trusted(event);
+    authenticated();
     return skills.checkUpdates(trustedProjectRoot(projectRoot));
   });
   ipcMain.handle("desktop:skills:update", (event, input: SkillTargetInput) => {
     trusted(event);
+    authenticated();
     return skills.update({ ...input, projectRoot: trustedProjectRoot(input.projectRoot) });
   });
   ipcMain.handle("desktop:themes:list", (event) => {
@@ -204,6 +234,7 @@ function registerIpc(): void {
   });
   ipcMain.handle("desktop:reveal", (event, filePath: string) => {
     trusted(event);
+    authenticated();
     const resolved = path.resolve(filePath);
     if (!store.recentProjects().some((project) => resolved === project.path || resolved.startsWith(`${project.path}${path.sep}`))) {
       throw new Error("只能显示最近项目中的文件。");
@@ -212,6 +243,7 @@ function registerIpc(): void {
   });
   ipcMain.handle("desktop:open-external", (event, rawUrl: string) => {
     trusted(event);
+    authenticated();
     const url = new URL(rawUrl);
     if (!new Set(["http:", "https:"]).has(url.protocol)) throw new Error("只允许打开 HTTP 或 HTTPS 链接。");
     return shell.openExternal(url.toString());
@@ -287,10 +319,16 @@ else {
       trash: (target) => shell.trashItem(target)
     });
     runtime = new RuntimeHost(store, MAIN_WINDOW_VITE_DEV_SERVER_URL ?? "file://");
+    auth = new AuthManager({
+      onAuthenticated: () => runtime.start().then(() => undefined),
+      onSignedOut: () => runtime.stop(),
+      store
+    });
     registerIpc();
     mainWindow = createWindow();
+    auth.onState((state) => mainWindow?.webContents.send("auth:state", state));
     runtime.onState((state) => mainWindow?.webContents.send("runtime:state", state));
-    await runtime.start().catch(() => undefined);
+    await auth.initialize().catch((error) => console.error("[desktop] auth initialization failed", error));
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow(); });
   });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

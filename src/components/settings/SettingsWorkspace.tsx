@@ -7,7 +7,8 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
-  SunMoon
+  SunMoon,
+  UserRound
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { WorkspaceKind } from "../../../shared/contracts/runtime";
@@ -15,8 +16,10 @@ import { PanelResizeHandle } from "../PanelResizeHandle";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { ModelSettings } from "./ModelSettings";
 import { SkillsSettings } from "./SkillsSettings";
+import { AccountSettings } from "./AccountSettings";
+import { AuthState } from "../../../shared/contracts/auth";
 
-type SettingsSection = "general" | "appearance" | "models" | "skills" | "evals";
+type SettingsSection = "account" | "general" | "appearance" | "models" | "skills" | "evals";
 
 type SettingsSectionDefinition = {
   icon: typeof Settings;
@@ -26,6 +29,12 @@ type SettingsSectionDefinition = {
 };
 
 const sections: SettingsSectionDefinition[] = [
+  {
+    icon: UserRound,
+    id: "account",
+    keywords: ["profile", "本地", "身份", "账号", "登录", "github", "退出", "注销", "离线"],
+    label: "Profile"
+  },
   {
     icon: Settings,
     id: "general",
@@ -84,6 +93,7 @@ function GeneralSettings() {
 }
 
 export function SettingsWorkspace({
+  authState,
   currentProjectRoot,
   currentWorkspaceKind,
   onClose,
@@ -94,6 +104,7 @@ export function SettingsWorkspace({
   showEvals = false,
   visible = true
 }: {
+  authState?: AuthState;
   currentProjectRoot?: string;
   currentWorkspaceKind?: WorkspaceKind;
   onClose: () => void;
@@ -161,6 +172,7 @@ export function SettingsWorkspace({
           <SlidersHorizontal size={15} />
         </div>
         <div className="settings-content">
+          {active === "account" && <AccountSettings authState={authState} />}
           {active === "general" && <GeneralSettings />}
           {active === "appearance" && <AppearanceSettings />}
           {active === "models" && <ModelSettings />}

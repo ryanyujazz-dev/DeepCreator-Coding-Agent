@@ -18,6 +18,7 @@ import { resolveCompactSidebar, useInspectorLayout } from "./inspectorLayout";
 import { browserPlatform } from "./platform/browser";
 import { desktopBridge } from "./platform/desktop";
 import { useSurfaceWorkspace } from "./features/surfaces/useSurfaceWorkspace";
+import { AuthState } from "../shared/contracts/auth";
 
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const DEFAULT_SURFACE_WIDTH = 640;
@@ -50,7 +51,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { message: str
   }
 }
 
-export function App() {
+export function App({ authState }: { authState?: AuthState }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(DEFAULT_SIDEBAR_WIDTH, storedPanelWidth("deepcreator.sidebarWidth", DEFAULT_SIDEBAR_WIDTH)));
   const [compactSidebar, setCompactSidebar] = useState(() => resolveCompactSidebar(browserPlatform.viewportWidth(), DEFAULT_SIDEBAR_WIDTH));
@@ -240,6 +241,7 @@ export function App() {
           style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
         <SessionSidebar
+          authState={authState}
           desktopProjectsManaged={Boolean(desktop)}
           onArchiveProject={(root) => archiveProjectSessions(root)}
           onArchiveSession={(sessionId) => archiveSession(sessionId)}
@@ -370,6 +372,7 @@ export function App() {
           style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
           <SettingsWorkspace
+            authState={authState}
             currentProjectRoot={session?.projectRoot}
             currentWorkspaceKind={session?.workspaceKind}
             onClose={() => setWorkspaceView("conversation")}

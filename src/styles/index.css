@@ -7,4 +7,5 @@
 @import "./features/skills-settings.css";
 @import "./features/follow-ups.css";
 @import "./features/responses.css";
+@import "./features/auth.css";
 @import "./theme-guardrails.css";

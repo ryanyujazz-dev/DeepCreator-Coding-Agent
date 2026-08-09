@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "outDir": ".cache/types/auth",
+    "types": ["node"]
+  },
+  "include": ["services/auth/src/**/*.ts"],
+  "references": [{ "path": "./tsconfig.shared.json" }]
+}
