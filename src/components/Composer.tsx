@@ -244,7 +244,7 @@ export function Composer({
               <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
             </PillButton>
             {accessMenu.open && (
-              <FloatingSurface className="permission-menu" ref={accessMenu.contentRef} role="menu">
+              <FloatingSurface className="composer-popover composer-menu permission-menu" ref={accessMenu.contentRef} role="menu">
                 {accessOptions.map((option) => {
                   const Icon = option.icon;
                   return <button className={option.key === accessMode ? "is-selected" : ""} key={option.key} onClick={() => { onAccessModeChange(option.key); accessMenu.close(); }} role="menuitem" type="button"><Icon size={16} /><span><strong>{option.label}</strong><small>{option.description}</small></span>{option.key === accessMode && <Check size={15} />}</button>;
@@ -306,7 +306,7 @@ export function Composer({
           <div className="add-selector">
             <IconButton className={`plain-icon ${mode === "plan" ? "is-active" : ""}`} label="添加" aria-expanded={addMenu.open} onClick={addMenu.toggle} ref={addMenu.triggerRef}><Plus size={20} /></IconButton>
             {addMenu.open && (
-              <FloatingSurface className="add-menu" ref={addMenu.contentRef} role="menu">
+              <FloatingSurface className="composer-popover composer-menu add-menu" ref={addMenu.contentRef} role="menu">
                 <header>添加</header>
                 <button
                   className={mode === "plan" ? "is-selected" : ""}
@@ -331,7 +331,7 @@ export function Composer({
               <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
             </PillButton>
             {accessMenu.open && (
-              <FloatingSurface className="permission-menu" ref={accessMenu.contentRef} role="menu">
+              <FloatingSurface className="composer-popover composer-menu permission-menu" ref={accessMenu.contentRef} role="menu">
                 {accessOptions.map((option) => {
                   const Icon = option.icon;
                   return (
@@ -369,7 +369,7 @@ export function Composer({
                 {branchSwitchable ? <ChevronDown size={13} /> : null}
               </PillButton>
               {branchMenu.open && branchSwitchable ? (
-                <FloatingSurface className="branch-menu" ref={branchMenu.contentRef} role="menu">
+                <FloatingSurface className="composer-popover composer-menu branch-menu" ref={branchMenu.contentRef} role="menu">
                   <header>切换分支</header>
                   {branchList.map((branch) => (
                     <button
@@ -431,7 +431,7 @@ export function Composer({
           <div className="model-selector-wrapper">
             <PillButton aria-expanded={modelMenu.open} className="model-button" disabled={isRunning} onClick={modelMenu.toggle} ref={modelMenu.triggerRef}><span>{models.find((item) => item.id === model)?.label ?? model}</span><ChevronDown size={13} /></PillButton>
             {modelMenu.open && (
-              <FloatingSurface className="model-menu" ref={modelMenu.contentRef}>
+              <FloatingSurface className="composer-popover composer-menu model-menu" ref={modelMenu.contentRef}>
                 <header><span>选择模型</span></header>
                 {models.map((option) => (
                   <button className={"model-option" + (option.id === model ? " is-selected" : "")} key={option.id} onClick={() => { onModelChange(option.id); modelMenu.close(); }} type="button">
