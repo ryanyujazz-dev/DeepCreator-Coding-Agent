@@ -1,6 +1,5 @@
 import {
   Archive,
-  CircleHelp,
   Folder,
   FolderOpen,
   MessageCircle,
@@ -377,7 +376,7 @@ export function SessionSidebar({
           <strong>{authState?.user?.displayName || "本地 Profile"}</strong>
           <span>{authState?.mode === "local" ? "仅此设备" : authState?.phase === "offline" ? "离线登录" : authState?.user ? `@${authState.user.githubLogin}` : ""}</span>
         </div>
-        {onSettings ? <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton> : <CircleHelp size={16} />}
+        {onSettings && <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton>}
       </div>
       <PanelResizeHandle ariaLabel="调整左侧栏宽度" edge="right" max={360} min={220} onChange={onWidthChange} onReset={onWidthReset} value={sidebarWidth} />
 

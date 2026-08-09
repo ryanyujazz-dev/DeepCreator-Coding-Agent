@@ -156,6 +156,13 @@
   font-weight: 650;
 }
 
+.account-strip .profile-avatar {
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  text-align: center;
+}
+
 .profile-avatar.is-blue {
   background: var(--theme-blue-light);
   color: var(--theme-blue-dark);

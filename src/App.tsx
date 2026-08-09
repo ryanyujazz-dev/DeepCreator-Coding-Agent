@@ -11,7 +11,6 @@ import { Inspector } from "./components/Inspector";
 import { TaskProgress } from "./components/TaskProgress";
 import { useWorkspace } from "./useWorkspace";
 import { ProjectRef } from "../shared/contracts/desktop";
-import { SettingsWorkspace } from "./components/settings/SettingsWorkspace";
 import { IconButton } from "./shared-ui/ControlPrimitives";
 import { defaultDraftWorkspace, DraftWorkspace, projectDraftWorkspace } from "./workspaceSelection";
 import { resolveCompactSidebar, useInspectorLayout } from "./inspectorLayout";
@@ -25,6 +24,9 @@ const DEFAULT_SURFACE_WIDTH = 640;
 const DEVELOPER_VIEW_STORAGE_KEY = "deepcreator.developerView";
 type WorkspaceView = "conversation" | "settings" | "evals";
 const SurfacePane = lazy(() => import("./components/SurfacePane").then((module) => ({ default: module.SurfacePane })));
+const DeveloperSettingsWorkspace = import.meta.env.DEV
+  ? lazy(() => import("./components/settings/SettingsWorkspace").then((module) => ({ default: module.SettingsWorkspace })))
+  : null;
 const DeveloperEvalWorkspace = import.meta.env.DEV
   ? lazy(() => import("./components/evals/EvalWorkspace").then((module) => ({ default: module.EvalWorkspace })))
   : null;
@@ -288,7 +290,7 @@ export function App({ authState }: { authState?: AuthState }) {
           onSearch={searchSessions}
           onSelectSession={(sessionId) => void openSession(sessionId)}
           onToggleSidebar={toggleSidebar}
-          onSettings={() => setWorkspaceView("settings")}
+          onSettings={DeveloperSettingsWorkspace ? () => setWorkspaceView("settings") : undefined}
           onWidthChange={setSidebarWidth}
           onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
           selectedSessionKey={session?.sessionId ?? null}
@@ -407,24 +409,28 @@ export function App({ authState }: { authState?: AuthState }) {
           )}
         </main>
         </div>
-        <div
-          className="app-shell settings-shell"
-          hidden={workspaceView !== "settings"}
-          style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
-        >
-          <SettingsWorkspace
-            authState={authState}
-            currentProjectRoot={session?.projectRoot}
-            currentWorkspaceKind={session?.workspaceKind}
-            onClose={() => setWorkspaceView("conversation")}
-            onOpenEvals={() => setWorkspaceView("evals")}
-            onWidthChange={setSidebarWidth}
-            onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
-            showEvals={Boolean(DeveloperEvalWorkspace && config?.evalsEnabled)}
-            sidebarWidth={sidebarWidth}
-            visible={workspaceView === "settings"}
-          />
-        </div>
+        {DeveloperSettingsWorkspace && (
+          <div
+            className="app-shell settings-shell"
+            hidden={workspaceView !== "settings"}
+            style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+          >
+            <Suspense fallback={<main className="workspace"><div className="surface-state">正在加载设置...</div></main>}>
+              <DeveloperSettingsWorkspace
+                authState={authState}
+                currentProjectRoot={session?.projectRoot}
+                currentWorkspaceKind={session?.workspaceKind}
+                onClose={() => setWorkspaceView("conversation")}
+                onOpenEvals={() => setWorkspaceView("evals")}
+                onWidthChange={setSidebarWidth}
+                onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+                showEvals={Boolean(DeveloperEvalWorkspace && config?.evalsEnabled)}
+                sidebarWidth={sidebarWidth}
+                visible={workspaceView === "settings"}
+              />
+            </Suspense>
+          </div>
+        )}
         {DeveloperEvalWorkspace && config?.evalsEnabled && (
           <div
             className={`app-shell eval-shell${compactSidebar ? " sidebar-auto-collapsed" : sidebarOpen ? "" : " sidebar-collapsed"}`}
