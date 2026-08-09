@@ -79,7 +79,7 @@ export class RuntimeHost {
   }
 
   private prepareDataDirectory(): string {
-    const target = path.join(this.store.activeProfileDirectory(), "runtime");
+    const target = this.store.activeProfileRuntimeDirectory();
     mkdirSync(target, { recursive: true });
     return target;
   }

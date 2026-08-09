@@ -69,7 +69,7 @@ npm run make:mac
 npm run make:windows
 ```
 
-Desktop Runtime data is stored in Electron's `userData/runtime` directory. A legacy project `.deepseeker` store is copied once to `.deepcreator` when the new data directory is empty. Browser development keeps its local Runtime configuration, so the renderer can still be debugged without Electron.
+Desktop Runtime data is stored in the active local Profile under Electron's `userData/profiles/<profile-id>/runtime` directory. A legacy project `.deepseeker` store is copied once to `.deepcreator` when the new data directory is empty. Browser development keeps its local Runtime configuration, so the renderer can still be debugged without Electron.
 
 `package:mac` creates an ad-hoc signed development application under `out/DeepCreator-darwin-arm64`. It does not perform Developer ID signing, notarization, or distribution packaging. If Electron's GitHub download is unavailable on the local network, install the binary once with a trusted mirror configured through `ELECTRON_MIRROR`, then rerun the package command.
 

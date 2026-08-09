@@ -149,6 +149,10 @@ export class DesktopStore {
     return decrypt(this.requireProfile().state.apiKey);
   }
 
+  activeProfileRuntimeDirectory(): string {
+    return path.join(this.activeProfileDirectory(), "runtime");
+  }
+
   zhipuApiKey(): string {
     return decrypt(this.requireProfile().state.zhipuApiKey);
   }

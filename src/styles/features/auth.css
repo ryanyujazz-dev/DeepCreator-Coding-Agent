@@ -374,6 +374,156 @@
   justify-content: flex-end;
 }
 
+.settings-dialog.compact-settings-dialog {
+  width: min(520px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  border-color: var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.compact-settings-dialog > header {
+  padding: var(--space-4) var(--space-5);
+  align-items: center;
+  border-bottom-color: var(--app-border);
+}
+
+.compact-settings-dialog h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--type-page-size);
+  line-height: var(--type-page-line-height);
+}
+
+.compact-settings-dialog header p,
+.compact-settings-section-title p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+  line-height: var(--type-meta-line-height);
+}
+
+.compact-settings-content {
+  display: grid;
+  padding: var(--space-4) var(--space-5) 0;
+  gap: var(--space-4);
+}
+
+.compact-settings-section {
+  display: grid;
+  padding: var(--space-4);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-row);
+  background: var(--color-surface-subtle);
+  gap: var(--space-3);
+}
+
+.compact-settings-section-title {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-secondary);
+  gap: var(--space-2);
+}
+
+.compact-settings-section-title > div {
+  display: grid;
+  gap: 2px;
+}
+
+.compact-settings-section-title h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--type-control-size);
+  line-height: var(--type-control-line-height);
+}
+
+.compact-settings-field {
+  display: grid;
+  color: var(--color-text-secondary);
+  font-size: var(--type-control-size);
+  font-weight: 600;
+  gap: var(--space-2);
+}
+
+.settings-dialog.compact-settings-dialog input {
+  height: 36px;
+  border-color: var(--color-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-family-code);
+}
+
+.settings-dialog.compact-settings-dialog input:focus-visible {
+  border-color: var(--theme-blue);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.settings-dialog.compact-settings-dialog input:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.settings-dialog.compact-settings-dialog .compact-profile-section input {
+  font-family: var(--font-family-ui);
+}
+
+.compact-settings-avatars {
+  display: grid;
+  padding: 0;
+  border: 0;
+  margin: 0;
+  gap: var(--space-2);
+}
+
+.compact-settings-avatars legend {
+  padding: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-control-size);
+  font-weight: 600;
+}
+
+.compact-settings-dialog .settings-error {
+  padding: var(--space-3) var(--space-5) 0;
+  color: var(--color-danger);
+  font-size: var(--type-meta-size);
+}
+
+.compact-settings-dialog > footer {
+  display: flex;
+  padding: var(--space-4) var(--space-5);
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.compact-settings-dialog > footer .ui-pill-button {
+  height: var(--control-pill-height);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--type-control-size);
+}
+
+.compact-settings-dialog > footer .ui-pill-button:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.compact-settings-dialog > footer .compact-settings-save {
+  background: var(--theme-blue);
+  color: var(--color-on-accent);
+}
+
+.compact-settings-dialog > footer .compact-settings-save:hover:not(:disabled) {
+  background: var(--theme-blue-dark);
+  color: var(--color-on-accent);
+}
+
 @keyframes auth-spin {
   to { transform: rotate(360deg); }
 }
@@ -405,5 +555,20 @@
   .settings-profile-avatar-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .settings-backdrop {
+    padding: var(--space-2);
+  }
+
+  .settings-dialog.compact-settings-dialog {
+    max-height: calc(100vh - 16px);
+  }
+
+  .compact-settings-content,
+  .compact-settings-dialog > header,
+  .compact-settings-dialog > footer {
+    padding-right: var(--space-4);
+    padding-left: var(--space-4);
   }
 }

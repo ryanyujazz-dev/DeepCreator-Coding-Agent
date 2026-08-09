@@ -46,7 +46,14 @@ test("scopes local runtime and credentials to the authenticated profile", () => 
   assert.match(store, /randomUUID\(\)/);
   assert.match(store, /migratedProfile && userIdPattern\.test\(migratedProfile\)/);
   assert.match(store, /safeStorage\.encryptString/);
-  assert.match(runtime, /this\.store\.activeProfileDirectory\(\)/);
+  assert.match(store, /activeProfileRuntimeDirectory\(\)/);
+  assert.match(runtime, /this\.store\.activeProfileRuntimeDirectory\(\)/);
+});
+
+test("trusts scratch workspaces inside the active Profile runtime directory", () => {
+  const main = readFileSync(path.join(root, "desktop/main.ts"), "utf8");
+  assert.match(main, /path\.join\(store\.activeProfileRuntimeDirectory\(\), "scratch-workspaces"\)/);
+  assert.doesNotMatch(main, /app\.getPath\("userData"\), "runtime", "scratch-workspaces"/);
 });
 
 test("persists a skippable local Profile setup without exposing it outside Electron Main", () => {
@@ -55,6 +62,7 @@ test("persists a skippable local Profile setup without exposing it outside Elect
   const manager = readFileSync(path.join(root, "desktop/authManager.ts"), "utf8");
   const preload = readFileSync(path.join(root, "desktop/preload.ts"), "utf8");
   const setup = readFileSync(path.join(root, "src/features/auth/LocalProfileSetup.tsx"), "utf8");
+  const compactSettings = readFileSync(path.join(root, "src/components/SettingsDialog.tsx"), "utf8");
   const store = readFileSync(path.join(root, "desktop/store.ts"), "utf8");
   assert.match(contract, /LocalProfileAvatar = "amber" \| "blue" \| "green" \| "slate"/);
   assert.match(contract, /profileSetupRequired\?: boolean/);
@@ -66,5 +74,8 @@ test("persists a skippable local Profile setup without exposing it outside Elect
   assert.match(store, /localProfileSetupComplete = Boolean\(this\.device\.profileMigrationOwner\)/);
   assert.match(setup, /暂时跳过/);
   assert.match(setup, /不需要手机号或邮箱，不会上传个人资料/);
+  assert.match(compactSettings, /desktop\.auth\.updateLocalProfile/);
+  assert.match(compactSettings, /desktop\.settings\.save/);
+  assert.match(compactSettings, /个人与模型配置/);
   assert.doesNotMatch(preload, /localProfileSetupComplete/);
 });

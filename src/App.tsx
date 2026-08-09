@@ -8,6 +8,7 @@ import { ConnectionStatus } from "./components/ConnectionStatus";
 import { Conversation } from "./components/Conversation";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { Inspector } from "./components/Inspector";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { TaskProgress } from "./components/TaskProgress";
 import { useWorkspace } from "./useWorkspace";
 import { ProjectRef } from "../shared/contracts/desktop";
@@ -66,6 +67,7 @@ export function App({ authState }: { authState?: AuthState }) {
   const [viewportWidth, setViewportWidth] = useState(browserPlatform.viewportWidth);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [projectsReady, setProjectsReady] = useState(!desktopBridge());
+  const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(initialWorkspaceView);
   const [modelNotices, setModelNotices] = useState<string[]>([]);
   const { layout: inspectorLayout, targetRef: conversationMainRef } = useInspectorLayout();
@@ -290,7 +292,10 @@ export function App({ authState }: { authState?: AuthState }) {
           onSearch={searchSessions}
           onSelectSession={(sessionId) => void openSession(sessionId)}
           onToggleSidebar={toggleSidebar}
-          onSettings={DeveloperSettingsWorkspace ? () => setWorkspaceView("settings") : undefined}
+          onSettings={() => {
+            if (DeveloperSettingsWorkspace) setWorkspaceView("settings");
+            else setQuickSettingsOpen(true);
+          }}
           onWidthChange={setSidebarWidth}
           onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
           selectedSessionKey={session?.sessionId ?? null}
@@ -449,6 +454,9 @@ export function App({ authState }: { authState?: AuthState }) {
               />
             </Suspense>
           </div>
+        )}
+        {!DeveloperSettingsWorkspace && quickSettingsOpen && (
+          <SettingsDialog authState={authState} onClose={() => setQuickSettingsOpen(false)} />
         )}
       </div>
     </AppErrorBoundary>

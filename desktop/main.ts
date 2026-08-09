@@ -37,7 +37,7 @@ function trustedProjectRoot(projectRoot?: string): string | undefined {
   const resolved = path.resolve(projectRoot);
   if (store.recentProjects().some((project) => project.path === resolved)) return resolved;
   try {
-    const scratchRoot = realpathSync(path.join(app.getPath("userData"), "runtime", "scratch-workspaces"));
+    const scratchRoot = realpathSync(path.join(store.activeProfileRuntimeDirectory(), "scratch-workspaces"));
     const target = realpathSync(resolved);
     if (target === scratchRoot || target.startsWith(`${scratchRoot}${path.sep}`)) return target;
   } catch {
