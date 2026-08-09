@@ -36,6 +36,6 @@ export function evaluateCompletion(input: { run?: Run; runningCommandCount: numb
   return {
     issue,
     kind: "task_maintenance",
-    retryMessage: `当前文本不能作为最终回答，因为任务计划尚未完成收尾：${issue}。不要继续输出最终回答；请先在一个独立步骤中调用 update_tasks，提交完整且真实的任务列表，将已完成事项标记为 completed、受阻事项标记为 blocked，并确保没有 pending 或 running。收到工具结果后的下一轮再生成最终回答。`
+    retryMessage: `当前文本不能作为最终回答，因为任务计划尚未完成收尾：${issue}。不要继续输出最终回答；请调用 update_tasks，提交完整且真实的任务列表，将已完成事项标记为 completed、受阻事项标记为 blocked，并确保没有 pending 或 running。update_tasks 可以与其他工作工具放在同一个 tool_calls 中，但收尾调用必须排在最后一项工作工具之后。收到工具结果后的下一轮再生成最终回答。`
   };
 }

@@ -9,10 +9,10 @@ export function ApprovalDialog({ approval, onResolve }: { approval?: Approval; o
       <header><ShieldAlert size={16} /><div><strong>{approval.title}</strong><span>{approval.risk === "critical" ? "关键风险" : approval.risk === "high" ? "高风险" : "需要确认"}</span></div></header>
       <pre>{approval.detail}</pre>
       <footer>
-        <PillButton onClick={() => onResolve("deny")}>拒绝</PillButton>
-        <PillButton onClick={() => onResolve("allow_session")}>本会话允许</PillButton>
-        <PillButton onClick={() => onResolve("allow_run")}>本轮允许</PillButton>
-        <PillButton className="primary" onClick={() => onResolve("allow_once")}>允许一次</PillButton>
+        {approval.choices.includes("deny") && <PillButton onClick={() => onResolve("deny")}>拒绝</PillButton>}
+        {approval.choices.includes("allow_session") && <PillButton onClick={() => onResolve("allow_session")}>本会话允许</PillButton>}
+        {approval.choices.includes("allow_run") && <PillButton onClick={() => onResolve("allow_run")}>本轮允许</PillButton>}
+        {approval.choices.includes("allow_once") && <PillButton className="primary" onClick={() => onResolve("allow_once")}>允许一次</PillButton>}
       </footer>
     </section>
   );

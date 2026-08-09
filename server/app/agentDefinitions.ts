@@ -14,6 +14,7 @@ export type AgentDefinition = {
 const EXPLORER_TOOLS = new Set([
   "search_capabilities",
   "invoke_capability",
+  "read_skill_resource",
   "search_memory",
   "list_files",
   "read_file",
@@ -32,6 +33,10 @@ const WORKER_TOOLS = new Set([
   "edit_file",
   "multi_edit",
   "delete_file",
+  "materialize_skill_asset",
+  "preview_skill_install",
+  "install_skill",
+  "run_skill_script",
   "run_command",
   "wait_command",
   "stop_command"

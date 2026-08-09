@@ -133,7 +133,7 @@ test("keeps persistence capabilities split into explicit application ports", () 
 });
 
 test("keeps tool infrastructure split by capability", () => {
-  for (const file of ["changes.ts", "files.ts", "registry.ts", "search.ts", "security.ts", "shellExecution.ts", "summaries.ts", "web.ts"]) {
+  for (const file of ["changes.ts", "files.ts", "managedCommands.ts", "registry.ts", "search.ts", "security.ts", "shellExecution.ts", "skills.ts", "summaries.ts", "web.ts"]) {
     assert.equal(statSync(path.join(root, "server/infra/tools", file)).isFile(), true);
   }
   const facade = readFileSync(path.join(root, "server/infra/tools.ts"), "utf8");

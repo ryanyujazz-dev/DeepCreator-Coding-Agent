@@ -19,6 +19,8 @@ desktop            Electron Main, Preload bridge, Runtime worker
 
 See [ADR 004](docs/adr/004-clean-runtime-architecture.md), [ADR 006](docs/adr/006-enterprise-modular-monolith.md), the normative [engineering architecture and code placement guide](docs/engineering-architecture.md), [naming conventions](docs/naming-conventions.md), and the [migration record](docs/enterprise-architecture-migration.md).
 
+The built-in and third-party capability loading, installation, trust, and update model is documented in the [Skill system guide](docs/skill-system.md).
+
 ## Design and typography
 
 The interface uses the unmodified **HarmonyOS Sans SC** variable font. Copyright 2021 Huawei Device Co., Ltd.; used under the HarmonyOS Sans Fonts License Agreement. See [third-party notices](THIRD_PARTY_NOTICES.md) and the [complete bundled license](src/assets/fonts/LICENSE-HarmonyOS-Sans.txt).
@@ -54,6 +56,9 @@ npm test
 npm run build
 npm run check
 npm run package:mac
+npm run package:windows
+npm run make:mac
+npm run make:windows
 ```
 
 Desktop Runtime data is stored in Electron's `userData/runtime` directory. A legacy project `.deepseeker` store is copied once to `.deepcreator` when the new data directory is empty. Browser development keeps its local Runtime configuration, so the renderer can still be debugged without Electron.

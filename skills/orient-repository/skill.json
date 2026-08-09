@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "displayName": "仓库导航",
+  "version": "1.0.0",
+  "publisher": "DeepCreator",
+  "minDeepCreatorVersion": "0.1.0",
+  "permissions": ["workspace_read"]
+}

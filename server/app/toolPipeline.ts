@@ -125,8 +125,8 @@ export class ToolPipeline {
         return [];
       }
     });
-    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user" || tool.toolName === "update_tasks") && tools.length > 1) {
-      return "模式控制、暂停或任务维护工具必须是当前模型步骤中的唯一工具调用。";
+    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user") && tools.length > 1) {
+      return "模式控制或暂停工具必须是当前模型步骤中的唯一工具调用。";
     }
     return hasConflictingControlStep(tools)
       ? "模式控制工具不能与产生副作用的工具出现在同一个模型步骤中。"
@@ -250,6 +250,11 @@ export class ToolPipeline {
             status: "suspended",
             title: "等待批准补丁"
           });
+        } else if (call.name === "install_skill") {
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+            status: "suspended",
+            title: "等待确认安装 Skill"
+          });
         }
         const decision = await input.registry.requestApproval({
           ...approval,
@@ -279,6 +284,11 @@ export class ToolPipeline {
             status: "running",
             title: "正在应用补丁"
           });
+        } else if (call.name === "install_skill") {
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+            status: "running",
+            title: "正在安装 Skill"
+          });
         }
       }
       if (call.name === "apply_patch" && !approval) {
@@ -299,10 +309,12 @@ export class ToolPipeline {
       }
 
       // execute
+      const startsManagedCommand = call.name === "run_command" || call.name === "run_skill_script";
       const mutatesWorkspace = prepared.effect === "workspace_write"
-        || (call.name === "run_command" && !analyzeCommand(String(args.command ?? "")).readOnly);
+        || (call.name === "run_command" && !analyzeCommand(String(args.command ?? "")).readOnly)
+        || call.name === "run_skill_script";
       if (mutatesWorkspace) workspaceRelease = await workspaceMutationCoordinator.acquire(input.projectRoot, input.signal);
-      if (call.name === "run_command") {
+      if (startsManagedCommand) {
         this.host.retain(input.baseline);
         retainedCommandBaseline = true;
       }
@@ -310,11 +322,11 @@ export class ToolPipeline {
         activityId,
         args,
         name: call.name,
-        onCommandSettled: call.name === "run_command" ? (settled) => {
+        onCommandSettled: startsManagedCommand ? (settled) => {
           void this.settleManagedCommand(input, activityId!, settled, true)
             .finally(() => workspaceMutationCoordinator.releaseCommand(settled.commandId));
         } : undefined,
-        onOutput: call.name === "run_command" ? ({ text }) => {
+        onOutput: startsManagedCommand ? ({ text }) => {
           updateActivity({ activityId: activityId!, runId: input.runId, sessionId: input.sessionId, store: input.store }, { bodyDelta: text });
         } : undefined,
         projectRoot: input.projectRoot,
@@ -326,10 +338,10 @@ export class ToolPipeline {
         workspaceMutationCoordinator.retainForCommand(result.commandId, workspaceRelease);
         workspaceLeaseTransferred = true;
       }
-      if (call.name === "run_command" && result.commandState !== "running") {
+      if (startsManagedCommand && result.commandState !== "running") {
         retainedCommandBaseline = false;
         await this.host.close(input.baseline);
-      } else if (call.name === "run_command") {
+      } else if (startsManagedCommand) {
         retainedCommandBaseline = false;
       }
 
@@ -576,7 +588,7 @@ export class ToolPipeline {
         tool: activity.tool ? { ...activity.tool, resultSummary: result.output.slice(0, 500) } : undefined
       });
       if (!settled) return;
-      const evidence = reduceToolEvidence("run_command", result);
+      const evidence = reduceToolEvidence(activity.tool?.toolName ?? "run_command", result);
       input.store.appendContextEntry({
         kind: "context_update",
         metadata: { commandId: result.commandId, commandState: result.commandState, exitCode: result.exitCode },

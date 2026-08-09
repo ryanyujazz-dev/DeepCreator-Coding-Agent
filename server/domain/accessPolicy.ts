@@ -1,4 +1,5 @@
 import {
+  ApprovalChoice,
   AccessScope,
   Grant,
   AccessMode,
@@ -18,6 +19,7 @@ export type CommandSemantics = {
 
 export type ApprovalRequest = {
   capability: AccessScope;
+  choices?: ApprovalChoice[];
   detail: string;
   risk: AccessRisk;
   target: string;
@@ -217,6 +219,31 @@ export function approvalFor(input: {
   profile: AccessMode;
   toolName: string;
 }): ApprovalRequest | undefined {
+  if (input.toolName === "install_skill") {
+    const permissions = Array.isArray(input.args.permissions) ? input.args.permissions.map(String) : [];
+    const scripts = Array.isArray(input.args.scripts) ? input.args.scripts.map(String) : [];
+    const scope = input.args.scope === "global" ? "该用户的所有项目" : "当前项目";
+    const detail = [
+      `Skill：${String(input.args.displayName ?? input.args.name ?? "未知")}`,
+      `包名：${String(input.args.name ?? "未知")}`,
+      `版本：${String(input.args.version ?? "未知")}`,
+      `发布者：${String(input.args.publisher ?? "未知")}`,
+      `安装范围：${scope}`,
+      `来源：${String(input.args.source ?? "未知")}`,
+      `SHA-256：${String(input.args.revisionHash ?? "未知")}`,
+      `权限：${permissions.join("、") || "无"}`,
+      `脚本：${scripts.join("、") || "无"}`,
+      "确认后，DeepCreator 才会按该内容哈希原子安装；任何预览变化都会拒绝执行。"
+    ].join("\n");
+    return {
+      capability: "external_access",
+      choices: ["allow_once", "deny"],
+      detail,
+      risk: scripts.length > 0 || permissions.some((permission) => permission !== "workspace_read") ? "high" : "medium",
+      target: String(input.args.revisionHash ?? input.args.previewId ?? "skill-install"),
+      title: "信任并安装此 Skill？"
+    };
+  }
   if (input.toolName === "apply_patch") {
     if (hasGrant(input.grants, input.runId, input.toolName, "workspace_write", "apply_patch")) return undefined;
     if (input.profile === "full_access") return undefined;
@@ -233,6 +260,18 @@ export function approvalFor(input: {
     if (hasGrant(input.grants, input.runId, input.toolName, "workspace_delete", target)) return undefined;
     if (input.profile === "full_access") return undefined;
     return { capability: "workspace_delete", detail: `删除项目文件 ${target}`, risk: "high", target, title: "允许删除文件？" };
+  }
+  if (input.toolName === "run_skill_script") {
+    const target = `${String(input.args.capabilityId ?? "skill")}:${String(input.args.scriptId ?? "script")}`;
+    if (hasGrant(input.grants, input.runId, input.toolName, "shell_execute", target)) return undefined;
+    if (input.profile === "full_access") return undefined;
+    return {
+      capability: "shell_execute",
+      detail: `运行已安装 Skill 声明的本地脚本 ${target}。脚本以当前系统用户权限执行。`,
+      risk: "high",
+      target,
+      title: "允许运行 Skill 脚本？"
+    };
   }
   if (input.toolName !== "run_command") return undefined;
   const command = String(input.args.command ?? "").trim();

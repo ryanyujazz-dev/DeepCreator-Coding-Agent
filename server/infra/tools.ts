@@ -4,18 +4,22 @@ import {
   ActionKind,
   ToolMetrics
 } from "../../shared/contracts/runtime";
-import { analyzeCommand } from "../domain/accessPolicy";
 import { ToolProgress, ToolResult } from "../../shared/contracts/tool";
 import { PreparedToolState, ToolHost } from "../app/toolHost";
 import { invokeCapability, searchCapabilities } from "./capabilities";
-import { commandManager, CommandSnapshot } from "./commandManager";
+import { defaultSkillCatalog, SkillCatalog } from "./skillCatalog";
+import { commandManager } from "./commandManager";
 import { summarizeToolArguments, summarizeToolResult } from "./tools/summaries";
 import { runShell } from "./tools/shellExecution";
 import { deleteFile, editFile, listFiles, multiEdit, readFile, writeFile } from "./tools/files";
 import { applyPatch } from "./tools/applyPatch";
 import { globFiles, grepFiles } from "./tools/search";
 import { fetchUrl, webSearch } from "./tools/web";
+import { materializeSkillAsset, readSkillResource } from "./tools/skills";
+import { runCommandTool, runSkillScriptTool, stopCommandTool, waitCommandTool } from "./tools/managedCommands";
+import { installSkill, previewSkillInstall } from "./tools/skillInstall";
 import { toolRegistry, toolSpecs, ToolRegistration } from "./tools/registry";
+import { SkillStore } from "./skillStore";
 import {
   captureBaseline,
   checkpointTarget,
@@ -29,22 +33,6 @@ export { summarizeToolArguments, summarizeToolResult } from "./tools/summaries";
 export { captureBaseline, checkpointTarget, collectChanges, releaseBaseline, retainBaseline };
 export { toolSpecs };
 
-function managedCommandResult(snapshot: CommandSnapshot, mutatedWorkspace: boolean): ToolResult {
-  return {
-    command: snapshot.command,
-    commandActivityId: snapshot.activityId,
-    commandId: snapshot.commandId,
-    commandRunId: snapshot.runId,
-    commandSessionId: snapshot.sessionId,
-    commandState: snapshot.state,
-    elapsedMs: snapshot.elapsedMs,
-    exitCode: snapshot.exitCode,
-    mutatedWorkspace,
-    output: snapshot.state === "running" ? snapshot.outputDelta : snapshot.output,
-    outputTruncated: snapshot.outputTruncated
-  };
-}
-
 export async function executeTool(input: {
   activityId?: string;
   projectRoot: string;
@@ -56,8 +44,11 @@ export async function executeTool(input: {
   commandCheckpointMs?: number;
   runId?: string;
   sessionId?: string;
+  skillCatalog?: SkillCatalog;
+  skillStore?: SkillStore;
 }): Promise<ToolResult> {
-  const { projectRoot, name, args, signal, onOutput, commandCheckpointMs } = input;
+  const { projectRoot, name, args, signal, commandCheckpointMs } = input;
+  const skillCatalog = input.skillCatalog ?? defaultSkillCatalog;
   if (name === "list_files") return { mutatedWorkspace: false, output: await listFiles(projectRoot, args) };
   if (name === "read_file") return { mutatedWorkspace: false, output: await readFile(projectRoot, args as never) };
   if (name === "grep") return { mutatedWorkspace: false, output: await grepFiles(projectRoot, args as never, signal) };
@@ -67,7 +58,7 @@ export async function executeTool(input: {
     return { ...result, mutatedWorkspace: false };
   }
   if (name === "search_capabilities") {
-    const matches = searchCapabilities(projectRoot, String(args.query ?? ""), Number(args.limit ?? 10));
+    const matches = searchCapabilities(projectRoot, String(args.query ?? ""), Number(args.limit ?? 10), skillCatalog);
     return { mutatedWorkspace: false, output: JSON.stringify({ capabilities: matches }) };
   }
   if (name === "invoke_capability") {
@@ -75,7 +66,8 @@ export async function executeTool(input: {
       projectRoot,
       String(args.capabilityId ?? ""),
       args.arguments && typeof args.arguments === "object" && !Array.isArray(args.arguments) ? args.arguments as Record<string, unknown> : {},
-      signal
+      signal,
+      skillCatalog
     );
     return {
       contextUpdate: loaded.contextUpdate ? {
@@ -92,6 +84,20 @@ export async function executeTool(input: {
       output: loaded.output ?? JSON.stringify({ activated: Boolean(loaded.contextUpdate), capability: loaded.capability })
     };
   }
+  if (name === "read_skill_resource") {
+    return { mutatedWorkspace: false, output: readSkillResource(skillCatalog, projectRoot, args) };
+  }
+  if (name === "materialize_skill_asset") {
+    return { mutatedWorkspace: true, output: materializeSkillAsset(skillCatalog, projectRoot, args) };
+  }
+  if (name === "preview_skill_install") {
+    if (!input.skillStore) throw new Error("当前 Runtime 未配置 Skill 安装服务。");
+    return previewSkillInstall({ args, projectRoot, store: input.skillStore });
+  }
+  if (name === "install_skill") {
+    if (!input.skillStore) throw new Error("当前 Runtime 未配置 Skill 安装服务。");
+    return installSkill({ args, projectRoot, store: input.skillStore });
+  }
   if (name === "write_file") return { mutatedWorkspace: true, output: await writeFile(projectRoot, args as never) };
   if (name === "edit_file") return { mutatedWorkspace: true, output: await editFile(projectRoot, args as never) };
   if (name === "multi_edit") return { mutatedWorkspace: true, output: await multiEdit(projectRoot, args as never) };
@@ -101,41 +107,21 @@ export async function executeTool(input: {
   if (name === "web_search") return { mutatedWorkspace: false, output: await webSearch(args as never, signal) };
   if (name === "run_command") {
     const command = String(args.command ?? "").trim();
-    if (!command) throw new Error("command 不能为空。");
-    if (!input.activityId || !input.runId || !input.sessionId) {
-      throw new Error("run_command 缺少 Runtime 生命周期标识。");
-    }
-    const mutatedWorkspace = !analyzeCommand(command).readOnly;
-    const snapshot = await commandManager.start({
-      activityId: input.activityId,
-      command,
-      onOutput: (text) => onOutput?.({ text }),
-      onSettled: (settled) => input.onCommandSettled?.(managedCommandResult(settled, mutatedWorkspace)),
-      projectRoot,
-      runId: input.runId,
-      sessionId: input.sessionId,
-      signal
-    }, commandCheckpointMs);
-    return managedCommandResult(snapshot, mutatedWorkspace);
+    return runCommandTool({
+      ...input,
+      checkpointMs: commandCheckpointMs
+    }, command);
+  }
+  if (name === "run_skill_script") {
+    return runSkillScriptTool({ ...input, checkpointMs: commandCheckpointMs }, skillCatalog, args);
   }
   if (name === "wait_command") {
     const commandId = String(args.commandId ?? "").trim();
-    if (!commandId) throw new Error("commandId 不能为空。");
-    const existing = commandManager.get(commandId);
-    if (!existing) throw new Error(`未找到命令：${commandId}`);
-    return managedCommandResult(
-      await commandManager.wait(commandId, commandCheckpointMs, signal),
-      !analyzeCommand(existing.command).readOnly
-    );
+    return waitCommandTool({ ...input, checkpointMs: commandCheckpointMs }, commandId);
   }
   if (name === "stop_command") {
     const commandId = String(args.commandId ?? "").trim();
-    if (!commandId) throw new Error("commandId 不能为空。");
-    const existing = commandManager.get(commandId);
-    if (!existing) throw new Error(`未找到命令：${commandId}`);
-    const stopped = await commandManager.stop(commandId);
-    if (!stopped) throw new Error(`未找到命令：${commandId}`);
-    return managedCommandResult(stopped, !analyzeCommand(existing.command).readOnly);
+    return stopCommandTool(commandId);
   }
   throw new Error(`未知工具：${name}`);
 }
@@ -248,6 +234,11 @@ export function activityKindForTool(tool: ToolState): ActivityKind {
 export function toolTitle(name: string): string {
   return ({
     invoke_capability: "启用能力",
+    read_skill_resource: "读取 Skill 参考资料",
+    materialize_skill_asset: "创建 Skill 资源",
+    preview_skill_install: "预览 Skill 安装",
+    install_skill: "安装 Skill",
+    run_skill_script: "运行 Skill 脚本",
     ask_user: "询问方案问题",
     delete_file: "删除文件",
     edit_file: "编辑文件",
@@ -274,22 +265,26 @@ export function toolTitle(name: string): string {
   } as Record<string, string>)[name] ?? name;
 }
 
-export const toolHost: ToolHost = {
-  capture: captureBaseline,
-  changes: collectChanges,
-  checkpoint: checkpointTarget,
-  close: releaseBaseline,
-  execute: executeTool,
-  has: hasTool,
-  kind: activityKindForTool,
-  names: toolNames,
-  parallel: toolCanRunInParallel,
-  prepare: createToolState,
-  retain: retainBaseline,
-  runningCommands: (runId) => commandManager.running(runId),
-  specs: toolSpecs,
-  stopCommands: (runId) => commandManager.stopRun(runId),
-  summarizeArgs: summarizeToolArguments,
-  summarizeResult: summarizeToolResult,
-  title: toolTitle
-};
+export function createToolHost(skillCatalog = defaultSkillCatalog, skillStore?: SkillStore): ToolHost {
+  return {
+    capture: captureBaseline,
+    changes: collectChanges,
+    checkpoint: checkpointTarget,
+    close: releaseBaseline,
+    execute: (input) => executeTool({ ...input, skillCatalog, skillStore }),
+    has: hasTool,
+    kind: activityKindForTool,
+    names: toolNames,
+    parallel: toolCanRunInParallel,
+    prepare: createToolState,
+    retain: retainBaseline,
+    runningCommands: (runId) => commandManager.running(runId),
+    specs: toolSpecs,
+    stopCommands: (runId) => commandManager.stopRun(runId),
+    summarizeArgs: summarizeToolArguments,
+    summarizeResult: summarizeToolResult,
+    title: toolTitle
+  };
+}
+
+export const toolHost: ToolHost = createToolHost();

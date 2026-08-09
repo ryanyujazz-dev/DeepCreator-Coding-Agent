@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "displayName": "创建 Skill",
+  "version": "1.3.0",
+  "publisher": "DeepCreator",
+  "minDeepCreatorVersion": "0.1.0",
+  "permissions": ["workspace_read", "workspace_write", "local_code_execution"],
+  "scripts": {
+    "init": {
+      "entry": "scripts/init-skill.mjs",
+      "description": "Create a valid DeepCreator Skill skeleton inside the current workspace.",
+      "permissions": ["workspace_write", "local_code_execution"]
+    },
+    "validate": {
+      "entry": "scripts/validate-skill.mjs",
+      "description": "Validate a DeepCreator Skill directory and its manifest.",
+      "permissions": ["workspace_read", "local_code_execution"]
+    },
+    "pack": {
+      "entry": "scripts/pack-skill.mjs",
+      "description": "Validate and package a Skill as a .deepcreator-skill ZIP.",
+      "permissions": ["workspace_read", "workspace_write", "local_code_execution"]
+    }
+  }
+}

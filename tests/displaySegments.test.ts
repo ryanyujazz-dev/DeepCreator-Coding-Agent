@@ -44,6 +44,29 @@ function activity(index: number, overrides: Partial<Activity> = {}): Activity {
   };
 }
 
+function skillActivity(
+  index: number,
+  toolName: "install_skill" | "invoke_capability" | "materialize_skill_asset" | "preview_skill_install" | "read_skill_resource" | "run_skill_script" | "search_capabilities",
+  overrides: Partial<Activity> = {}
+): Activity {
+  const target = toolName === "search_capabilities" ? "发布 Electron" : "skill:release-electron";
+  return activity(index, {
+    body: `result for ${toolName}`,
+    kind: toolName === "run_skill_script" ? "command" : "tool",
+    title: "Skill 活动",
+    tool: tool({
+      action: toolName === "run_skill_script" ? "execute" : "inspect",
+      callId: `call_skill_${index}`,
+      displayTarget: target,
+      effect: toolName === "run_skill_script" ? "process_side_effect" : "read_only",
+      normalizedTarget: target,
+      targetKind: toolName === "run_skill_script" ? "process" : "workspace",
+      toolName
+    }),
+    ...overrides
+  });
+}
+
 function thinking(index: number, status: Activity["status"] = "running"): Activity {
   return activity(index, {
     audience: "debug",
@@ -180,6 +203,95 @@ test("aggregates mixed completed tools under one header in a segment", () => {
   assert.equal(segment.aggregate?.headlineLabel, "修改项目文件");
   assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件 · 已编辑 1 个文件");
   assert.deepEqual(segment.aggregate?.memberActivityIds, ["activity_2", "activity_3"]);
+});
+
+test("renders every Skill tool as a standalone first-level segment", () => {
+  const toolNames = [
+    "search_capabilities",
+    "invoke_capability",
+    "preview_skill_install",
+    "install_skill",
+    "read_skill_resource",
+    "materialize_skill_asset",
+    "run_skill_script"
+  ] as const;
+
+  for (const [offset, toolName] of toolNames.entries()) {
+    const segment = onlySegment(run([skillActivity(offset + 1, toolName)]));
+    assert.equal(segment.aggregate, undefined, toolName);
+    assert.equal(segment.mainActivity, undefined, toolName);
+    assert.equal(segment.activitySlots.length, 1, toolName);
+    assert.equal(segment.activitySlots[0].visual.sourceActivityId, `activity_${offset + 1}`, toolName);
+    assert.match(segment.activitySlots[0].visual.label, /Skill/, toolName);
+  }
+});
+
+test("uses a standalone Skill segment to split aggregate headers on both sides", () => {
+  const entries = projectDisplayTimeline(run([
+    message(1, "先检查仓库。"),
+    activity(2),
+    skillActivity(3, "invoke_capability"),
+    activity(4, {
+      tool: tool({
+        callId: "call_4",
+        displayTarget: "src/main.ts",
+        normalizedTarget: "src/main.ts"
+      })
+    })
+  ]));
+
+  assert.equal(entries.length, 3);
+  assert.ok(entries.every((entry) => entry.type === "display_segment"));
+  if (entries.some((entry) => entry.type !== "display_segment")) return;
+  const [before, skill, after] = entries.map((entry) => entry.segment);
+  assert.deepEqual(before.aggregate?.memberActivityIds, ["activity_2"]);
+  assert.deepEqual(before.activitySlots, []);
+  assert.equal(skill.aggregate, undefined);
+  assert.equal(skill.activitySlots[0]?.visual.label, "已加载 Skill · skill:release-electron");
+  assert.deepEqual(after.aggregate?.memberActivityIds, ["activity_4"]);
+});
+
+test("keeps a running Skill script in its own active slot with its command identity", () => {
+  const script = skillActivity(2, "run_skill_script", {
+    body: "building package...",
+    command: {
+      command: "node validate-skill.mjs",
+      commandId: "command_skill_1",
+      state: "running"
+    },
+    finishedAt: undefined,
+    status: "running"
+  });
+  const entries = projectDisplayTimeline(run([activity(1), script]));
+
+  assert.equal(entries.length, 2);
+  assert.equal(entries[1].type, "display_segment");
+  if (entries[1].type !== "display_segment") return;
+  assert.equal(entries[1].segment.aggregate, undefined);
+  assert.equal(entries[1].segment.activitySlots[0]?.logicalState, "active");
+  assert.equal(entries[1].segment.activitySlots[0]?.visual.label, "正在运行 Skill 脚本 · skill:release-electron");
+  assert.equal(script.command?.commandId, "command_skill_1");
+});
+
+test("shows Skill installation as waiting while hash trust is unresolved", () => {
+  const segment = onlySegment(run([skillActivity(1, "install_skill", {
+    finishedAt: undefined,
+    status: "suspended"
+  })]));
+  assert.equal(segment.aggregate, undefined);
+  assert.equal(segment.activitySlots[0]?.logicalState, "empty");
+  assert.equal(segment.activitySlots[0]?.visual.label, "等待确认安装 Skill · skill:release-electron");
+});
+
+test("does not leave a thinking-only row before a standalone Skill segment", () => {
+  const entries = projectDisplayTimeline(run([
+    thinking(1, "completed"),
+    skillActivity(2, "search_capabilities")
+  ]));
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].type, "display_segment");
+  if (entries[0].type !== "display_segment") return;
+  assert.equal(entries[0].segment.activitySlots[0]?.visual.label, "已搜索 Skill · 发布 Electron");
 });
 
 test("uses the sealed step headline before every tool in that step has started", () => {

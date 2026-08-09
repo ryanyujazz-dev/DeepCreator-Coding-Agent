@@ -238,6 +238,17 @@ test("routes the renderer, code views, and settings workspace through the shared
   assert.match(mermaid, /themeVariables:\s*\{/);
 });
 
+test("keeps task-scoped Skills visible and refreshes them when settings opens", () => {
+  const app = readFileSync(path.join(root, "src/App.tsx"), "utf8");
+  const workspace = readFileSync(path.join(root, "src/components/settings/SettingsWorkspace.tsx"), "utf8");
+  const skills = readFileSync(path.join(root, "src/components/settings/SkillsSettings.tsx"), "utf8");
+  assert.match(app, /currentProjectRoot=\{session\?\.projectRoot\}/);
+  assert.match(app, /currentWorkspaceKind=\{session\?\.workspaceKind\}/);
+  assert.match(workspace, /<SkillsSettings active=\{visible\}/);
+  assert.match(skills, /if \(active\) void load\(\)/);
+  assert.match(skills, /workspaceKind === "scratch" \? "当前临时任务" : "当前项目"/);
+});
+
 test("keeps the final theme-aware interface mapping free of light-only text colors", () => {
   const marker = "/* Theme-aware overrides for legacy light-only declarations. */";
   const themeAwareOverrides = styles.slice(styles.indexOf(marker));

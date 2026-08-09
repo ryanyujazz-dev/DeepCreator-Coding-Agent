@@ -12,7 +12,7 @@ import {
   TimelineEntry,
   ToolImportance
 } from "./types";
-import { toolImportance, toolTarget } from "./activityPresentation";
+import { isSkillActivity, toolImportance, toolTarget } from "./activityPresentation";
 
 type MutableGroup = ActivityGroup & { members: Activity[] };
 
@@ -274,6 +274,7 @@ function projectLiveStep(
     stepIdFor(activity) === tailStepId && !isInternallyHidden(activity)
   );
   if (tailActivities.length === 0) return undefined;
+  if (tailActivities.some(isSkillActivity)) return undefined;
 
   const hiddenActivityIds = new Set(tailActivities.map((activity) => activity.activityId));
   const toolActivities = tailActivities.filter((activity) => Boolean(groupCategory(activity)));
@@ -303,6 +304,11 @@ export function projectGroups(
     if (isHiddenActivity(activity)) continue;
     if (activity.kind === "thinking") {
       entries.push({ activity: activity, entryId: activity.activityId, type: "activity" });
+      continue;
+    }
+    if (isSkillActivity(activity)) {
+      activeGroup = undefined;
+      entries.push({ activity, entryId: activity.activityId, type: "activity" });
       continue;
     }
 

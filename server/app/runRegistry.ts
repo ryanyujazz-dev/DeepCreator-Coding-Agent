@@ -9,6 +9,7 @@ type PendingApproval = {
   sessionId: string;
   callId: string;
   capability: AccessScope;
+  choices: ApprovalChoice[];
   risk: AccessRisk;
   target: string;
   toolName: string;
@@ -186,6 +187,7 @@ export class RunRegistry {
   async requestApproval(input: {
     callId: string;
     capability: AccessScope;
+    choices?: ApprovalChoice[];
     runId: string;
     sessionId: string;
     store: RunRegistryPorts;
@@ -197,13 +199,14 @@ export class RunRegistry {
     signal?: AbortSignal;
   }): Promise<ApprovalChoice> {
     const approvalId = this.system.createId("approval");
+    const choices = input.choices ?? ["allow_once", "allow_run", "allow_session", "deny"];
     input.store.append({
       runId: input.runId,
       data: {
         approvalId,
         callId: input.callId,
         capability: input.capability,
-        choices: ["allow_once", "allow_run", "allow_session", "deny"],
+        choices,
         detail: input.detail,
         risk: input.risk,
         state: "pending",
@@ -235,6 +238,7 @@ export class RunRegistry {
         runId: input.runId,
         callId: input.callId,
         capability: input.capability,
+        choices,
         risk: input.risk,
         resolve: settle,
         sessionId: input.sessionId,
@@ -251,6 +255,7 @@ export class RunRegistry {
   }): boolean {
     const pending = this.approvals.get(input.approvalId);
     if (!pending) return false;
+    if (!pending.choices.includes(input.decision)) return false;
     const allowed = input.decision !== "deny";
     if (input.decision === "allow_run" || input.decision === "allow_session") {
       const session = input.store.getSession(pending.sessionId);

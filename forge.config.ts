@@ -5,7 +5,10 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    extraResource: ["server/infra/migrations"],
+    extraResource: [
+      "server/infra/migrations",
+      "skills"
+    ],
     name: "DeepCreator",
     osxSign: {
       identity: "-",
@@ -18,7 +21,7 @@ const config: ForgeConfig = {
     }
   },
   rebuildConfig: {},
-  makers: [new MakerZIP({}, ["darwin"])],
+  makers: [new MakerZIP({}, ["darwin", "win32"])],
   plugins: [
     new VitePlugin({
       build: [

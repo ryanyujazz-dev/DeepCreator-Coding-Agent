@@ -6,6 +6,12 @@ import {
   WindowChromeTheme
 } from "./theme";
 import { ModelProtocol } from "./provider";
+import {
+  SkillInstallInput,
+  SkillInstallPreview,
+  SkillSummary,
+  SkillTargetInput
+} from "./skill";
 
 export type RuntimePhase = "starting" | "ready" | "restarting" | "stopped" | "failed";
 
@@ -74,6 +80,16 @@ export type DesktopBridge = {
   settings: {
     read: () => Promise<DesktopSettings>;
     save: (input: DesktopSettingsInput) => Promise<DesktopSettingsSaveResult>;
+  };
+  skills: {
+    checkUpdates: (projectRoot?: string) => Promise<SkillSummary[]>;
+    install: (input: SkillInstallInput) => Promise<SkillSummary[]>;
+    list: (projectRoot?: string) => Promise<SkillSummary[]>;
+    previewGitHub: (url: string) => Promise<SkillInstallPreview>;
+    previewLocal: () => Promise<SkillInstallPreview | null>;
+    remove: (input: SkillTargetInput) => Promise<SkillSummary[]>;
+    setEnabled: (input: SkillTargetInput & { enabled: boolean }) => Promise<SkillSummary[]>;
+    update: (input: SkillTargetInput) => Promise<SkillInstallPreview>;
   };
   themes: {
     exportFile: (themeId: string) => Promise<boolean>;

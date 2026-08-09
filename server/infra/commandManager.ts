@@ -42,6 +42,7 @@ type CommandEntry = CommandCallbacks & {
   done: Promise<void>;
   elapsedMs?: number;
   emittedBytes: number;
+  env?: NodeJS.ProcessEnv;
   exitCode?: number;
   finishDone: () => void;
   finishTimer?: ReturnType<typeof setTimeout>;
@@ -115,6 +116,7 @@ export class CommandManager {
   async start(input: {
     activityId: string;
     command: string;
+    env?: NodeJS.ProcessEnv;
     projectRoot: string;
     runId: string;
     sessionId: string;
@@ -129,7 +131,7 @@ export class CommandManager {
     const child = spawn(shell.executable, shell.argsFor(input.command), {
       cwd: input.projectRoot,
       detached: process.platform !== "win32",
-      env: process.env,
+      env: input.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true
     });
@@ -316,7 +318,7 @@ export class CommandManager {
     const retained = retainedOutput(entry).trimEnd();
     return {
       activityId: entry.activityId,
-      command: entry.command,
+      command: redact(entry.command),
       commandId: entry.commandId,
       elapsedMs: entry.elapsedMs ?? Date.now() - entry.startedAt,
       exitCode: entry.exitCode,

@@ -313,6 +313,7 @@ function stableEnvelope(input: BuildInput, guidance: ResolvedRule[]): string {
   const context = input.context ?? defaultContextConfig;
   const env = {
     projectRoot: input.projectRoot,
+    workspaceKind: input.session.workspaceKind,
     platform: context.platform,
     shellFamily: context.shellFamily,
     locale: context.locale,
@@ -351,6 +352,7 @@ export function sessionRevisionHash(input: BuildInput, guidance: ResolvedRule[])
   const context = input.context ?? defaultContextConfig;
   const env = {
     projectRoot: input.projectRoot,
+    workspaceKind: input.session.workspaceKind,
     platform: context.platform,
     shellFamily: context.shellFamily,
     locale: context.locale,

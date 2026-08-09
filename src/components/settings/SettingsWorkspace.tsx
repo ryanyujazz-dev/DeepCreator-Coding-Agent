@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   Beaker,
   Bot,
+  Blocks,
   KeyRound,
   Search,
   Settings,
@@ -9,11 +10,13 @@ import {
   SunMoon
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { WorkspaceKind } from "../../../shared/contracts/runtime";
 import { PanelResizeHandle } from "../PanelResizeHandle";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { ModelSettings } from "./ModelSettings";
+import { SkillsSettings } from "./SkillsSettings";
 
-type SettingsSection = "general" | "appearance" | "models" | "evals";
+type SettingsSection = "general" | "appearance" | "models" | "skills" | "evals";
 
 type SettingsSectionDefinition = {
   icon: typeof Settings;
@@ -43,6 +46,12 @@ const sections: SettingsSectionDefinition[] = [
     id: "models",
     keywords: ["模型", "默认模型", "api", "key", "deepseek", "智谱", "凭据"],
     label: "模型与 API"
+  },
+  {
+    icon: Blocks,
+    id: "skills",
+    keywords: ["skill", "skills", "能力", "安装", "权限", "脚本", "更新", "内置", "项目"],
+    label: "技能"
   },
   ...(import.meta.env.DEV ? [{
     icon: Beaker,
@@ -75,19 +84,25 @@ function GeneralSettings() {
 }
 
 export function SettingsWorkspace({
+  currentProjectRoot,
+  currentWorkspaceKind,
   onClose,
   onOpenEvals,
   onWidthChange,
   onWidthReset,
   sidebarWidth,
-  showEvals = false
+  showEvals = false,
+  visible = true
 }: {
+  currentProjectRoot?: string;
+  currentWorkspaceKind?: WorkspaceKind;
   onClose: () => void;
   onOpenEvals?: () => void;
   onWidthChange: (width: number) => void;
   onWidthReset: () => void;
   sidebarWidth: number;
   showEvals?: boolean;
+  visible?: boolean;
 }) {
   const [active, setActive] = useState<SettingsSection>("appearance");
   const [query, setQuery] = useState("");
@@ -149,6 +164,7 @@ export function SettingsWorkspace({
           {active === "general" && <GeneralSettings />}
           {active === "appearance" && <AppearanceSettings />}
           {active === "models" && <ModelSettings />}
+          {active === "skills" && <SkillsSettings active={visible} projectRoot={currentProjectRoot} workspaceKind={currentWorkspaceKind} />}
         </div>
       </main>
     </>
