@@ -1,0 +1,162 @@
+/*
+ * 默认分支对话框:pill 输入条(内含 voice/send)+ 外部底栏(左 add/access、右 context/model)。
+ *
+ * 设计要点(固定半径 R = --composer-bar-radius):
+ * - 形态完全由 bar 高度决定,无需切类:bar min-height = 2R 时两端是完整半圆 → pill;
+ *   内容 ≥2 行长高后,同一半径 R 自动呈圆角矩形。拉伸前后圆角半径一致(用户要求 2)。
+ * - 发送按钮钉在右下角不动(用户要求 3):.composer-bar 用 align-items:flex-end,语音/发送
+ *   按钮组作为 flex 末子底对齐。bar 的 padding-bottom / padding-right = R − 按钮半径(34px
+ *   按钮 → 9px),使发送按钮圆心恰好落在圆角弧心 (right−R, bottom−R) 上 —— 1 行(pill)时
+ *   即药丸右半圆的圆心(用户要求 1),长高后停在右下角弧心不动(用户要求 3)。
+ * - .composer 基类(styles.css:5901)是默认 / plan-review / question 三个分支共享的表面
+ *   (边框/底色/阴影/宽度),这里**不重置**它,只在其上叠 .composer-bar 修饰类改变默认分支
+ *   的形状。.composer-bar 仅出现在默认分支且非只读(见 Composer.tsx 的 barClass)。
+ * - .composer-foot 是 form 的兄弟节点,落在 .composer-stack 内(块流,自动满宽),高度由
+ *   Conversation.tsx 的 ResizeObserver(.composer-stack)正确传导到底部遮罩/淡出/滚动占位。
+ *
+ * 特异性说明:本模块在 index.css 中**最后**导入,等特异性平局(尤其与 styles.css 的
+ * .composer-stack > .composer 0,2,0、与其他 feature 模块)都偏向 bar。
+ */
+
+/* pill / 圆角矩形输入条(同一半径 R)。0,2,0 > .composer(0,1,0 @ styles.css:5901);
+   与 .composer-stack > .composer(0,2,0 @ :7186,只设 left/width/margin)平局,靠后导入取胜。 */
+.composer.composer-bar {
+  --composer-bar-radius: 26px;
+  display: flex;
+  align-items: flex-end;              /* textarea 与按钮组都底对齐 → 发送按钮钉在右下角 */
+  gap: 6px;
+  /* top/right/bottom = 8px:.composer 基类自带 1px 边框(border-box),故 padding 取 R−按钮半径−边框
+     = 26−17−1 = 8,使发送按钮(34px)圆心恰好落在圆角弧心(距外边缘 R=26);同时 1+8+34+8+1=52=2R,
+     1 行时 bar 恰成真 pill(两端完整半圆)。left 留文本起始内缩。*/
+  padding: 8px 8px 8px 14px;
+  min-height: calc(2 * var(--composer-bar-radius));   /* 52px:1 行 = 2R → 两端半圆 */
+  border-radius: var(--composer-bar-radius);          /* 固定 R:拉伸前后半径一致 */
+}
+
+/* textarea:占满左侧剩余空间。1 行内容盒 = line-height(22)+padding(6+6)= 34px,
+   正好填满 1 行 bar 的内容盒(2R − 8 − 8 − 2 边框 = 34)。钉 line-height 让 autoGrow 算得准。
+   min-height:unset 抵消基类 .composer textarea(0,1,1 @ styles.css:469)的 min-height:78px
+   与移动端 .composer textarea(0,1,1 @ :2545)的 72px —— 否则已有会话(无 .has-project-context)
+   里 textarea 被 78px 撑成 3 行而非 1 行 pill。autoGrow 的内联 height 才是唯一高度来源。*/
+.composer.composer-bar textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: unset;
+  padding: 6px 4px 6px 8px;
+  border-radius: 0;
+  background: transparent;
+  line-height: 22px;
+}
+
+/* 右下角按钮组:语音 + 发送。flex 末子、底对齐,padding(9)使发送按钮圆心落在圆角弧心。*/
+.composer-bar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+/* 抵消 .composer-stack.has-project-context > .composer(0,3,0 @ styles.css:7239)强制的 28px:
+   改回同一 R。0,4,0 胜过 0,3,0。*/
+.composer-stack.has-project-context > .composer.composer-bar {
+  border-radius: var(--composer-bar-radius);
+}
+
+/* 抵消 .composer-stack.has-project-context > .composer textarea(0,3,1 @ styles.css:7243)
+   强制的 min-height:96px / 24px padding / 28px 圆角 —— 否则带 ProjectContextSelector 时
+   pill 被撑成 96px 怪胎。本规则 0,4,1 胜过 0,3,1。*/
+.composer-stack.has-project-context > .composer.composer-bar textarea {
+  min-height: unset;
+  padding: 6px 4px 6px 8px;
+  border-radius: 0;
+}
+
+/* 外部底栏:form 的兄弟,在 .composer-stack 内(块流,自动满宽)。
+   不设 width/max-width/auto-margin —— 块级子元素天然填满 .composer-stack 的限宽。*/
+.composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;                    /* 窄屏:左右两组换行而非挤垮 */
+  gap: 8px;
+  margin: 8px 0 0;                    /* 与 pill 的间距(form 自身 margin 为 0 @ styles.css:7186)*/
+  padding: 0 6px;                     /* ≈ pill 水平内缩,底栏读作「属于上方 pill」*/
+}
+
+.composer-foot-left,
+.composer-foot-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 分支选择器:与 .permission-selector / .add-selector 一致的定位容器,.branch-menu 下拉相对它绝对定位。*/
+.composer-foot .branch-selector {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 分支按钮:复用 .ui-pill-button 基类(已含 pill 形态 / hover / disabled),与「完全访问」同组件、同高。
+   不可切换态(单分支 / 非 Git / 运行中)走 disabled:基类给 0.42 透明度对「主信息」过淡,这里放宽到 0.8
+   并把 not-allowed 光标改 default,读作「附带的只读状态」而非「被禁止」。纯 token(无 hex)。*/
+.composer-foot .branch-button:disabled {
+  opacity: 0.8;
+  cursor: default;
+}
+
+/* 分支下拉:对齐 .permission-menu 的向上弹出(foot 在底部),按单行条目收紧。边框/底/阴影由
+   .ui-floating-surface 基类提供,这里只补定位 + 布局 + 条目。*/
+.composer-foot .branch-menu {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  max-width: min(292px, calc(100vw - 232px));
+  overflow: hidden;
+  padding: 5px;
+}
+.composer-foot .branch-menu header {
+  padding: 4px 8px;
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+.composer-foot .branch-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.composer-foot .branch-menu button > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-foot .branch-menu button > svg {
+  flex: 0 0 auto;
+  color: var(--color-text-subtle);
+}
+.composer-foot .branch-menu button:hover {
+  background: var(--color-hover);
+}
+.composer-foot .branch-menu button.is-selected {
+  background: var(--color-hover);
+  color: var(--theme-blue-dark);
+}
+.composer-foot .branch-menu button.is-selected > svg {
+  color: var(--theme-blue);
+}

@@ -95,6 +95,11 @@ export class RuntimeClient {
   getContextObserver = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/context-observer`, decodeContextObserverResponse);
   getFile = (sessionId: string, path: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/files?path=${encodeURIComponent(path)}`, decodeRuntimeFilePreview);
   getChanges = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/changes`, decodeChanges);
+  checkout = (sessionId: string, branch: string) => this.request(
+    `/api/sessions/${encodeURIComponent(sessionId)}/checkout`,
+    decodeWorkspaceResponse,
+    { body: JSON.stringify({ branch }), method: "POST" }
+  );
   startRun = (input: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; projectRoot?: string; prompt: string; sessionId?: string; workspaceKind?: WorkspaceKind }) => {
     const sessionId = input.sessionId ?? browserPlatform.createId("session");
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/runs`, decodeSessionResponse, { body: JSON.stringify(input), method: "POST" });

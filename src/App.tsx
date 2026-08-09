@@ -1,5 +1,5 @@
 import { Component, CSSProperties, lazy, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Folder, PanelLeft, PanelRight } from "lucide-react";
+import { Folder, LayoutPanelTop, PanelLeft, PanelRight } from "lucide-react";
 import { AppTopbar } from "./components/AppTopbar";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
@@ -9,7 +9,6 @@ import { Conversation } from "./components/Conversation";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { Inspector } from "./components/Inspector";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { TaskProgress } from "./components/TaskProgress";
 import { useWorkspace } from "./useWorkspace";
 import { ProjectRef } from "../shared/contracts/desktop";
 import { IconButton } from "./shared-ui/ControlPrimitives";
@@ -64,6 +63,7 @@ export function App({ authState }: { authState?: AuthState }) {
   const [sidebarAnim, setSidebarAnim] = useState<null | "closing" | "opening">(null);
   const [surfaceWidth, setSurfaceWidth] = useState(() => storedPanelWidth("deepcreator.surfaceWidth", DEFAULT_SURFACE_WIDTH));
   const [surfacePanelOpen, setSurfacePanelOpen] = useState(false);
+  const [inspectorVisible, setInspectorVisible] = useState(true);
   const [viewportWidth, setViewportWidth] = useState(browserPlatform.viewportWidth);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [projectsReady, setProjectsReady] = useState(!desktopBridge());
@@ -85,6 +85,7 @@ export function App({ authState }: { authState?: AuthState }) {
     draftWorkspace,
     balance,
     changeModel,
+    checkoutBranch,
     error,
     model,
     mode,
@@ -315,7 +316,7 @@ export function App({ authState }: { authState?: AuthState }) {
           className={`workspace conversation-workspace ${surfacePanelOpen ? "has-surface" : ""}`}
           style={{ "--surface-width": `${effectiveSurfaceWidth}px` } as CSSProperties}
         >
-          <div className={`conversation-main inspector-layout-${inspectorLayout}`} ref={conversationMainRef}>
+          <div className={`conversation-main ${inspectorVisible ? `inspector-layout-${inspectorLayout}` : ""}`} ref={conversationMainRef}>
             <header className="thread-header">
               <div className="thread-title-group">
                 {sidebarHidden && <IconButton className="icon-button" label="展开侧边栏" onClick={toggleSidebar}><PanelLeft size={16} /></IconButton>}
@@ -323,15 +324,20 @@ export function App({ authState }: { authState?: AuthState }) {
               </div>
               <ConnectionStatus onRetry={desktop ? () => void retryRuntime() : undefined} phase={connection} />
             </header>
-            <div className="window-actions"><IconButton className={surfacePanelOpen ? "is-active" : undefined} label={surfacePanelOpen ? "收起工作区面板" : "展开工作区面板"} onClick={() => setSurfacePanelOpen((open) => !open)}><PanelRight size={16} /></IconButton></div>
-            <Inspector
-              compact={inspectorLayout === "compact"}
-              connection={connection}
-              onOpenPlan={openPlanSurface}
-              onOpenReview={openReviewSurface}
-              session={session}
-              workspace={workspace}
-            />
+            <div className="window-actions"><IconButton className={inspectorVisible ? "is-active" : undefined} label={inspectorVisible ? "收起面板" : "展开面板"} onClick={() => setInspectorVisible((visible) => !visible)}><LayoutPanelTop size={16} /></IconButton><IconButton className={surfacePanelOpen ? "is-active" : undefined} label={surfacePanelOpen ? "收起工作区面板" : "展开工作区面板"} onClick={() => setSurfacePanelOpen((open) => !open)}><PanelRight size={16} /></IconButton></div>
+            {inspectorVisible && (
+              <Inspector
+                compact={inspectorLayout === "compact"}
+                connection={connection}
+                onOpenFile={openFileSurface}
+                onOpenPlan={openPlanSurface}
+                onOpenReview={openReviewSurface}
+                session={session}
+                taskActive={agentRunning}
+                taskLabel={workLabel}
+                tasks={currentRun?.tasks ?? []}
+              />
+            )}
             <Conversation notices={modelNotices} onOpenAgent={openAgentSurface} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
             {(workspace?.exists === false || error) && (
               <div className="conversation-error-overlay">
@@ -342,14 +348,6 @@ export function App({ authState }: { authState?: AuthState }) {
             <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
             <div className={`composer-stack ${!session ? "has-project-context" : ""}`}>
               {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
-              {currentRun && (
-                <div
-                  aria-hidden={!activeRun || Boolean(pendingPlan || pendingQuestion)}
-                  className={`composer-hud is-${currentRun.status} ${activeRun && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}
-                >
-                  <TaskProgress active={agentRunning} label={workLabel} tasks={currentRun.tasks} />
-                </div>
-              )}
               {!session && draftWorkspace && (
                 <ProjectContextSelector
                   canAddProject={Boolean(desktop)}
@@ -370,6 +368,7 @@ export function App({ authState }: { authState?: AuthState }) {
                 model={model}
                 models={config?.models ?? []}
                 onCancel={() => void cancelRun()}
+                onCheckoutBranch={checkoutBranch}
                 onAccessModeChange={(mode) => void setAccessMode(mode)}
                 onModeChange={(nextMode) => void setMode(nextMode)}
                 onAnswerQuestion={answerQuestion}
@@ -382,6 +381,7 @@ export function App({ authState }: { authState?: AuthState }) {
                 pendingPlan={pendingPlan}
                 pendingQuestion={pendingQuestion}
                 resetKey={session?.sessionId ?? `draft:${draftRevision}`}
+                workspace={workspace}
                 accessMode={accessMode}
                 mode={mode}
               />

@@ -8,6 +8,21 @@ export const sessionParamsSchema = {
   }
 } as const;
 
+// POST /api/sessions/:sessionId/checkout —— 切换本地分支。params 取 sessionId,body 取目标分支名。
+export const checkoutSchema = {
+  params: {
+    type: "object",
+    properties: { sessionId: id },
+    required: ["sessionId"]
+  },
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: { branch: id },
+    required: ["branch"]
+  }
+} as const;
+
 export const runParamsSchema = {
   params: {
     type: "object",

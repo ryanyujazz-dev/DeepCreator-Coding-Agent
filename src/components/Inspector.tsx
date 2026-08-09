@@ -1,29 +1,50 @@
-import { ChevronLeft, ChevronRight, FileCode2, FileText, Lightbulb, Sparkles, Wifi } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, ChevronLeft, ChevronRight, FileCode2, FilePenLine, FilePlus2, FileText, Lightbulb, Maximize2, Sparkles, Trash2, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Changes, Session } from "../../shared/contracts/runtime";
-import { EnvironmentPanel } from "./EnvironmentPanel";
-import { RuntimeWorkspace } from "../runtimeApi";
+import { Changes, FileChange, Session, Task } from "../../shared/contracts/runtime";
 import { ConnectionPhase } from "./ConnectionStatus";
 import { IconButton } from "../shared-ui/ControlPrimitives";
 import { ReasoningTrace } from "./ReasoningTrace";
+import { TaskPanel } from "./TaskPanel";
+
+const OUTPUT_OPERATION_ICONS = {
+  created: FilePlus2,
+  edited: FilePenLine,
+  deleted: Trash2,
+  renamed: ArrowRightLeft,
+  unknown: FileCode2
+} as const;
+
+type CollapsibleSection = "task" | "plan" | "output";
 
 export function Inspector({
   compact,
   connection,
+  onOpenFile,
   onOpenPlan,
   onOpenReview,
   session,
-  workspace
+  taskActive,
+  taskLabel,
+  tasks
 }: {
   compact: boolean;
   connection: ConnectionPhase;
+  onOpenFile: (path: string) => void;
   onOpenPlan: (runId: string, callId: string) => void;
   onOpenReview: (delta?: Changes) => void;
   session: Session | null;
-  workspace: RuntimeWorkspace | null;
+  taskActive: boolean;
+  taskLabel: string;
+  tasks: Task[];
 }) {
   const run = session?.runs.at(-1);
   const [overlayOpen, setOverlayOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<CollapsibleSection, boolean>>({
+    task: false,
+    plan: false,
+    output: false
+  });
+  const toggleSection = (key: CollapsibleSection) => setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   const connectionLabel = {
     connected: "Runtime 已连接",
     connecting: "正在连接 Runtime",
@@ -32,6 +53,8 @@ export function Inspector({
   }[connection];
   const activeTask = run?.tasks.find((task) => task.status === "running");
   const latestPlan = session?.plans.at(-1);
+  const outputFiles: FileChange[] = run?.changes.files ?? [];
+  const delta = run?.changes.comparisonBase === "run_start" ? run.changes : undefined;
   const changeCount = run?.changes.comparisonBase === "run_start"
     ? run.changes.fileCount
     : 0;
@@ -54,10 +77,10 @@ export function Inspector({
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [overlayOpen]);
 
-  const collapsed = compact && !overlayOpen;
+  const collapsedNow = compact && !overlayOpen;
   return (
     <aside
-      className={`environment-panel${collapsed ? " is-capsule" : ""}${compact && overlayOpen ? " is-overlay-open" : ""}`}
+      className={`environment-panel${collapsedNow ? " is-capsule" : ""}${compact && overlayOpen ? " is-overlay-open" : ""}`}
       aria-label="工作区信息"
     >
       <div className={`environment-capsule is-${capsuleSummary.tone}`}>
@@ -66,16 +89,31 @@ export function Inspector({
         <IconButton
           aria-expanded={false}
           className="environment-expand-button"
-          label="展开运行环境"
+          label="展开面板"
           onClick={() => setOverlayOpen(true)}
         >
           <ChevronLeft size={14} />
         </IconButton>
       </div>
       <div className="environment-panel-content">
-        <section className="environment-section plan-section">
-          <header><span>计划</span></header>
-          {latestPlan ? (
+        <section className={`environment-section task-section ${collapsed.task ? "is-collapsed" : "is-expanded"}`}>
+          <header>
+            <button aria-expanded={!collapsed.task} className="environment-section-toggle" onClick={() => toggleSection("task")} type="button">
+              <span>任务</span>
+              <ChevronDown size={13} />
+            </button>
+            {taskActive && taskLabel ? <small>{taskLabel}</small> : null}
+          </header>
+          {!collapsed.task && <TaskPanel tasks={tasks} />}
+        </section>
+        <section className={`environment-section plan-section ${collapsed.plan ? "is-collapsed" : "is-expanded"}`}>
+          <header>
+            <button aria-expanded={!collapsed.plan} className="environment-section-toggle" onClick={() => toggleSection("plan")} type="button">
+              <span>计划</span>
+              <ChevronDown size={13} />
+            </button>
+          </header>
+          {!collapsed.plan && (latestPlan ? (
             <button
               className="environment-row environment-plan-document"
               onClick={() => onOpenPlan(latestPlan.runId, latestPlan.callId)}
@@ -99,19 +137,56 @@ export function Inspector({
               <FileText size={15} />
               <span>尚未创建计划文档</span>
             </div>
-          )}
+          ))}
         </section>
-        <EnvironmentPanel onOpenReview={onOpenReview} session={session} workspace={workspace} />
+        <section className={`environment-section output-section ${collapsed.output ? "is-collapsed" : "is-expanded"}`}>
+          <header>
+            <button aria-expanded={!collapsed.output} className="environment-section-toggle" onClick={() => toggleSection("output")} type="button">
+              <span>输出</span>
+              <ChevronDown size={13} />
+            </button>
+            {outputFiles.length > 0 && delta ? (
+              <button className="output-review-link" onClick={() => onOpenReview(delta)} type="button">查看差异</button>
+            ) : null}
+          </header>
+          {!collapsed.output && (outputFiles.length > 0 ? (
+            <div className="output-file-list">
+              {outputFiles.map((file) => {
+                const OperationIcon = OUTPUT_OPERATION_ICONS[file.operation] ?? FileCode2;
+                return (
+                  <button
+                    className="environment-row output-file-row"
+                    key={file.path}
+                    onClick={() => onOpenFile(file.path)}
+                    title={file.path}
+                    type="button"
+                  >
+                    <OperationIcon size={15} />
+                    <span className="output-file-path">{file.path}</span>
+                    {file.additions > 0 || file.deletions > 0 ? (
+                      <small className="output-file-stats">+{file.additions} −{file.deletions}</small>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="environment-row is-muted">
+              <FileCode2 size={15} />
+              <span>尚无输出文件</span>
+            </div>
+          ))}
+        </section>
         <ReasoningTrace run={run} />
       </div>
       {compact && overlayOpen && (
         <IconButton
           aria-expanded
           className="environment-collapse-button"
-          label="收起运行环境"
+          label="收起面板"
           onClick={() => setOverlayOpen(false)}
         >
-          <ChevronRight size={14} />
+          <Maximize2 size={15} />
         </IconButton>
       )}
     </aside>

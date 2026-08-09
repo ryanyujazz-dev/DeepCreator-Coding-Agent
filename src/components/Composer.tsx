@@ -1,8 +1,8 @@
-import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, Trash2, X } from "lucide-react";
+import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GitBranch, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, Trash2, X } from "lucide-react";
 import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, FollowUp, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { ModelOption } from "../../shared/contracts/provider";
-import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver } from "../runtimeApi";
+import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver, RuntimeWorkspace } from "../runtimeApi";
 import { FloatingSurface, IconButton, PillButton } from "../shared-ui/ControlPrimitives";
 import { usePopoverState } from "../shared-ui/usePopoverState";
 
@@ -23,6 +23,7 @@ export function Composer({
   model,
   models,
   onCancel,
+  onCheckoutBranch,
   onAccessModeChange,
   onModeChange,
   onAnswerQuestion,
@@ -38,7 +39,8 @@ export function Composer({
   presetPrompt,
   promptReadOnly = false,
   accessMode,
-  mode
+  mode,
+  workspace
 }: {
   balance?: RuntimeBalance | null;
   contextConfig: RuntimeConfig | null;
@@ -50,6 +52,7 @@ export function Composer({
   model: string;
   models: ModelOption[];
   onCancel: () => void;
+  onCheckoutBranch?: (branch: string) => void;
   onAccessModeChange: (mode: AccessMode) => void;
   onModeChange: (mode: Mode) => void;
   onAnswerQuestion: (interactionId: string, answers: Record<string, string>) => Promise<void> | void;
@@ -66,22 +69,28 @@ export function Composer({
   resetKey: string | number;
   accessMode: AccessMode;
   mode: Mode;
+  workspace?: RuntimeWorkspace | null;
 }) {
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const modelMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
-  // textarea 自适应高度:初始 2 行,随内容增长最高到 8 行,超过 8 行内部滚动。
-  // CSS 里 min-height/max-height 已经把范围限定到 2~8 行,JS 只需根据 scrollHeight 设置 height。
+  // textarea 自适应高度:默认分支下形态完全由 CSS 按 bar 高度自动呈现 —— bar min-height=2R
+  // 时两端呈半圆(pill),长高后同一半径 R 自动呈圆角矩形。故 JS 只需按内容撑高 textarea,
+  // 不再需要单/多行检测或形态切换类(见 composer-bar.css 的 --composer-bar-radius)。
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const COMPOSER_MIN_HEIGHT = 78;   // ≈ 2 行(2 × 22.5 行高 + 30 padding)
-  const COMPOSER_MAX_HEIGHT = 210;  // ≈ 8 行(8 × 22.5 + 30)
+  const COMPOSER_MAX_HEIGHT = 210;  // ≈ 8 行(8 × 22 + 34 padding)
   const autoGrow = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     // 先重置为 auto,让 scrollHeight 反映真实内容高度(否则 height 会卡在上次值)
     el.style.height = "auto";
-    const next = Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, el.scrollHeight));
-    el.style.height = `${next}px`;
+    const cs = window.getComputedStyle(el);
+    // .composer.composer-bar textarea 钉了 line-height:22px;非 bar 分支(只读评测等)走 22 兜底
+    const lineHeight = parseFloat(cs.lineHeight) || 22;
+    const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const min = lineHeight + padY;                      // 1 行高(bar 下 ≈ 34px)
+    // rows={1} 保证 height=auto 时 scrollHeight 反映真实内容行数,不被默认 rows=2 干扰。
+    el.style.height = `${Math.min(COMPOSER_MAX_HEIGHT, Math.max(min, el.scrollHeight))}px`;
   }, []);
   useLayoutEffect(() => {
     autoGrow();
@@ -91,6 +100,7 @@ export function Composer({
   }, [presetPrompt, resetKey]);
   const accessMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
   const addMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
+  const branchMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
   const contextSortMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
   const [comments, setComments] = useState("");
@@ -99,6 +109,11 @@ export function Composer({
   const [interactionBusy, setInteractionBusy] = useState(false);
   const selectedAccess = accessOptions.find((option) => option.key === accessMode) ?? accessOptions[0];
   const SelectedAccessIcon = selectedAccess.icon;
+  // 分支选择器派生量:仅本地多分支且非运行中可切换(运行中切换会扰乱 Agent)。单分支/非 Git 仅展示。
+  const branchList = workspace?.git ? (workspace.branches ?? []) : [];
+  const currentBranchLabel = workspace?.git ? (workspace.branch || "detached HEAD") : "非 Git 工作区";
+  const activeBranch = workspace?.branch;
+  const branchSwitchable = Boolean(workspace?.git) && branchList.length > 1 && !isRunning && Boolean(onCheckoutBranch);
   useEffect(() => {
     setComments("");
   }, [pendingPlan?.planId, pendingPlan?.revision]);
@@ -150,7 +165,7 @@ export function Composer({
       if (!succeeded) return;
       if (!promptReadOnly) {
         setDraft("");
-        if (textareaRef.current) textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+        // 高度由下方 [draft,…] useLayoutEffect 重跑 autoGrow 自动收回单行。
       }
     } finally {
       setSubmitting(false);
@@ -262,11 +277,32 @@ export function Composer({
       </form></>
     );
   }
+  const barClass = promptReadOnly ? "" : " composer-bar";
   return (
-    <>{queuedRows}<form aria-busy={submitting} className="composer" onSubmit={submit}>
-      <textarea aria-label={promptReadOnly ? "评测任务（只读）" : "输入任务"} aria-readonly={promptReadOnly} className={promptReadOnly ? "is-readonly-prompt" : undefined} disabled={isWaiting || submitting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "输入后按 Enter 加入队列" : submitting ? "正在创建任务" : "随心输入")} readOnly={promptReadOnly} ref={textareaRef} value={draft} />
-      <div className="composer-row">
-        <div className="composer-left">
+    <>
+      {queuedRows}
+      <form aria-busy={submitting} className={`composer${barClass}`} onSubmit={submit}>
+        <textarea rows={1} aria-label={promptReadOnly ? "评测任务（只读）" : "输入任务"} aria-readonly={promptReadOnly} className={promptReadOnly ? "is-readonly-prompt" : undefined} disabled={isWaiting || submitting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "输入后按 Enter 加入队列" : submitting ? "正在创建任务" : "随心输入")} readOnly={promptReadOnly} ref={textareaRef} value={draft} />
+        <div className="composer-bar-actions">
+          <IconButton className="plain-icon" disabled={isWaiting || submitting || promptReadOnly} label="语音输入"><Mic size={16} /></IconButton>
+          {isRunning && !draft.trim() ? (
+            <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton>
+          ) : promptReadOnly && isRunning ? (
+            <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton>
+          ) : (
+            <IconButton
+              className={"send-button" + (draft.trim() ? " has-draft" : "")}
+              disabled={isWaiting || submitting || Boolean(disabledReason)}
+              label={isRunning ? "加入队列" : "发送"}
+              type="submit"
+            >
+              <ArrowUp size={18} />
+            </IconButton>
+          )}
+        </div>
+      </form>
+      <div className="composer-foot">
+        <div className="composer-foot-left">
           <div className="add-selector">
             <IconButton className={`plain-icon ${mode === "plan" ? "is-active" : ""}`} label="添加" aria-expanded={addMenu.open} onClick={addMenu.toggle} ref={addMenu.triggerRef}><Plus size={20} /></IconButton>
             {addMenu.open && (
@@ -318,9 +354,43 @@ export function Composer({
               </FloatingSurface>
             )}
           </div>
+          {workspace ? (
+            <div className="branch-selector">
+              <PillButton
+                aria-expanded={branchMenu.open}
+                className="branch-button"
+                disabled={!branchSwitchable}
+                onClick={branchSwitchable ? branchMenu.toggle : undefined}
+                ref={branchMenu.triggerRef}
+                title={branchSwitchable ? "切换分支" : currentBranchLabel}
+              >
+                <GitBranch size={15} />
+                <span>{currentBranchLabel}</span>
+                {branchSwitchable ? <ChevronDown size={13} /> : null}
+              </PillButton>
+              {branchMenu.open && branchSwitchable ? (
+                <FloatingSurface className="branch-menu" ref={branchMenu.contentRef} role="menu">
+                  <header>切换分支</header>
+                  {branchList.map((branch) => (
+                    <button
+                      className={branch === activeBranch ? "is-selected" : ""}
+                      key={branch}
+                      onClick={() => { onCheckoutBranch?.(branch); branchMenu.close(); }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <GitBranch size={16} />
+                      <span>{branch}</span>
+                      {branch === activeBranch ? <Check size={15} /> : null}
+                    </button>
+                  ))}
+                </FloatingSurface>
+              ) : null}
+            </div>
+          ) : null}
           {mode === "plan" && <PillButton className="mode-indicator" disabled={isRunning || isWaiting} onClick={() => onModeChange("work")} title="退出计划模式"><Lightbulb size={14} /><span>计划</span></PillButton>}
         </div>
-        <div className="composer-right">
+        <div className="composer-foot-right">
           <div className="context-meter" tabIndex={0} aria-label="上下文用量" onMouseEnter={onRefreshBalance} onFocus={onRefreshBalance}>
             <span
               className="context-meter-ring"
@@ -372,24 +442,9 @@ export function Composer({
               </FloatingSurface>
             )}
           </div>
-          <IconButton className="plain-icon" disabled={isWaiting || submitting || promptReadOnly} label="语音输入"><Mic size={16} /></IconButton>
-          {isRunning && !draft.trim() ? (
-            <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton>
-          ) : promptReadOnly && isRunning ? (
-            <IconButton className="send-button stop-button" label="停止" onClick={onCancel}><Square size={14} fill="currentColor" /></IconButton>
-          ) : (
-            <IconButton
-              className={"send-button" + (draft.trim() ? " has-draft" : "")}
-              disabled={isWaiting || submitting || Boolean(disabledReason)}
-              label={isRunning ? "加入队列" : "发送"}
-              type="submit"
-            >
-              <ArrowUp size={18} />
-            </IconButton>
-          )}
         </div>
       </div>
-    </form></>
+    </>
   );
 }
 

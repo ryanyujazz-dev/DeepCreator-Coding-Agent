@@ -293,6 +293,11 @@ export function decodeWorkspaceResponse(value: unknown): WorkspaceResponse {
   const item = record(value, "$workspace");
   const workspace = record(item.workspace, "$workspace.workspace");
   optionalString(workspace.branch, "$workspace.workspace.branch");
+  if (workspace.branches !== undefined) {
+    array(workspace.branches, "$workspace.workspace.branches").forEach((value, index) => {
+      string(value, `$workspace.workspace.branches[${index}]`);
+    });
+  }
   number(workspace.dirtyFiles, "$workspace.workspace.dirtyFiles");
   boolean(workspace.exists, "$workspace.workspace.exists");
   boolean(workspace.git, "$workspace.workspace.git");
