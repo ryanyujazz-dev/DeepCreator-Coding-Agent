@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Changes, Session } from "../../../shared/contracts/runtime";
-import type { Surface } from "../../components/SurfacePane";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Changes, Session, isRunDone } from "../../../shared/contracts/runtime";
+import { clearProjectChanges } from "../../components/SurfacePane";
+import type { ReviewSurfacePatch, Surface } from "../../components/SurfacePane";
 import { RuntimeFilePreview, runtimeApi } from "../../runtimeApi";
 
 type SurfaceFileState = {
@@ -77,13 +78,13 @@ export function useSurfaceWorkspace(session: Session | null) {
       .find((candidate) => candidate.comparisonBase === "run_start" && candidate.fileCount > 0);
     if (!reviewDelta || reviewDelta.comparisonBase !== "run_start" || reviewDelta.fileCount === 0) return;
     const surfaceId = `review:${ownerSessionId ?? "unknown"}:${reviewDelta.files.map((file) => file.path).join("|")}:${reviewDelta.additions}:${reviewDelta.deletions}`;
-    const reviewSurface: Surface = { files: reviewDelta.files, id: surfaceId, kind: "review", ownerSessionId, title: "审阅" };
+    const reviewSurface: Surface = { files: reviewDelta.files, id: surfaceId, kind: "review", ownerSessionId, projectRoot: session?.projectRoot, title: "审阅" };
     setSurfaceClosing(false);
     setSurfaces((current) => current.some((candidate) => candidate.id === surfaceId)
       ? current.map((candidate) => candidate.id === surfaceId ? reviewSurface : candidate)
       : [...current, reviewSurface]);
     setActiveSurfaceId(surfaceId);
-  }, [session?.runs, session?.sessionId]);
+  }, [session?.runs, session?.sessionId, session?.projectRoot]);
 
   const openPlanSurface = useCallback((runId: string, callId: string) => {
     const plan = [...(session?.plans ?? [])].reverse().find((candidate) => candidate.runId === runId && candidate.callId === callId);
@@ -115,6 +116,59 @@ export function useSurfaceWorkspace(session: Session | null) {
       return changed ? next : current;
     });
   }, [session?.plans]);
+
+  // "所有变更" 按项目共享(见 SurfacePane.projectChangesCache)。当某个 run 在当前活动会话里
+  // 完成,意味着工作树已落地新改动:清掉该项目的缓存,下次查看会重新拉取,避免跨会话复用过期快照。
+  // 切换会话本身只快照、不清空,所以"A 看过 → 切 B 查看"仍能复用;只有"新跑完一轮"才刷新。
+  const completedRunsTrackerRef = useRef<{ runIds: Set<string>; sessionId: string | null }>({ runIds: new Set(), sessionId: null });
+  useEffect(() => {
+    const sessionId = session?.sessionId ?? null;
+    const projectRoot = session?.projectRoot;
+    const completedIds = (session?.runs ?? []).filter((run) => isRunDone(run.status)).map((run) => run.runId);
+    const tracker = completedRunsTrackerRef.current;
+    if (tracker.sessionId !== sessionId) {
+      tracker.sessionId = sessionId;
+      tracker.runIds = new Set(completedIds);
+      return;
+    }
+    const fresh = completedIds.filter((runId) => !tracker.runIds.has(runId));
+    if (fresh.length === 0) return;
+    fresh.forEach((runId) => tracker.runIds.add(runId));
+    if (projectRoot) clearProjectChanges(projectRoot);
+  }, [session?.sessionId, session?.runs, session?.projectRoot]);
+
+  // Per-session cache: switching conversations preserves each session's open
+  // tabs for the lifetime of the app. It lives only in memory, so it clears on
+  // exit without any explicit teardown.
+  const surfaceCacheRef = useRef(new Map<string, { activeSurfaceId: string | null; surfaceFiles: Record<string, SurfaceFileState>; surfaces: Surface[] }>());
+  const previousSessionIdRef = useRef<string | null>(session?.sessionId ?? null);
+  useEffect(() => {
+    const nextSessionId = session?.sessionId ?? null;
+    if (previousSessionIdRef.current === nextSessionId) return;
+    if (previousSessionIdRef.current) {
+      surfaceCacheRef.current.set(previousSessionIdRef.current, { activeSurfaceId, surfaceFiles, surfaces });
+    }
+    const cached = nextSessionId ? surfaceCacheRef.current.get(nextSessionId) : undefined;
+    if (cached) {
+      setSurfaces(cached.surfaces);
+      setActiveSurfaceId(cached.activeSurfaceId);
+      setSurfaceFiles(cached.surfaceFiles);
+    } else {
+      setSurfaces([]);
+      setActiveSurfaceId(null);
+      setSurfaceFiles({});
+    }
+    setSurfaceClosing(false);
+    previousSessionIdRef.current = nextSessionId;
+  }, [session?.sessionId, surfaces, activeSurfaceId, surfaceFiles]);
+
+  const updateReviewSurface = useCallback((surfaceId: string, patch: ReviewSurfacePatch) => {
+    setSurfaces((current) => current.map((candidate) => (
+      candidate.id === surfaceId && candidate.kind === "review"
+        ? { ...candidate, ...patch }
+        : candidate
+    )));
+  }, []);
 
   const closeSurfaceTab = useCallback((surfaceId: string) => {
     setSurfaces((current) => {
@@ -151,6 +205,7 @@ export function useSurfaceWorkspace(session: Session | null) {
     openReviewSurface,
     setActiveSurfaceId,
     surfaceClosing,
-    surfaces
+    surfaces,
+    updateReviewSurface
   };
 }

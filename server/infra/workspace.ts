@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { WorkspaceFile, WorkspaceInfo, WorkspaceQueryPort } from "../app/workspaceQueries";
+import { collectChanges } from "./tools/changes";
 
 const execFileAsync = promisify(execFile);
 
@@ -52,6 +53,7 @@ export async function readWorkspaceFile(projectRoot: string, relativePath: strin
 }
 
 export const workspaceQueryPort: WorkspaceQueryPort = {
+  collectHeadChanges: (projectRoot) => collectChanges(projectRoot),
   describe: describeWorkspace,
   readText: readWorkspaceFile
 };

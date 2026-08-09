@@ -2,23 +2,39 @@ import { Bot, CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullReq
 import { useEffect, useMemo, useState } from "react";
 import { Changes, FileChange, Plan, Run, isRunDone } from "../../shared/contracts/runtime";
 import { fileDisplayName } from "../../shared/projections/activityPresentation";
-import { RuntimeFilePreview } from "../runtimeApi";
+import { RuntimeFilePreview, runtimeApi } from "../runtimeApi";
 import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { PlanSurface } from "./PlanSurface";
+import { MarkdownContent } from "./MarkdownContent";
 import { IconButton, RowAction } from "../shared-ui/ControlPrimitives";
 import { desktopBridge } from "../platform/desktop";
 import { AgentSurface } from "./AgentSurface";
 
+export type ReviewSurfacePatch = Partial<{ mode: "all" | "round"; selectedPath: string }>;
+
+// "所有变更" 是项目级 git 数据(working tree vs HEAD),只与项目根目录有关、与具体会话无关。
+// 因此按项目根目录共享:同一项目的任意会话拉取一次后互相复用,避免每个会话重复请求。
+// 仅存在于进程内存,app 退出即清空。
+const projectChangesCache = new Map<string, Changes>();
+
+export function clearProjectChanges(projectRoot: string): void {
+  projectChangesCache.delete(projectRoot);
+}
+
 export type Surface =
   | { id: string; kind: "file"; ownerSessionId: string; path: string }
-  | { files: FileChange[]; id: string; kind: "review"; ownerSessionId?: string; selectedPath?: string; title?: string }
+  | { files: FileChange[]; id: string; kind: "review"; mode?: "all" | "round"; ownerSessionId?: string; projectRoot?: string; selectedPath?: string; title?: string }
   | { callId: string; id: string; kind: "plan"; runId: string; title?: string }
   | { id: string; kind: "browser"; title?: string; url: string }
   | { delegationId: string; id: string; kind: "agent"; sessionId: string; title?: string };
 
-function fileBreadcrumbs(file: RuntimeFilePreview): string[] {
-  return file.path.split("/").filter(Boolean);
+function previewKindForPath(path: string): "markdown" | null {
+  const normalized = path.toLowerCase();
+  if (normalized.endsWith(".md") || normalized.endsWith(".markdown") || normalized.endsWith(".mdx")) {
+    return "markdown";
+  }
+  return null;
 }
 
 function FileSurface({
@@ -31,56 +47,138 @@ function FileSurface({
   loading: boolean;
 }) {
   const desktop = desktopBridge();
-  const parts = file ? fileBreadcrumbs(file) : [];
+  const [view, setView] = useState<"preview" | "source">("preview");
   if (loading) return <div className="surface-state is-loading working-glow">正在读取文件...</div>;
   if (error) return <div className="surface-state is-error">{error}</div>;
   if (!file) return <div className="surface-state">选择一个文件查看内容。</div>;
+  const fileName = file.path.split("/").filter(Boolean).at(-1) ?? file.path;
+  const previewKind = previewKindForPath(file.path);
+  const effectiveView = previewKind ? view : "source";
+  const absolutePath = `${file.projectRoot}/${file.path}`;
   return (
     <>
-      <nav className="surface-breadcrumbs" aria-label="文件路径">
-        {parts.map((part, index) => (
-          <span key={`${index}-${part}`}>{part}</span>
-        ))}
-      </nav>
-      <div className="surface-toolbar">
-        <span>{file.truncated ? "内容已截断" : "只读预览"}</span>
-        {desktop && <IconButton label="在 Finder 中显示" onClick={() => void desktop.files.reveal(`${file.projectRoot}/${file.path}`)}><FolderOpen size={13} /></IconButton>}
-        <IconButton
-          label="复制文件内容"
-          onClick={() => void navigator.clipboard?.writeText(file.content)}
-        >
-          <Copy size={13} />
-        </IconButton>
+      <div className="surface-file-header">
+        <span className="surface-file-name" title={file.path}>
+          <span className="surface-file-name-text">{fileName}</span>
+          {file.truncated && <em>内容已截断</em>}
+        </span>
+        <div className="surface-file-actions">
+          {previewKind && (
+            <div className="surface-segmented" role="group" aria-label="文件视图">
+              <button
+                aria-pressed={effectiveView === "preview"}
+                className={effectiveView === "preview" ? "is-active" : undefined}
+                onClick={() => setView("preview")}
+                type="button"
+              >
+                预览
+              </button>
+              <button
+                aria-pressed={effectiveView === "source"}
+                className={effectiveView === "source" ? "is-active" : undefined}
+                onClick={() => setView("source")}
+                type="button"
+              >
+                源代码
+              </button>
+            </div>
+          )}
+          {desktop && (
+            <IconButton label="打开所在文件夹" onClick={() => void desktop.files.reveal(absolutePath)}>
+              <FolderOpen size={14} />
+            </IconButton>
+          )}
+          <IconButton label="复制文件内容" onClick={() => void navigator.clipboard?.writeText(file.content)}>
+            <Copy size={14} />
+          </IconButton>
+        </div>
       </div>
-      <CodeFileViewer content={file.content} modelPath={`${file.projectRoot}/${file.path}`} path={file.path} />
+      {effectiveView === "preview" && previewKind === "markdown" ? (
+        <div className="surface-markdown-host">
+          <MarkdownContent text={file.content} />
+        </div>
+      ) : (
+        <CodeFileViewer content={file.content} modelPath={absolutePath} path={file.path} />
+      )}
     </>
   );
 }
 
 function ReviewSurface({
-  files,
-  selectedPath
+  onUpdate,
+  surface
 }: {
-  files: FileChange[];
-  selectedPath?: string;
+  onUpdate: (surfaceId: string, patch: ReviewSurfacePatch) => void;
+  surface: Extract<Surface, { kind: "review" }>;
 }) {
-  const [activePath, setActivePath] = useState(selectedPath ?? files[0]?.path ?? "");
+  const { files, ownerSessionId } = surface;
+  const mode = surface.mode ?? "round";
+  const [activePath, setActivePath] = useState(surface.selectedPath ?? files[0]?.path ?? "");
+  const [allChanges, setAllChanges] = useState<{
+    data?: Changes;
+    error: string | null;
+    status: "error" | "idle" | "loading" | "success";
+  }>(() => {
+    const cached = surface.projectRoot ? projectChangesCache.get(surface.projectRoot) : undefined;
+    return cached ? { data: cached, error: null, status: "success" } : { error: null, status: "idle" };
+  });
   useEffect(() => {
-    setActivePath(selectedPath ?? files[0]?.path ?? "");
-  }, [files, selectedPath]);
-  const activeFile = useMemo(
-    () => files.find((item) => item.path === activePath) ?? files[0],
-    [activePath, files]
+    if (mode !== "all" || !ownerSessionId || allChanges.status !== "idle") return;
+    setAllChanges({ error: null, status: "loading" });
+    void runtimeApi
+      .getChanges(ownerSessionId)
+      .then((data) => {
+        setAllChanges({ data, error: null, status: "success" });
+        if (surface.projectRoot) projectChangesCache.set(surface.projectRoot, data);
+      })
+      .catch((nextError) => setAllChanges({ error: nextError instanceof Error ? nextError.message : String(nextError), status: "error" }));
+  }, [mode, ownerSessionId, surface.projectRoot, surface.id, allChanges.status, onUpdate]);
+
+  const handleModeChange = (next: "all" | "round") => {
+    onUpdate(surface.id, { mode: next });
+    if (next === "all" && allChanges.status === "error") {
+      setAllChanges({ error: null, status: "idle" });
+    }
+  };
+
+  const activeFiles = useMemo(
+    () => (mode === "round" ? files : allChanges.data?.files ?? []),
+    [mode, files, allChanges.data]
   );
-  const totals = files.reduce(
-    (sum, item) => ({ additions: sum.additions + item.additions, deletions: sum.deletions + item.deletions }),
-    { additions: 0, deletions: 0 }
+  const activeFile = useMemo(
+    () => activeFiles.find((item) => item.path === activePath) ?? activeFiles[0],
+    [activeFiles, activePath]
+  );
+  const totals = useMemo(
+    () => activeFiles.reduce(
+      (sum, item) => ({ additions: sum.additions + item.additions, deletions: sum.deletions + item.deletions }),
+      { additions: 0, deletions: 0 }
+    ),
+    [activeFiles]
   );
   return (
     <>
       <div className="surface-review-toolbar">
         <div>
-          <strong>上一轮</strong>
+          <div className="surface-segmented" role="group" aria-label="变更范围">
+            <button
+              aria-pressed={mode === "all"}
+              className={mode === "all" ? "is-active" : undefined}
+              disabled={!ownerSessionId}
+              onClick={() => handleModeChange("all")}
+              type="button"
+            >
+              所有变更
+            </button>
+            <button
+              aria-pressed={mode === "round"}
+              className={mode === "round" ? "is-active" : undefined}
+              onClick={() => handleModeChange("round")}
+              type="button"
+            >
+              本轮变更
+            </button>
+          </div>
           <span><b>+{totals.additions}</b> <i>-{totals.deletions}</i></span>
         </div>
         <div className="surface-review-actions">
@@ -89,24 +187,37 @@ function ReviewSurface({
           <IconButton label="复制当前 diff" onClick={() => void navigator.clipboard?.writeText(activeFile?.patch ?? "")}><Copy size={14} /></IconButton>
         </div>
       </div>
-      <div className="surface-review-files">
-        {files.map((item) => (
-          <RowAction
-            className={`surface-review-file ${item.path === activeFile?.path ? "is-active" : ""}`}
-            key={item.path}
-            onClick={() => setActivePath(item.path)}
-            title={item.path}
-          >
-            <FileCode2 size={13} />
-            <span>{fileDisplayName(item.path)}</span>
-            <strong><b>+{item.additions}</b> <i>-{item.deletions}</i></strong>
-          </RowAction>
-        ))}
-      </div>
-      {activeFile?.patch ? (
-        <CodeDiffViewer patch={activeFile.patch} path={activeFile.path} />
+      {mode === "all" && allChanges.status === "loading" ? (
+        <div className="surface-state is-loading working-glow">正在读取所有变更...</div>
+      ) : mode === "all" && allChanges.status === "error" ? (
+        <div className="surface-state is-error">{allChanges.error}</div>
+      ) : activeFiles.length === 0 ? (
+        <div className="surface-state">{mode === "all" ? "自上次提交后没有变更。" : "本轮没有文件变更。"}</div>
       ) : (
-        <div className="surface-state">这个文件没有可展示的 diff。</div>
+        <>
+          <div className="surface-review-files">
+            {activeFiles.map((item) => (
+              <RowAction
+                className={`surface-review-file ${item.path === activeFile?.path ? "is-active" : ""}`}
+                key={item.path}
+                onClick={() => {
+                  setActivePath(item.path);
+                  onUpdate(surface.id, { selectedPath: item.path });
+                }}
+                title={item.path}
+              >
+                <FileCode2 size={13} />
+                <span>{fileDisplayName(item.path)}</span>
+                <strong><b>+{item.additions}</b> <i>-{item.deletions}</i></strong>
+              </RowAction>
+            ))}
+          </div>
+          {activeFile?.patch ? (
+            <CodeDiffViewer patch={activeFile.patch} path={activeFile.path} />
+          ) : (
+            <div className="surface-state">这个文件没有可展示的 diff。</div>
+          )}
+        </>
       )}
     </>
   );
@@ -149,6 +260,7 @@ export function SurfacePane({
   onCloseSurface,
   onOpenFile,
   onOpenReview,
+  onUpdateReview,
   onRevisePlan,
   onSelectSurface,
   onWidthChange,
@@ -168,6 +280,7 @@ export function SurfacePane({
   onCloseSurface: (surfaceId: string) => void;
   onOpenFile: (path: string, ownerSessionId: string) => void;
   onOpenReview: (delta: Changes, ownerSessionId?: string) => void;
+  onUpdateReview: (surfaceId: string, patch: ReviewSurfacePatch) => void;
   onRevisePlan: (plan: Plan, title: string, markdown: string) => Promise<void> | void;
   onSelectSurface: (surfaceId: string) => void;
   onWidthChange: (width: number) => void;
@@ -241,7 +354,7 @@ export function SurfacePane({
       ) : surface?.kind === "file"
         ? <FileSurface error={fileError} file={file} loading={fileLoading} />
         : surface?.kind === "review"
-          ? <ReviewSurface files={surface.files} selectedPath={surface.selectedPath} />
+          ? <ReviewSurface key={surface.id} onUpdate={onUpdateReview} surface={surface} />
           : surface?.kind === "plan"
             ? <PlanSurface
                 activity={planRun?.activities.find((activity) => activity.tool?.callId === surface.callId)}

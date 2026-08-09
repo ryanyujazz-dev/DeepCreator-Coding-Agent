@@ -1,5 +1,6 @@
 import { SessionPort } from "./runtimeRepo";
 import { AppError } from "./appError";
+import type { Changes } from "../../shared/contracts/runtime";
 
 export type WorkspaceInfo = {
   branch?: string;
@@ -18,6 +19,7 @@ export type WorkspaceFile = {
 };
 
 export interface WorkspaceQueryPort {
+  collectHeadChanges(projectRoot: string): Promise<Changes>;
   describe(projectRoot: string): Promise<WorkspaceInfo>;
   readText(projectRoot: string, relativePath: string, maxChars: number): Promise<WorkspaceFile>;
 }
@@ -51,5 +53,11 @@ export class WorkspaceQueries {
     } catch (error) {
       throw new WorkspaceQueryError(error instanceof Error ? error.message : "file not found", "not_found");
     }
+  }
+
+  async changes(sessionId: string): Promise<Changes> {
+    const session = this.sessions.getSession(sessionId);
+    if (!session) throw new WorkspaceQueryError("session not found", "not_found");
+    return this.workspace.collectHeadChanges(session.projectRoot);
   }
 }

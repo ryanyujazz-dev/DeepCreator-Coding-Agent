@@ -141,7 +141,8 @@ export function App() {
     openReviewSurface,
     setActiveSurfaceId,
     surfaceClosing,
-    surfaces
+    surfaces,
+    updateReviewSurface
   } = useSurfaceWorkspace(session);
   const previousSurfaceCount = useRef(surfaces.length);
   useEffect(() => {
@@ -369,6 +370,7 @@ export function App() {
                 onCloseSurface={closeSurfaceTab}
                 onOpenFile={openFileSurface}
                 onOpenReview={openReviewSurface}
+                onUpdateReview={updateReviewSurface}
                 onRevisePlan={revisePlan}
                 onSelectSurface={setActiveSurfaceId}
                 onWidthChange={setSurfaceWidth}

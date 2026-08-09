@@ -11,7 +11,7 @@ import {
   SessionsResponse,
   WorkspaceResponse
 } from "../contracts/api";
-import { EventStream, Session, SessionSummary } from "../contracts/runtime";
+import { Changes, EventStream, Session, SessionSummary } from "../contracts/runtime";
 import {
   EvalBatchResponse,
   EvalBatchRunRecord,
@@ -319,6 +319,22 @@ export function decodeRuntimeFilePreview(value: unknown): RuntimeFilePreview {
   string(item.projectRoot, "$file.projectRoot");
   boolean(item.truncated, "$file.truncated");
   return item as RuntimeFilePreview;
+}
+
+export function decodeChanges(value: unknown): Changes {
+  const item = record(value, "$changes");
+  number(item.additions, "$changes.additions");
+  number(item.deletions, "$changes.deletions");
+  number(item.fileCount, "$changes.fileCount");
+  string(item.comparisonBase, "$changes.comparisonBase");
+  array(item.files, "$changes.files").forEach((entry, index) => {
+    const file = record(entry, `$changes.files[${index}]`);
+    string(file.path, `$changes.files[${index}].path`);
+    number(file.additions, `$changes.files[${index}].additions`);
+    number(file.deletions, `$changes.files[${index}].deletions`);
+    string(file.operation, `$changes.files[${index}].operation`);
+  });
+  return item as Changes;
 }
 
 export function decodeOkResponse(value: unknown): OkResponse {
