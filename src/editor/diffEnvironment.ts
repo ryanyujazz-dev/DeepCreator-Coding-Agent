@@ -5,7 +5,7 @@ import { ThemeVariant } from "../../shared/contracts/theme";
 export const DIFF_THEME_NAME = "deepcreator-css-variables";
 
 registerCustomCSSVariableTheme(DIFF_THEME_NAME, {
-  background: "#ffffff",
+  background: "var(--app-canvas)",
   foreground: "#24292f",
   "token-changed": "#9a6700",
   "token-comment": "#6e7781",
@@ -21,6 +21,12 @@ registerCustomCSSVariableTheme(DIFF_THEME_NAME, {
   "token-string-expression": "#0a3069"
 });
 
+// 这些键必须用 `--diffs-` 前缀,不是 `--diffs-global-`。registerCustomCSSVariableTheme 内部调用
+// formatCSSVariablePrefix("global"),其返回 `--diffs-`(只有传 "token" 才返回 `--diffs-token-`),
+// 故 Shiki 主题消费的是 `--diffs-foreground`/`--diffs-background`/`--diffs-token-<type>`。写成
+// `--diffs-global-*` 等于设了永远不被读取的变量 → 落到注册时的 GitHub-light 字面量兜底(如
+// foreground #24292f),暗黑模式下就是深色字深色底、文字不可见。这些内联样式经 React 以
+// setProperty 设到 CodeView 宿主 div 上,自定义属性可穿透 shadow DOM 被 <diffs-container> 继承。
 export function diffStyleVariables(variant: ThemeVariant): CSSProperties {
   const { code, colors, typography } = variant;
   return {
@@ -28,8 +34,8 @@ export function diffStyleVariables(variant: ThemeVariant): CSSProperties {
     "--diffs-bg-addition-emphasis-override": "transparent",
     "--diffs-bg-addition-number-override": code.added,
     "--diffs-bg-addition-override": code.addedGutter,
-    "--diffs-bg-context-gutter-override": code.background,
-    "--diffs-bg-context-override": code.background,
+    "--diffs-bg-context-gutter-override": "var(--app-canvas)",
+    "--diffs-bg-context-override": "var(--app-canvas)",
     "--diffs-bg-deletion-emphasis-override": "transparent",
     "--diffs-bg-deletion-number-override": code.removed,
     "--diffs-bg-deletion-override": code.removedGutter,
@@ -40,25 +46,25 @@ export function diffStyleVariables(variant: ThemeVariant): CSSProperties {
     "--diffs-fg-number-override": code.lineNumber,
     "--diffs-gap-block": "0px",
     "--diffs-gap-inline": "0px",
-    "--diffs-global-background": code.background,
-    "--diffs-global-foreground": code.foreground,
-    "--diffs-global-token-changed": colors.warning,
-    "--diffs-global-token-comment": code.comment,
-    "--diffs-global-token-constant": code.number,
-    "--diffs-global-token-deleted": code.removedGutter,
-    "--diffs-global-token-function": code.type,
-    "--diffs-global-token-inserted": code.addedGutter,
-    "--diffs-global-token-keyword": code.keyword,
-    "--diffs-global-token-link": colors.accent,
-    "--diffs-global-token-parameter": code.foreground,
-    "--diffs-global-token-punctuation": code.foreground,
-    "--diffs-global-token-string": code.string,
-    "--diffs-global-token-string-expression": code.string,
+    "--diffs-background": "var(--app-canvas)",
+    "--diffs-foreground": code.foreground,
+    "--diffs-token-changed": colors.warning,
+    "--diffs-token-comment": code.comment,
+    "--diffs-token-constant": code.number,
+    "--diffs-token-deleted": code.removedGutter,
+    "--diffs-token-function": code.type,
+    "--diffs-token-inserted": code.addedGutter,
+    "--diffs-token-keyword": code.keyword,
+    "--diffs-token-link": colors.accent,
+    "--diffs-token-parameter": code.foreground,
+    "--diffs-token-punctuation": code.foreground,
+    "--diffs-token-string": code.string,
+    "--diffs-token-string-expression": code.string,
     "--diffs-line-height": "19px",
     "--diffs-light": code.foreground,
-    "--diffs-light-bg": code.background,
+    "--diffs-light-bg": "var(--app-canvas)",
     "--diffs-dark": code.foreground,
-    "--diffs-dark-bg": code.background,
+    "--diffs-dark-bg": "var(--app-canvas)",
     "--diffs-scrollbar-gutter-override": "5px"
   } as CSSProperties;
 }

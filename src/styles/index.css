@@ -7,3 +7,49 @@
 @import "./features/follow-ups.css";
 @import "./features/responses.css";
 @import "./theme-guardrails.css";
+
+/*
+ * 全局滚动条策略:默认隐藏所有原生滚动条(保留滚动行为),唯独对话区 .conversation-scroll
+ * 保留一条细滚动条。用 :not(.conversation-scroll) 把对话区从全局隐藏里排除——它的滚动条
+ * 伪元素不会被下面 width:0/display:none 命中,因而能在下面无需 !important 单独配样式。
+ *
+ * 为何 !important:styles.css / feature 模块里有多条类级 `::-webkit-scrollbar { width: Npx }`
+ * (如 .surface-markdown-host、.markdown-code-block pre、.surface-diff-host),特异性 0,1,1 高于
+ * 通用选择器,且只要某元素设过 width,Chromium 就进入"自定义滚动条模式"仍按 width 渲染;
+ * 只有用 !important 把 width/height 压 0、display 置 none,才能无差别盖过这些类级规则。
+ * Monaco 编辑器是自绘滚动条(非原生),在 sharedOptions.scrollbar 里单独隐藏。
+ */
+
+/* 隐藏除对话区外的所有原生滚动条 */
+*:not(.conversation-scroll) {
+  scrollbar-width: none !important;
+}
+*:not(.conversation-scroll)::-webkit-scrollbar,
+*:not(.conversation-scroll)::-webkit-scrollbar-thumb,
+*:not(.conversation-scroll)::-webkit-scrollbar-track,
+*:not(.conversation-scroll)::-webkit-scrollbar-track-piece,
+*:not(.conversation-scroll)::-webkit-scrollbar-button,
+*:not(.conversation-scroll)::-webkit-scrollbar-corner {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
+/* 对话区:保留一条与原设计一致的细滚动条(被上面 :not 排除,故不冲突) */
+.conversation-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(67, 78, 83, 0.22) transparent;
+}
+.conversation-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.conversation-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.conversation-scroll::-webkit-scrollbar-thumb {
+  background: rgba(67, 78, 83, 0.28);
+  border-radius: 999px;
+}
+.conversation-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(67, 78, 83, 0.45);
+}

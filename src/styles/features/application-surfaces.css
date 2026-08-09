@@ -622,3 +622,128 @@ html[data-color-scheme="dark"] :is(
 .surface-markdown-host .markdown-content h1 { font-size: 22px; }
 .surface-markdown-host .markdown-content h2 { font-size: 18px; }
 .surface-markdown-host .markdown-content h3 { font-size: 15px; }
+
+/* 展开态:标题栏(tab strip / 文件头 / 审阅工具条)保持满宽;阅读/导航类主内容(markdown、
+   审阅文件列表)限宽居中。源代码查看器(.surface-editor-host)例外——铺满整个画布,其 Monaco
+   背景色随之扩展到两侧,避免出现"悬浮代码卡"与两侧底色的割裂;代码编辑器惯例即铺满宽度。
+   diff 宿主随审阅文件列表一起限宽,保持同面板宽度一致。 */
+.workspace-surface-panel.is-fullscreen > .surface-markdown-host,
+.workspace-surface-panel.is-fullscreen > .surface-diff-host,
+.workspace-surface-panel.is-fullscreen > .surface-review-files,
+.workspace-surface-panel.is-fullscreen > .surface-review-stream {
+  width: 100%;
+  max-width: 960px;
+  align-self: center;
+}
+
+/* 代码区背景统一为标题栏底色(--app-canvas),不再使用代码主题色。
+   - Monaco 文件查看器:styles.css 用 !important 把 .monaco-editor/.margin/.monaco-editor-background
+     锁成 --code-background;这里以更高 specificity(.workspace-surface-panel 前缀)+ !important 盖过。
+   - diff 的代码底色已在源头改成 app-canvas(diffEnvironment.ts:主题 background + --diffs-* 背景变量),
+     因 PatchDiff 把这些变量渲染进 shadow DOM、外部 CSS 覆写穿不透其内部声明的 --diffs-bg,
+     只能在源头改;增删行高亮与分隔线保留。这里仅把审阅面板的 .surface-diff-host 容器底色也对齐
+     app-canvas(短 diff 下方留白处一致)。 */
+.workspace-surface-panel .surface-editor-host,
+.workspace-surface-panel .surface-editor-host .monaco-editor,
+.workspace-surface-panel .surface-editor-host .monaco-editor .margin,
+.workspace-surface-panel .surface-editor-host .monaco-editor-background {
+  background-color: var(--app-canvas) !important;
+}
+
+.workspace-surface-panel .surface-diff-host {
+  background-color: var(--app-canvas) !important;
+}
+
+/* 审阅多文件 diff(CodeView)。面板停靠/全屏态都是 flex 列且定高,stream 占满剩余高度并自身做成 flex 列,
+   让 CodeView 宿主填满 stream。
+   关键:CodeView 在 setup() 里把宿主(root)当作滚动视口——对 root 监听 scroll、置 overflow-anchor——但它
+   不给 root 设 overflow。必须由我们补 overflow:auto,否则 root 不是滚动容器、内部 container 溢出后被面板裁掉、
+   且 scroll 事件永不触发,正是"不能滚动了"的根因。滚动条由全局规则隐藏,滚动行为保留(滚轮/触控)。 */
+.surface-review-stream {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--app-canvas);
+}
+
+.surface-review-codeview {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+}
+
+/* 自定义文件头(点击展开/折叠):渲染进 CodeView 文件项 [data-diffs-header="custom"] 的 header-custom slot。
+   该 wrapper 仅设 font-family(sticky 时再加底色/吸顶),无 padding,故由按钮自带内边距。 */
+.surface-review-fileheader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.surface-review-fileheader:hover {
+  background: var(--color-hover);
+}
+
+.surface-review-fileheader:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.surface-review-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  transition: transform 120ms ease;
+}
+
+.surface-review-fileheader:not(.is-collapsed) .surface-review-chevron {
+  transform: rotate(90deg);
+}
+
+.surface-review-filename {
+  flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.surface-review-filepath {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.surface-review-adds,
+.surface-review-dels {
+  flex-shrink: 0;
+  font-family: var(--font-family-code);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.surface-review-adds {
+  color: var(--color-success);
+}
+
+.surface-review-dels {
+  color: var(--color-danger);
+}

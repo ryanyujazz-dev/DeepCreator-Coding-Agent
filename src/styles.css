@@ -4068,11 +4068,14 @@ body.is-resizing-panel * {
 }
 
 .workspace-surface-panel.is-fullscreen {
-  grid-column: 1 / -1;          /* float as a canvas over the whole conversation-workspace area */
-  height: 100%;
+  position: absolute;           /* overlay the conversation canvas at the same size, instead of spanning grid columns */
+  inset: 0;
+  width: auto;
+  height: auto;
   z-index: 60;                  /* above all conversation-area content (popovers ≤45); bounded to the workspace */
   border-left: none;
   box-shadow: none;
+  background: var(--app-canvas);
 }
 
 .workspace-surface-panel.is-fullscreen .panel-resize-handle {

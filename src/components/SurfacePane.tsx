@@ -1,13 +1,12 @@
 import { Bot, CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minimize2, MoreHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Changes, FileChange, Plan, Run, isRunDone } from "../../shared/contracts/runtime";
-import { fileDisplayName } from "../../shared/projections/activityPresentation";
 import { RuntimeFilePreview, runtimeApi } from "../runtimeApi";
-import { CodeDiffViewer, CodeFileViewer } from "./CodeEditorSurface";
+import { CodeFileViewer, CodeReviewDiffViewer } from "./CodeEditorSurface";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { PlanSurface } from "./PlanSurface";
 import { MarkdownContent } from "./MarkdownContent";
-import { IconButton, RowAction } from "../shared-ui/ControlPrimitives";
+import { IconButton } from "../shared-ui/ControlPrimitives";
 import { desktopBridge } from "../platform/desktop";
 import { AgentSurface } from "./AgentSurface";
 
@@ -113,7 +112,6 @@ function ReviewSurface({
 }) {
   const { files, ownerSessionId } = surface;
   const mode = surface.mode ?? "round";
-  const [activePath, setActivePath] = useState(surface.selectedPath ?? files[0]?.path ?? "");
   const [allChanges, setAllChanges] = useState<{
     data?: Changes;
     error: string | null;
@@ -145,9 +143,9 @@ function ReviewSurface({
     () => (mode === "round" ? files : allChanges.data?.files ?? []),
     [mode, files, allChanges.data]
   );
-  const activeFile = useMemo(
-    () => activeFiles.find((item) => item.path === activePath) ?? activeFiles[0],
-    [activeFiles, activePath]
+  const combinedPatch = useMemo(
+    () => activeFiles.map((item) => item.patch).filter(Boolean).join("\n\n"),
+    [activeFiles]
   );
   const totals = useMemo(
     () => activeFiles.reduce(
@@ -184,7 +182,7 @@ function ReviewSurface({
         <div className="surface-review-actions">
           <IconButton label="更多审阅操作"><MoreHorizontal size={14} /></IconButton>
           <IconButton label="审阅设置"><GitPullRequest size={14} /></IconButton>
-          <IconButton label="复制当前 diff" onClick={() => void navigator.clipboard?.writeText(activeFile?.patch ?? "")}><Copy size={14} /></IconButton>
+          <IconButton label="复制 diff" onClick={() => void navigator.clipboard?.writeText(combinedPatch)}><Copy size={14} /></IconButton>
         </div>
       </div>
       {mode === "all" && allChanges.status === "loading" ? (
@@ -193,31 +191,10 @@ function ReviewSurface({
         <div className="surface-state is-error">{allChanges.error}</div>
       ) : activeFiles.length === 0 ? (
         <div className="surface-state">{mode === "all" ? "自上次提交后没有变更。" : "本轮没有文件变更。"}</div>
+      ) : combinedPatch ? (
+        <CodeReviewDiffViewer patch={combinedPatch} />
       ) : (
-        <>
-          <div className="surface-review-files">
-            {activeFiles.map((item) => (
-              <RowAction
-                className={`surface-review-file ${item.path === activeFile?.path ? "is-active" : ""}`}
-                key={item.path}
-                onClick={() => {
-                  setActivePath(item.path);
-                  onUpdate(surface.id, { selectedPath: item.path });
-                }}
-                title={item.path}
-              >
-                <FileCode2 size={13} />
-                <span>{fileDisplayName(item.path)}</span>
-                <strong><b>+{item.additions}</b> <i>-{item.deletions}</i></strong>
-              </RowAction>
-            ))}
-          </div>
-          {activeFile?.patch ? (
-            <CodeDiffViewer patch={activeFile.patch} path={activeFile.path} />
-          ) : (
-            <div className="surface-state">这个文件没有可展示的 diff。</div>
-          )}
-        </>
+        <div className="surface-state">这些文件没有可展示的 diff。</div>
       )}
     </>
   );
