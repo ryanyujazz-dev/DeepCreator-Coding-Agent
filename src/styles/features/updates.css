@@ -1,0 +1,164 @@
+.app-update-trigger {
+  position: relative;
+}
+
+.app-update-trigger.is-ready::after,
+.app-update-trigger.is-error::after {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--app-sidebar);
+  border-radius: var(--radius-circle);
+  background: var(--theme-blue);
+  content: "";
+}
+
+.app-update-trigger.is-error::after {
+  background: var(--color-danger);
+}
+
+.app-update-trigger.is-error {
+  color: var(--color-danger);
+}
+
+.app-update-spinner {
+  animation: app-update-spin 0.9s linear infinite;
+}
+
+.app-update-popover {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  width: min(328px, calc(100vw - 16px));
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.app-update-popover > header {
+  display: grid;
+  padding: var(--space-4);
+  align-items: center;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  border-bottom: 1px solid var(--color-border);
+  gap: var(--space-2);
+}
+
+.app-update-popover > header > div:nth-child(2) {
+  min-width: 0;
+}
+
+.app-update-popover strong,
+.app-update-popover span {
+  display: block;
+}
+
+.app-update-popover > header strong {
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
+}
+
+.app-update-popover > header span,
+.app-update-popover > footer > span {
+  color: var(--color-text-muted);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line-height);
+}
+
+.app-update-status-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+}
+
+.app-update-status-icon:is(.is-ready, .is-downloading, .is-installing) {
+  background: var(--theme-blue-light);
+  color: var(--theme-blue-dark);
+}
+
+.app-update-status-icon.is-error {
+  background: var(--color-danger-surface);
+  color: var(--color-danger);
+}
+
+.app-update-popover-body {
+  display: grid;
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+
+.app-update-popover-body p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-control-size);
+  line-height: var(--type-body-line-height);
+}
+
+.app-update-version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--color-text-muted);
+  font-size: var(--type-label-size);
+}
+
+.app-update-version strong {
+  color: var(--color-text);
+  font-family: var(--font-family-code);
+}
+
+.app-update-release-notes {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  white-space: pre-line;
+}
+
+.app-update-error {
+  padding: var(--space-2);
+  border-radius: var(--radius-small);
+  background: var(--color-danger-surface);
+  color: var(--color-danger);
+  font-size: var(--type-label-size);
+  line-height: var(--type-meta-line-height);
+}
+
+.app-update-popover > footer {
+  display: flex;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  align-items: center;
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border);
+  gap: var(--space-2);
+}
+
+.app-update-popover > footer > span {
+  margin-right: auto;
+}
+
+.app-update-primary {
+  background: var(--theme-blue);
+  color: var(--color-on-accent);
+}
+
+.app-update-primary:hover:not(:disabled) {
+  background: var(--theme-blue-dark);
+  color: var(--color-on-accent);
+}
+
+@keyframes app-update-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-update-spinner {
+    animation: none;
+  }
+}

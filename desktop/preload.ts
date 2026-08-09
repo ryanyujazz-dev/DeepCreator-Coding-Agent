@@ -6,6 +6,7 @@ import {
   RuntimeState,
   WindowControlsState
 } from "../shared/contracts/desktop";
+import { AppUpdateState } from "../shared/contracts/update";
 
 const bridge: DesktopBridge = {
   platform: process.platform === "darwin" || process.platform === "win32" ? process.platform : "linux",
@@ -70,6 +71,16 @@ const bridge: DesktopBridge = {
     list: () => ipcRenderer.invoke("desktop:themes:list"),
     remove: (themeId) => ipcRenderer.invoke("desktop:themes:remove", themeId),
     save: (theme) => ipcRenderer.invoke("desktop:themes:save", theme)
+  },
+  updates: {
+    check: () => ipcRenderer.invoke("desktop:updates:check"),
+    getState: () => ipcRenderer.invoke("desktop:updates:get-state"),
+    install: () => ipcRenderer.invoke("desktop:updates:install"),
+    onState: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: AppUpdateState) => listener(state);
+      ipcRenderer.on("updates:state", handler);
+      return () => ipcRenderer.removeListener("updates:state", handler);
+    }
   },
   windowControls: {
     getState: () => ipcRenderer.invoke("desktop:window-controls:get-state"),

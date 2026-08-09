@@ -1,10 +1,20 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
+import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 
 const releaseBuild = /^(?:package|make):/.test(process.env.npm_lifecycle_event || "")
   || process.argv.some((argument) => argument === "package" || argument === "make");
 const authMode = process.env.DEEPCREATOR_AUTH_MODE?.trim() || "local";
+const appleId = process.env.APPLE_ID?.trim();
+const appleIdPassword = process.env.APPLE_ID_PASSWORD?.trim();
+const appleKeychain = process.env.APPLE_KEYCHAIN?.trim();
+const appleSigningIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim();
+const appleTeamId = process.env.APPLE_TEAM_ID?.trim();
+const windowsCertificateFile = process.env.WINDOWS_CERTIFICATE_FILE?.trim();
+const windowsCertificatePassword = process.env.WINDOWS_CERTIFICATE_PASSWORD?.trim();
+const productionMacSigning = Boolean(appleSigningIdentity && appleId && appleIdPassword && appleTeamId);
+const productionWindowsSigning = Boolean(windowsCertificateFile && windowsCertificatePassword);
 
 if (authMode !== "local" && authMode !== "github") {
   throw new Error("DEEPCREATOR_AUTH_MODE 只支持 local 或 github。");
@@ -24,24 +34,40 @@ if (releaseBuild && authMode === "github") {
 
 const config: ForgeConfig = {
   packagerConfig: {
+    appBundleId: "com.deepcreator.desktop",
     asar: true,
     extraResource: [
       "server/infra/migrations",
       "skills"
     ],
     name: "DeepCreator",
-    osxSign: {
-      identity: "-",
-      identityValidation: false,
-      optionsForFile: () => ({
-        hardenedRuntime: false,
-        timestamp: "none"
-      }),
-      type: "development"
-    }
+    osxNotarize: productionMacSigning ? { appleId: appleId!, appleIdPassword: appleIdPassword!, teamId: appleTeamId! } : undefined,
+    osxSign: productionMacSigning
+      ? {
+          identity: appleSigningIdentity,
+          keychain: appleKeychain,
+          optionsForFile: () => ({ hardenedRuntime: true })
+        }
+      : {
+          identity: "-",
+          identityValidation: false,
+          optionsForFile: () => ({ hardenedRuntime: false, timestamp: "none" }),
+          type: "development"
+        }
   },
   rebuildConfig: {},
-  makers: [new MakerZIP({}, ["darwin", "win32"])],
+  makers: [
+    new MakerZIP({}, ["darwin"]),
+    new MakerSquirrel({
+      ...(productionWindowsSigning ? {
+        certificateFile: windowsCertificateFile,
+        certificatePassword: windowsCertificatePassword
+      } : {}),
+      name: "deepcreator",
+      noMsi: true,
+      setupExe: "DeepCreator-Setup.exe"
+    }, ["win32"])
+  ],
   plugins: [
     new VitePlugin({
       build: [

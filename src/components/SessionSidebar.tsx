@@ -24,6 +24,7 @@ import { AuthState } from "../../shared/contracts/auth";
 import { ProfileAvatar } from "../features/auth/ProfileAvatar";
 import { FloatingSurface, IconButton, RowAction } from "../shared-ui/ControlPrimitives";
 import { browserPlatform } from "../platform/browser";
+import { AppUpdateControl } from "../features/updates/AppUpdateControl";
 
 type AnchorRect = { bottom: number; left: number; right: number; top: number; width: number };
 type ProjectOverlay = { project: ProjectRef; rect: AnchorRect };
@@ -376,6 +377,7 @@ export function SessionSidebar({
           <strong>{authState?.user?.displayName || "本地 Profile"}</strong>
           <span>{authState?.mode === "local" ? "仅此设备" : authState?.phase === "offline" ? "离线登录" : authState?.user ? `@${authState.user.githubLogin}` : ""}</span>
         </div>
+        <AppUpdateControl />
         {onSettings && <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton>}
       </div>
       <PanelResizeHandle ariaLabel="调整左侧栏宽度" edge="right" max={360} min={220} onChange={onWidthChange} onReset={onWidthReset} value={sidebarWidth} />
