@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "displayName": "Electron 发布",
+  "version": "1.0.0",
+  "publisher": "DeepCreator",
+  "minDeepCreatorVersion": "0.1.0",
+  "permissions": ["workspace_read", "shell_execute", "network_access", "external_access", "local_code_execution"],
+  "scripts": {
+    "verify-artifacts": {
+      "entry": "scripts/verify-artifacts.mjs",
+      "description": "Inspect release artifacts and reject empty or duplicate files.",
+      "permissions": ["workspace_read", "local_code_execution"]
+    },
+    "checksums": {
+      "entry": "scripts/checksums.mjs",
+      "description": "Print SHA-256 checksums for selected release artifacts.",
+      "permissions": ["workspace_read", "local_code_execution"]
+    }
+  }
+}

@@ -190,6 +190,7 @@ test("freezes startup guidance in the stable session envelope", () => {
       prompt: "开始", records: [], session, rules: ruleSource, system: testSystem, tools: toolSpecs
     });
     assert.match(first.sessionEnvelopeRecord?.text ?? "", /稳定规范 v1/);
+    assert.match(first.sessionEnvelopeRecord?.text ?? "", /"workspaceKind":"project"/);
     const frozenRecord: ContextEntry = {
       ...(first.sessionEnvelopeRecord as NonNullable<typeof first.sessionEnvelopeRecord>),
       createdAt: now,
@@ -204,6 +205,28 @@ test("freezes startup guidance in the stable session envelope", () => {
     assert.match(second.messages[1].text ?? "", /稳定规范 v1/);
     assert.doesNotMatch(second.messages[1].text ?? "", /稳定规范 v2/);
     assert.equal(second.sessionEnvelopeRecord, undefined);
+  } finally {
+    try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
+  }
+});
+
+test("exposes scratch workspace identity without making the Agent infer it from a path", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-scratch-context-"));
+  try {
+    const now = new Date().toISOString();
+    const session = {
+      ...sessionDefaults,
+      workspaceKind: "scratch" as const,
+      compactThresholdTokens: 850_000, contextTokens: 0, contextWindowTokens: 1_000_000,
+      createdAt: now, runIds: [], runs: [], lastOffset: 0, model: "deepseek-v4-flash",
+      grants: [], accessMode: "request_approval" as const, projectRoot: directory,
+      sessionId: "session_scratch_context", title: "test", updatedAt: now
+    };
+    const prepared = prepareSessionContext({
+      runId: "run_scratch_context", model: "deepseek-v4-flash", projectRoot: directory,
+      prompt: "开始", records: [], session, rules: ruleSource, system: testSystem, tools: toolSpecs
+    });
+    assert.match(prepared.sessionEnvelopeRecord?.text ?? "", /"workspaceKind":"scratch"/);
   } finally {
     try { rmSync(directory, { force: true, recursive: true }); } catch { /* Windows EPERM on SQLite temp dirs */ }
   }
@@ -363,7 +386,7 @@ test("appends lazy context only after every result in a parallel tool-call group
 test("indexes skills lazily and loads the full body only on invocation", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-skills-"));
   try {
-    const skillDirectory = path.join(directory, ".deepcreator", "skills", "release");
+    const skillDirectory = path.join(directory, ".deepcreator", "skills", "release-check");
     mkdirSync(skillDirectory, { recursive: true });
     writeFileSync(path.join(skillDirectory, "SKILL.md"), "---\nname: release-check\ndescription: Validate a release candidate\n---\nFULL_SKILL_BODY run all release checks", "utf8");
     const digest = capabilityDigest(directory);
@@ -684,10 +707,10 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   assert.match(first.version, /identity@2\.7\.0/);
   assert.match(first.version, /coding_behavior@4\.5\.0/);
   assert.match(first.version, /content_policy@1\.3\.1/);
-  assert.match(first.version, /tool_policy@5\.1\.0/);
+  assert.match(first.version, /tool_policy@5\.2\.0/);
   assert.match(first.version, /plan_policy@2\.8\.0/);
-  assert.match(first.version, /final_response@2\.3\.0/);
-  assert.match(first.version, /doing_tasks@1\.3\.0/);
+  assert.match(first.version, /final_response@2\.4\.0/);
+  assert.match(first.version, /doing_tasks@1\.4\.0/);
   assert.match(first.version, /output_style@2\.1\.0/);
   assert.match(first.text, /结构化 tool_calls/);
   assert.match(first.text, /所有面向用户的自然语言输出/);
@@ -700,6 +723,7 @@ test("keeps prompt blueprints versioned, model-addressable, and hash-stable", ()
   assert.match(first.text, /调用工具时的回答内容不得包含任务计划的进度汇报/);
   assert.match(first.text, /任务进度会由界面直接呈现给用户/);
   assert.match(first.text, /最后一个工作工具调用之后/);
+  assert.match(first.text, /update_tasks 可以与其他工作工具出现在同一个 tool_calls 中/);
   assert.match(first.text, /同一响应不得同时输出面向用户的最终回答/);
   assert.match(first.text, /普通工具可以直接调用/);
   assert.match(first.text, /每次调用工具时的回答内容至少包含三句话/);

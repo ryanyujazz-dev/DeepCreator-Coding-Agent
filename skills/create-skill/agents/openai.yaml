@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Skill"
+  short_description: "Create, validate, package, and safely install Skills"
+  default_prompt: "Use $create-skill to create, validate, package, safely install, and verify a DeepCreator Skill."

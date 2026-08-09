@@ -1,4 +1,5 @@
 import {
+  Blocks,
   ChevronDown,
   FolderSearch,
   PencilLine,
@@ -12,6 +13,7 @@ import {
   Changes
 } from "../../shared/contracts/runtime";
 import { ActivityIndicator, ActivitySlot, DisplaySegment } from "../../shared/projections/types";
+import { isSkillActivity } from "../../shared/projections/activityPresentation";
 import { runningCommandElapsed } from "../../shared/projections/activityTiming";
 import { useStreamText } from "../stream/useStreamText";
 import { ActivityAggregateRenderer, ModificationFileRow } from "./ActivityGroupRenderer";
@@ -39,7 +41,9 @@ function ActivitySlotView({
   onStopCommand: (commandId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const commandRunning = activity?.status === "running" && activity.tool?.toolName === "run_command";
+  const skillActivity = Boolean(activity && isSkillActivity(activity));
+  const commandRunning = activity?.status === "running"
+    && (activity.tool?.toolName === "run_command" || activity.tool?.toolName === "run_skill_script");
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setNow(Date.now());
@@ -60,11 +64,46 @@ function ActivitySlotView({
   const patchDraft = activity?.draft;
   const nativeSearch = activity?.tool?.toolName === "web_search" && activity.modelItemId;
   const slotActive = slot.logicalState === "active" || continuationActive;
+  const skillDetail = activity?.error || activity?.body;
+  const skillExpandable = skillActivity && Boolean(skillDetail || activity?.command?.commandId);
   return (
-    <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${isThinking ? " is-thinking" : ""}`}>
-      {slot.visual.mode === "tool" && <div className="work-dot">{indicatorIcon(slot.visual)}</div>}
+    <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${isThinking ? " is-thinking" : ""}${skillActivity ? " is-skill" : ""}`}>
+      {slot.visual.mode === "tool" && <div className="work-dot">{skillActivity ? <Blocks size={13} /> : indicatorIcon(slot.visual)}</div>}
       <div className="work-body">
-        {patchDraft
+        {skillActivity
+          ? skillExpandable
+            ? (
+                <div className="activity-slot-command skill-activity-detail">
+                  <button
+                    aria-expanded={expanded}
+                    className="activity-slot-toggle"
+                    onClick={() => setExpanded((value) => !value)}
+                    type="button"
+                  >
+                    <strong className={`activity-slot-label ${slotActive ? "working-glow" : ""}`}>
+                      <span className="activity-slot-label-text">{slot.visual.label}</span>
+                      {commandElapsed && <span className="activity-slot-elapsed">{commandElapsed}</span>}
+                    </strong>
+                    <ChevronDown size={12} />
+                  </button>
+                  {expanded && (
+                    <div className="activity-slot-command-detail">
+                      <pre className="activity-output">{skillDetail || "Skill 脚本仍在运行，暂时没有输出。"}</pre>
+                      {commandRunning && activity?.command?.commandId && (
+                        <button className="command-stop-button" onClick={() => onStopCommand(activity.command!.commandId!)} type="button">
+                          停止脚本
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            : (
+                <strong className={`activity-slot-label ${slotActive ? "working-glow" : ""}`}>
+                  <span className="activity-slot-label-text">{slot.visual.label}</span>
+                </strong>
+              )
+          : patchDraft
           ? (
               <div className="activity-slot-command responses-patch-draft">
                 <button

@@ -79,6 +79,28 @@ test("coalesces thirty reads into one stable group without losing calls", () => 
   assert.deepEqual(projection[0].group.memberActivityIds, activities.map((item) => item.activityId));
 });
 
+test("keeps Skill activity standalone and splits legacy groups on both sides", () => {
+  const skill = activity(2, {
+    body: "release-electron instructions",
+    tool: tool({
+      callId: "call_skill",
+      displayTarget: "skill:release-electron",
+      groupMode: "standalone",
+      normalizedTarget: "skill:release-electron",
+      targetKind: "workspace",
+      toolName: "invoke_capability"
+    })
+  });
+  const projection = projectGroups(run([
+    activity(1),
+    skill,
+    activity(3, { tool: tool({ callId: "call_3" }) })
+  ]));
+
+  assert.deepEqual(projection.map((entry) => entry.type), ["activity_group", "activity", "activity_group"]);
+  assert.equal(projection[1].type === "activity" && projection[1].activity.activityId, skill.activityId);
+});
+
 test("deduplicates targets while preserving real call count across model steps", () => {
   const projection = projectGroups(run([
     activity(1, { tool: tool({ callId: "a", modelStepId: "step_a" }) }),

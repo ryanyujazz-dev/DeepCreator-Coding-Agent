@@ -1681,3 +1681,100 @@ test("requires final task maintenance after the last work tool before accepting 
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
   }
 });
+
+test("allows update_tasks to share one tool_calls batch with work tools", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-batched-task-update-"));
+  const store = new RuntimeStore(directory);
+  try {
+    writeFileSync(path.join(directory, "sample.ts"), "export const sample = true;\n");
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_batched_task_update",
+      title: "任务更新同批调用"
+    });
+    store.append({
+      data: { model: "test", prompt: "检查 sample.ts", startedAt: new Date().toISOString() },
+      runId: "run_batched_task_update",
+      sessionId: "session_batched_task_update",
+      type: "run.started"
+    });
+
+    const calls = [{
+      argumentsText: JSON.stringify({ path: "sample.ts" }),
+      callId: "call_batched_read",
+      index: 0,
+      name: "read_file"
+    }, {
+      argumentsText: JSON.stringify({
+        tasks: [{ taskId: "t1", label: "检查 sample.ts", status: "completed" }]
+      }),
+      callId: "call_batched_tasks",
+      index: 1,
+      name: "update_tasks"
+    }];
+    let turn = 0;
+    const provider: Provider = {
+      capabilities: {
+        contextWindowTokens: 1_000_000,
+        supportsParallelToolCalls: true,
+        supportsStrictTools: false,
+        supportsThinking: true,
+        supportsTools: true
+      },
+      async stream(request) {
+        turn += 1;
+        if (turn === 1) {
+          return {
+            answer: "",
+            continuationMessage: { role: "assistant", text: null, toolCalls: calls },
+            finishCause: "tool_calls",
+            thinking: "",
+            toolCalls: calls
+          };
+        }
+        assert.deepEqual(
+          request.messages.filter((message) => message.role === "tool").map((message) => message.toolCallKey),
+          ["call_batched_read", "call_batched_tasks"]
+        );
+        return {
+          answer: "检查完成。",
+          continuationMessage: { role: "assistant", text: "检查完成。" },
+          finishCause: "complete",
+          thinking: "",
+          toolCalls: []
+        };
+      }
+    };
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_batched_task_update");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "检查 sample.ts",
+      provider,
+      registry,
+      runId: "run_batched_task_update",
+      sessionId: "session_batched_task_update",
+      signal: controller.signal,
+      store,
+      tools: toolHost
+    });
+
+    const run = store.getRun("run_batched_task_update")!;
+    const activities = run.activities.filter((activity) =>
+      activity.tool?.callId === "call_batched_read" || activity.tool?.callId === "call_batched_tasks"
+    );
+    assert.equal(turn, 2);
+    assert.equal(run.status, "completed");
+    assert.equal(run.answer, "检查完成。");
+    assert.deepEqual(run.tasks, [{ taskId: "t1", label: "检查 sample.ts", status: "completed" }]);
+    assert.deepEqual(activities.map((activity) => activity.status), ["completed", "completed"]);
+    assert.equal(new Set(activities.map((activity) => activity.tool?.modelStepId)).size, 1);
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});

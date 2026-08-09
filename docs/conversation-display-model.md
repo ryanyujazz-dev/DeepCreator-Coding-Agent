@@ -99,6 +99,9 @@ The boundary rule is:
 - When that next `content` arrives, it visually replaces the previous segment's activity slot. Do not keep the held activity label as an extra row above the new content.
 - Tools that happen after that `content` belong to that segment's aggregate header.
 - The next `content` starts the next segment and resets aggregation for subsequent tools.
+- Skill activities are first-level segment boundaries. `search_capabilities`, `invoke_capability`, `read_skill_resource`, `materialize_skill_asset`, `run_skill_script`, `preview_skill_install`, and `install_skill` each render in their own standalone slot, never as an aggregate member.
+- A Skill activity closes the aggregate before it, consumes the preceding held activity label, and resets aggregation after it. Ordinary tools on either side therefore appear in two separate aggregate headers.
+- Preserve the Skill tool's real `start` and `done` facts. A managed Skill script keeps its output, elapsed time, stop control, terminal status, and workspace-change facts in the standalone slot.
 
 Do not use `thinking` completion as the segment boundary.
 Do not use tool completion as the segment boundary.

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "displayName": "安全审查",
+  "version": "1.0.0",
+  "publisher": "DeepCreator",
+  "minDeepCreatorVersion": "0.1.0",
+  "permissions": ["workspace_read", "shell_execute", "network_access"]
+}

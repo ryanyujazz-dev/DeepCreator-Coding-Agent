@@ -58,3 +58,36 @@ test("cancelling during approval resolves the interaction without timeline activ
     rmSync(directory, { force: true, recursive: true });
   }
 });
+
+test("hash-bound approvals reject broader grant choices", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-one-shot-approval-"));
+  try {
+    const store = new RuntimeStore(directory);
+    store.createSession({ compactThresholdTokens: 850_000, contextWindowTokens: 1_000_000, model: "mock-agent", projectRoot: directory, sessionId: "session_one_shot", title: "一次审批" });
+    store.append({ runId: "run_one_shot", data: { model: "mock-agent", prompt: "安装 Skill", startedAt: new Date().toISOString() }, sessionId: "session_one_shot", type: "run.started" });
+    const registry = new RunRegistry();
+    registry.startRun("run_one_shot");
+    const decision = registry.requestApproval({
+      callId: "call_install",
+      capability: "external_access",
+      choices: ["allow_once", "deny"],
+      detail: "hash-bound install",
+      risk: "high",
+      runId: "run_one_shot",
+      sessionId: "session_one_shot",
+      store,
+      target: "sha256",
+      title: "安装 Skill？",
+      toolName: "install_skill"
+    });
+    const approvalId = store.getRun("run_one_shot")!.approvals[0].approvalId;
+    assert.equal(registry.resolveApproval({ approvalId, decision: "allow_session", store }), false);
+    assert.equal(store.getRun("run_one_shot")!.approvals[0].state, "pending");
+    assert.equal(registry.resolveApproval({ approvalId, decision: "allow_once", store }), true);
+    assert.equal(await decision, "allow_once");
+    assert.equal(store.getSession("session_one_shot")!.grants.length, 0);
+    store.close();
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

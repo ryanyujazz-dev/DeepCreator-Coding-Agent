@@ -125,8 +125,8 @@ export class ToolPipeline {
         return [];
       }
     });
-    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user" || tool.toolName === "update_tasks") && tools.length > 1) {
-      return "模式控制、暂停或任务维护工具必须是当前模型步骤中的唯一工具调用。";
+    if (tools.some((tool) => tool.toolName === "enter_plan" || tool.toolName === "submit_plan" || tool.toolName === "ask_user") && tools.length > 1) {
+      return "模式控制或暂停工具必须是当前模型步骤中的唯一工具调用。";
     }
     return hasConflictingControlStep(tools)
       ? "模式控制工具不能与产生副作用的工具出现在同一个模型步骤中。"
@@ -250,6 +250,11 @@ export class ToolPipeline {
             status: "suspended",
             title: "等待批准补丁"
           });
+        } else if (call.name === "install_skill") {
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+            status: "suspended",
+            title: "等待确认安装 Skill"
+          });
         }
         const decision = await input.registry.requestApproval({
           ...approval,
@@ -278,6 +283,11 @@ export class ToolPipeline {
             draft: current?.draft ? { ...current.draft, state: "applying" } : undefined,
             status: "running",
             title: "正在应用补丁"
+          });
+        } else if (call.name === "install_skill") {
+          updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, {
+            status: "running",
+            title: "正在安装 Skill"
           });
         }
       }

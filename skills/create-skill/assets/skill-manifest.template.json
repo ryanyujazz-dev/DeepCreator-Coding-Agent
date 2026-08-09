@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "displayName": "Example Skill",
+  "version": "1.0.0",
+  "publisher": "Your Name",
+  "minDeepCreatorVersion": "0.1.0",
+  "permissions": ["workspace_read"]
+}

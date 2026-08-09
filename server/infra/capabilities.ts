@@ -1,18 +1,19 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import path from "node:path";
-import { parseDocument } from "yaml";
 import { CapabilitySource } from "../../shared/contracts/capability";
 import { systemReminder } from "../../shared/domain/context";
+import { SkillCatalog, defaultSkillCatalog } from "./skillCatalog";
 
 export type DeferredCapability = {
   capabilityId: string;
+  description: string;
   kind: "skill" | "mcp_tool";
   name: string;
-  description: string;
+  origin?: "builtin" | "global" | "project";
+  permissions?: string[];
+  publisher?: string;
   revisionHash: string;
   source: string;
+  version?: string;
 };
 
 type LoadedCapability = DeferredCapability & { body?: string; providerId?: string };
@@ -34,59 +35,40 @@ export function registerDeferredCapabilityProvider(provider: DeferredCapabilityP
   return () => providers.delete(provider.providerId);
 }
 
-function parseSkill(source: string): LoadedCapability | undefined {
-  const raw = readFileSync(source, "utf8").trim();
-  if (!raw) return undefined;
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  let body = raw;
-  let metadata: Record<string, unknown> = {};
-  if (match) {
-    const document = parseDocument(match[1]);
-    if (document.errors.length > 0) return undefined;
-    const value = document.toJS();
-    if (value && typeof value === "object" && !Array.isArray(value)) metadata = value as Record<string, unknown>;
-    body = raw.slice(match[0].length).trim();
-  }
-  const directoryName = path.basename(path.dirname(source));
-  const name = String(metadata.name ?? directoryName);
-  const description = String(metadata.description ?? body.split("\n").find((line) => line.trim() && !line.startsWith("#")) ?? "项目 Skill").slice(0, 240);
-  const revisionHash = createHash("sha256").update(raw).digest("hex");
-  return { body, capabilityId: `skill:${name}:${revisionHash.slice(0, 12)}`, description, kind: "skill", name, revisionHash, source };
-}
-
-function collectSkillFiles(directory: string): string[] {
-  if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const target = path.join(directory, entry.name);
-    if (entry.isFile() && entry.name === "SKILL.md") return [target];
-    if (entry.isDirectory()) {
-      const skill = path.join(target, "SKILL.md");
-      return existsSync(skill) ? [skill] : [];
-    }
-    return [];
-  }).sort();
-}
-
-export function listDeferredCapabilities(projectRoot: string): LoadedCapability[] {
-  const files = [
-    ...collectSkillFiles(path.join(homedir(), ".deepcreator", "skills")),
-    ...collectSkillFiles(path.join(projectRoot, ".deepcreator", "skills"))
-  ];
+function loadedCapabilities(projectRoot: string, catalog: SkillCatalog): LoadedCapability[] {
   return [
-    ...files.flatMap((source) => parseSkill(source) ?? []),
+    ...catalog.effective(projectRoot).map((skill) => ({
+      body: skill.body,
+      capabilityId: skill.capabilityId,
+      description: skill.description,
+      kind: "skill" as const,
+      name: skill.name,
+      origin: skill.origin,
+      permissions: skill.permissions,
+      publisher: skill.publisher,
+      revisionHash: skill.revisionHash,
+      source: skill.source,
+      version: skill.version
+    })),
     ...[...providers.values()].flatMap((provider) => provider.list(projectRoot).map((capability) => ({ ...capability, providerId: provider.providerId })))
   ];
 }
 
-export function capabilityDigest(projectRoot: string, limit = 30): string {
-  const capabilities = listDeferredCapabilities(projectRoot).slice(0, limit);
-  if (capabilities.length === 0) return "当前没有已建立索引的延迟 Skill 或 MCP 能力。";
-  return capabilities.map(({ capabilityId, description, kind, name }) => `${capabilityId}\t${kind}\t${name}\t${description}`).join("\n");
+export function listDeferredCapabilities(projectRoot: string, catalog = defaultSkillCatalog): LoadedCapability[] {
+  return loadedCapabilities(projectRoot, catalog);
 }
 
-export function searchCapabilities(projectRoot: string, query: string, limit = 10): DeferredCapability[] {
+export function capabilityDigest(projectRoot: string, limit = 30, catalog = defaultSkillCatalog): string {
+  const capabilities = loadedCapabilities(projectRoot, catalog).slice(0, limit);
+  if (capabilities.length === 0) return "当前没有已建立索引的延迟 Skill 或 MCP 能力。";
+  return capabilities.map(({ capabilityId, description, kind, name, origin, version }) =>
+    `${capabilityId}\t${kind}\t${name}\t${description}${origin ? `\t${origin}\t${version ?? "0.0.0"}` : ""}`
+  ).join("\n");
+}
+
+export function searchCapabilities(projectRoot: string, query: string, limit = 10, catalog = defaultSkillCatalog): DeferredCapability[] {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return listDeferredCapabilities(projectRoot)
+  return loadedCapabilities(projectRoot, catalog)
     .filter((capability) => terms.length === 0 || terms.every((term) => `${capability.name} ${capability.description}`.toLowerCase().includes(term)))
     .slice(0, Math.min(20, Math.max(1, limit)))
     .map(({ body: _body, providerId: _providerId, ...capability }) => capability);
@@ -96,9 +78,15 @@ export async function invokeCapability(
   projectRoot: string,
   capabilityId: string,
   argumentsValue: Record<string, unknown> = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  catalog = defaultSkillCatalog
 ): Promise<{ capability: DeferredCapability; contextUpdate?: string; output?: string }> {
-  const match = listDeferredCapabilities(projectRoot).find((capability) => capability.capabilityId === capabilityId);
+  const capabilities = loadedCapabilities(projectRoot, catalog);
+  const requestedSkillName = capabilityId.match(/^skill:([a-z0-9]+(?:-[a-z0-9]+)*)(?::[a-f0-9]{12,64})?$/)?.[1];
+  const match = capabilities.find((capability) => capability.capabilityId === capabilityId)
+    ?? (requestedSkillName
+      ? capabilities.find((capability) => capability.kind === "skill" && capability.name === requestedSkillName)
+      : undefined);
   if (!match) throw new Error(`未找到能力：${capabilityId}`);
   const { body, providerId, ...capability } = match;
   if (providerId) {
@@ -119,6 +107,12 @@ export async function invokeCapability(
   };
 }
 
-export const capabilitySource: CapabilitySource = {
-  digest: capabilityDigest
-};
+export function createCapabilitySource(catalog: SkillCatalog): CapabilitySource {
+  return { digest: (projectRoot, limit) => capabilityDigest(projectRoot, limit, catalog) };
+}
+
+export function capabilityIdFor(name: string, content: string): string {
+  return `skill:${name}:${createHash("sha256").update(content).digest("hex").slice(0, 12)}`;
+}
+
+export const capabilitySource: CapabilitySource = createCapabilitySource(defaultSkillCatalog);

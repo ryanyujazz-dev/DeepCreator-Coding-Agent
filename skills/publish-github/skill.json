@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "displayName": "发布到 GitHub",
+  "version": "1.0.0",
+  "publisher": "DeepCreator",
+  "minDeepCreatorVersion": "0.1.0",
+  "permissions": ["workspace_read", "shell_execute", "network_access", "external_access"]
+}

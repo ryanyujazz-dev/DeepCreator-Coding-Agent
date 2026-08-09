@@ -33,6 +33,16 @@ const bridge: DesktopBridge = {
     read: () => ipcRenderer.invoke("desktop:settings:read"),
     save: (input: DesktopSettingsInput) => ipcRenderer.invoke("desktop:settings:save", input)
   },
+  skills: {
+    checkUpdates: (projectRoot) => ipcRenderer.invoke("desktop:skills:check-updates", projectRoot),
+    install: (input) => ipcRenderer.invoke("desktop:skills:install", input),
+    list: (projectRoot) => ipcRenderer.invoke("desktop:skills:list", projectRoot),
+    previewGitHub: (url) => ipcRenderer.invoke("desktop:skills:preview-github", url),
+    previewLocal: () => ipcRenderer.invoke("desktop:skills:preview-local"),
+    remove: (input) => ipcRenderer.invoke("desktop:skills:remove", input),
+    setEnabled: (input) => ipcRenderer.invoke("desktop:skills:set-enabled", input),
+    update: (input) => ipcRenderer.invoke("desktop:skills:update", input)
+  },
   themes: {
     exportFile: (themeId) => ipcRenderer.invoke("desktop:themes:export", themeId),
     get: (themeId) => ipcRenderer.invoke("desktop:themes:get", themeId),
