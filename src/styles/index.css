@@ -8,6 +8,7 @@
 @import "./features/follow-ups.css";
 @import "./features/responses.css";
 @import "./features/auth.css";
+@import "./features/updates.css";
 @import "./features/sidebar-animation.css";
 @import "./theme-guardrails.css";
 @import "./features/inspector-output.css";

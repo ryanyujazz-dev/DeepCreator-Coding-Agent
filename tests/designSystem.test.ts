@@ -9,6 +9,7 @@ const styles = readFileSync(path.join(root, "src/styles.css"), "utf8");
 const applicationSurfaces = readFileSync(path.join(root, "src/styles/features/application-surfaces.css"), "utf8");
 const authStyles = readFileSync(path.join(root, "src/styles/features/auth.css"), "utf8");
 const followUpStyles = readFileSync(path.join(root, "src/styles/features/follow-ups.css"), "utf8");
+const updateStyles = readFileSync(path.join(root, "src/styles/features/updates.css"), "utf8");
 
 test("keeps one semantic token source and the licensed HarmonyOS font", () => {
   assert.equal(styles.match(/^:root\s*\{/gm)?.length, 1);
@@ -55,6 +56,19 @@ test("reserves the native traffic-light area only on macOS", () => {
   assert.match(desktopMain, /titleBarStyle: "hiddenInset" as const,\s*trafficLightPosition: MACOS_TRAFFIC_LIGHT_POSITION/s);
   assert.match(desktopMain, /window\.on\("enter-full-screen", publishWindowControlsState\)/);
   assert.match(desktopMain, /window\.on\("leave-full-screen", publishWindowControlsState\)/);
+});
+
+test("keeps application updates beside settings and inside the shared design system", () => {
+  const sidebar = readFileSync(path.join(root, "src/components/SessionSidebar.tsx"), "utf8");
+  const updateControl = readFileSync(path.join(root, "src/features/updates/AppUpdateControl.tsx"), "utf8");
+  assert.match(sidebar, /<AppUpdateControl \/>\s*\{onSettings && <IconButton label="打开设置"/);
+  assert.match(updateControl, /desktop\.updates\.onState/);
+  assert.match(updateControl, /desktop\.updates\.check\(\)/);
+  assert.match(updateControl, /desktop\.updates\.install\(\)/);
+  assert.match(updateControl, /aria-haspopup="dialog"/);
+  assert.match(updateStyles, /\.app-update-popover\s*\{[^}]*position:\s*fixed;[^}]*width:\s*min\(328px/s);
+  assert.match(updateStyles, /\.app-update-primary\s*\{[^}]*background:\s*var\(--theme-blue\)/s);
+  assert.doesNotMatch(updateStyles, /#[0-9a-f]{3,8}|rgba?\(/i);
 });
 
 test("binds every execution hierarchy level to shared typography and columns", () => {

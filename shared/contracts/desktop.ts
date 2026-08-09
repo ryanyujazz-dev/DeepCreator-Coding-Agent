@@ -13,6 +13,7 @@ import {
   SkillTargetInput
 } from "./skill";
 import { AuthDeleteInput, AuthState, LocalProfileInput } from "./auth";
+import { AppUpdateState } from "./update";
 
 export type RuntimePhase = "starting" | "ready" | "restarting" | "stopped" | "failed";
 
@@ -115,6 +116,12 @@ export type DesktopBridge = {
     list: () => Promise<ThemeSummary[]>;
     remove: (themeId: string) => Promise<ThemeSummary[]>;
     save: (theme: ThemePack) => Promise<ThemePack>;
+  };
+  updates: {
+    check: () => Promise<AppUpdateState>;
+    getState: () => Promise<AppUpdateState>;
+    install: () => Promise<AppUpdateState>;
+    onState: (listener: (state: AppUpdateState) => void) => () => void;
   };
   windowControls: {
     getState: () => Promise<WindowControlsState>;

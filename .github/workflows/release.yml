@@ -23,7 +23,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       DEEPCREATOR_AUTH_MODE: local
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,6 +36,22 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != ''
+        uses: apple-actions/import-codesign-certs@v5
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Prepare Windows signing certificate
+        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE_PASSWORD != ''
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "deepcreator-code-signing.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+          "WINDOWS_CERTIFICATE_FILE=$certificatePath" >> $env:GITHUB_ENV
+      - run: npm run release:validate-version
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
@@ -38,7 +59,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: DeepCreator-${{ matrix.artifact }}
-          path: out/make/**/*.zip
+          path: out/make/**/*
           if-no-files-found: error
 
   publish:
@@ -52,6 +73,10 @@ jobs:
           path: artifacts
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*.zip
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.exe
+            artifacts/**/*.nupkg
+            artifacts/**/RELEASES
           fail_on_unmatched_files: true
           generate_release_notes: true

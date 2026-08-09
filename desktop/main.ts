@@ -1,6 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
+import { app, autoUpdater, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
+import electronSquirrelStartup from "electron-squirrel-startup";
 import { realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { updateElectronApp, UpdateSourceType } from "update-electron-app";
 import { AuthDeleteInput, LocalProfileInput } from "../shared/contracts/auth";
 import { DesktopSettingsInput, WindowControlsState } from "../shared/contracts/desktop";
 import { SkillInstallInput, SkillTargetInput } from "../shared/contracts/skill";
@@ -13,6 +15,7 @@ import { DesktopStore } from "./store";
 import { importThemeFile } from "./themeImport";
 import { ThemeStore } from "./themeStore";
 import { SkillStore } from "./skillStore";
+import { UpdateManager } from "./updateManager";
 console.log("[desktop] main started");
 
 let mainWindow: BrowserWindow | null = null;
@@ -21,6 +24,7 @@ let auth: AuthManager;
 let store: DesktopStore;
 let skills: SkillStore;
 let themes: ThemeStore;
+let updates: UpdateManager;
 let gracefulQuit = false;
 
 // Fully transparent so the Windows caption buttons sit directly on the menubar. An opaque overlay
@@ -33,6 +37,8 @@ const MACOS_TRAFFIC_LIGHT_POSITION = {
   x: 14,
   y: (TITLEBAR_HEIGHT - MACOS_TRAFFIC_LIGHT_DIAMETER) / 2
 };
+
+if (process.platform === "win32") app.setAppUserModelId("com.squirrel.deepcreator.DeepCreator");
 
 function trusted(event: Electron.IpcMainInvokeEvent): void {
   if (!mainWindow || event.sender.id !== mainWindow.webContents.id) throw new Error("Untrusted desktop IPC sender.");
@@ -63,6 +69,18 @@ function windowControlsState(): WindowControlsState {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("desktop:updates:get-state", (event) => {
+    trusted(event);
+    return updates.getState();
+  });
+  ipcMain.handle("desktop:updates:check", (event) => {
+    trusted(event);
+    return updates.check();
+  });
+  ipcMain.handle("desktop:updates:install", (event) => {
+    trusted(event);
+    return updates.install();
+  });
   ipcMain.handle("desktop:window-controls:get-state", (event) => {
     trusted(event);
     return windowControlsState();
@@ -332,7 +350,8 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
+if (process.platform === "win32" && electronSquirrelStartup) app.quit();
+else if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => {
     if (mainWindow?.isMinimized()) mainWindow.restore();
@@ -357,10 +376,54 @@ else {
       onSignedOut: () => runtime.stop(),
       store
     });
+    updates = new UpdateManager({
+      configure: () => updateElectronApp({
+        logger: {
+          error: (...messages: unknown[]) => console.error("[desktop:update]", ...messages),
+          info: (...messages: unknown[]) => console.info("[desktop:update]", ...messages),
+          log: (...messages: unknown[]) => console.log("[desktop:update]", ...messages),
+          warn: (...messages: unknown[]) => console.warn("[desktop:update]", ...messages)
+        },
+        notifyUser: false,
+        updateInterval: "6 hours",
+        updateSource: {
+          host: __DEEPCREATOR_UPDATE_HOST__,
+          repo: __DEEPCREATOR_UPDATE_REPOSITORY__,
+          type: UpdateSourceType.ElectronPublicUpdateService
+        }
+      }),
+      currentVersion: app.getVersion(),
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      prepareToInstall: async () => {
+        gracefulQuit = true;
+        try {
+          await runtime.stop();
+        } catch (error) {
+          gracefulQuit = false;
+          throw error;
+        }
+      },
+      updater: {
+        checkForUpdates: () => autoUpdater.checkForUpdates(),
+        onAvailable: (listener) => { autoUpdater.on("update-available", listener); },
+        onChecking: (listener) => { autoUpdater.on("checking-for-update", listener); },
+        onDownloaded: (listener) => {
+          autoUpdater.on("update-downloaded", (_event, releaseNotes, releaseName, releaseDate) => {
+            listener({ releaseDate, releaseName, releaseNotes });
+          });
+        },
+        onError: (listener) => { autoUpdater.on("error", listener); },
+        onNotAvailable: (listener) => { autoUpdater.on("update-not-available", listener); },
+        quitAndInstall: () => autoUpdater.quitAndInstall()
+      }
+    });
     registerIpc();
     mainWindow = createWindow();
     auth.onState((state) => mainWindow?.webContents.send("auth:state", state));
     runtime.onState((state) => mainWindow?.webContents.send("runtime:state", state));
+    updates.onState((state) => mainWindow?.webContents.send("updates:state", state));
+    updates.initialize();
     await auth.initialize().catch((error) => console.error("[desktop] auth initialization failed", error));
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow(); });
   });
@@ -371,4 +434,5 @@ else {
     gracefulQuit = true;
     void runtime.stop().finally(() => app.quit());
   });
+  app.on("will-quit", () => updates?.dispose());
 }
