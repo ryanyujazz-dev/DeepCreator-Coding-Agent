@@ -317,6 +317,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     startRun,
     store,
     workspace: new WorkspaceQueries(store, {
+      collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
     })
@@ -478,6 +479,7 @@ test("steers an active HTTP Run into model context and the top-level conversatio
     startRun,
     store,
     workspace: new WorkspaceQueries(store, {
+      collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
     })
@@ -616,6 +618,7 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
     startRun,
     store,
     workspace: new WorkspaceQueries(store, {
+      collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
     })
