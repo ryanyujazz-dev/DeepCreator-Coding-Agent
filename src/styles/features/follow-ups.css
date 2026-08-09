@@ -18,14 +18,15 @@
    滚动内容会从浮窗周围透出来。用一块与对话区同底色(var(--app-canvas))的遮罩盖住
    composer 上沿以下的整条区域,让对话框像立在同色基座上、底部不再有文字穿过。
    height 由 Conversation.tsx 按 composerBottomOffset(composer 上沿到 main 底)inline 设置;
-   z-index 介于滚动内容与 composer 浮窗(z-index:8)之间 —— composer 仍可见可点;
+   z-index 6:盖过滚动内容,但让 Inspector 悬浮面板(.environment-panel,z-index:7)与 composer
+   浮窗(z-index:8)都在其上 —— 面板变长延伸到底部时压在遮罩上方、不被遮罩盖住,composer 仍可见可点;
    pointer-events:none 不拦截 composer 与滚动交互。 */
 .conversation-bottom-mask {
   position: absolute;
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 7;
+  z-index: 6;
   background: var(--app-canvas);
   pointer-events: none;
 }

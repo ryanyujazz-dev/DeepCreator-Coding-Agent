@@ -1,0 +1,59 @@
+/*
+ * 任务面板历史滚动区:当前批在最上方(已完成的 task 下沉到当前批底部),历史批次(最近 5 个 run
+ * 的快照)在下方、需滚动才可见。复用 styles.css 的 .task-list-row + is-running/is-completed/is-blocked
+ * 行样式;这里只补滚动壳、批次分隔、历史降权、底部渐变蒙层。纯 token(stylelint color-no-hex)。
+ *
+ * 结构:.task-history-shell(非滚动、position:relative,蒙层的锚定参照) > .task-history-scroll(真正滚动)
+ *       + .task-history-mask(蒙层是滚动元素的兄弟,故不会随内容滚走 —— 同 ReasoningTrace 的 scroll-to-bottom)。
+ */
+
+.task-history-shell {
+  position: relative;
+  min-width: 0;
+}
+
+.task-history-scroll {
+  /* JS 内联 maxHeight 会覆盖此值(动态 = 当前批高度,让视口默认只显当前批);留作首帧 / 降级。 */
+  max-height: min(300px, 42vh);
+  padding: 10px 13px 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-batch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 历史批与前一批之间留白;分隔线落在每个历史批顶部 */
+.task-batch-past {
+  margin-top: 8px;
+}
+
+.task-batch-separator {
+  height: 1px;
+  margin: 0 0 4px;
+  background: var(--app-border);
+  opacity: 0.6;
+}
+
+/* 历史批次降权:文字与图标统一弱化(本文件在 styles.css 之后导入,同等特异性下后置胜出,
+   盖过 is-completed 的 success 绿 / is-blocked 的 danger 红) */
+.task-batch-past .task-list-row,
+.task-batch-past .task-list-row > svg {
+  color: var(--color-text-subtle);
+}
+
+/* 底部渐变蒙层:fade 到画布背景,提示下方还有历史;仅在溢出且未滚到底时由 JS 挂载 */
+.task-history-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 28px;
+  background: linear-gradient(to top, var(--app-canvas), transparent);
+  pointer-events: none;
+}

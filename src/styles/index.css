@@ -13,6 +13,7 @@
 @import "./theme-guardrails.css";
 @import "./features/inspector-output.css";
 @import "./features/composer-bar.css";
+@import "./features/task-history.css";
 
 /*
  * 全局滚动条策略:默认隐藏所有原生滚动条(保留滚动行为),唯独对话区 .conversation-scroll

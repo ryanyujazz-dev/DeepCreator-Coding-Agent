@@ -3164,7 +3164,7 @@ body.is-resizing-panel * {
 
 .environment-panel {
   position: absolute;
-  z-index: 6;
+  z-index: 7;
   top: 48px;
   right: 13px;
   width: 240px;
@@ -5765,11 +5765,11 @@ body {
 .environment-panel {
   top: 70px;
   right: 17px;
-  width: 360px;
+  width: 320px;
   max-height: calc(100% - 92px);
   overflow-y: auto;
   border: 1px solid var(--app-border);
-  border-radius: 20px;
+  border-radius: var(--radius-surface);
   background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 18px 52px rgba(34, 45, 50, 0.1), 0 2px 8px rgba(34, 45, 50, 0.04);
   scrollbar-width: thin;
@@ -7493,12 +7493,12 @@ body {
    reserved: conversation centers inside the corridor left of the inspector
    compact: inspector becomes a capsule and the conversation returns to full-canvas center */
 .conversation-main {
-  --inspector-panel-width: 360px;
+  --inspector-panel-width: 320px;
   --inspector-panel-right: 17px;
   --inspector-collision-gap: 28px;
   /* The corridor ends at the panel's real left edge. Collision spacing only
      determines when the layout changes; it must not bias the visual center. */
-  --inspector-boundary-offset: 377px;
+  --inspector-boundary-offset: 337px;
   --inspector-center-shift: -188.5px;
 }
 
@@ -7626,7 +7626,7 @@ body {
   width: min(var(--inspector-panel-width), calc(100% - 34px));
   max-height: calc(100% - 92px);
   overflow-y: auto;
-  border-radius: 20px;
+  border-radius: var(--radius-surface);
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 24px 70px rgba(28, 39, 44, 0.18), 0 3px 12px rgba(28, 39, 44, 0.07);
 }
