@@ -4005,7 +4005,7 @@ body.is-resizing-panel * {
   overflow: hidden;
   background: #ffffff;
   container-type: inline-size;
-  --stage-width: min(var(--layout-composer-width), calc(100cqw - 44px));
+  --stage-width: min(var(--layout-composer-width), calc(100cqw - 92px));
 }
 
 .conversation-main .conversation-scroll {
@@ -6080,7 +6080,7 @@ body {
   }
 
   .conversation-main {
-    --stage-width: calc(100cqw - 24px);
+    --stage-width: calc(100cqw - 72px);
   }
 
   .composer {
@@ -7532,7 +7532,7 @@ body {
 }
 
 .inspector-layout-reserved {
-  --stage-width: min(var(--layout-composer-width), calc(100cqw - var(--inspector-boundary-offset) - 44px));
+  --stage-width: min(var(--layout-composer-width), calc(100cqw - var(--inspector-boundary-offset) - 92px));
 }
 
 .inspector-layout-reserved .conversation-scroll {
