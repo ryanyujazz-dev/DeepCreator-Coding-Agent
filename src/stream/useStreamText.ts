@@ -8,8 +8,13 @@ import {
   streamReleaseInterval
 } from "./textFlow";
 
+// 模块级单例:渲染体每次重渲都会调 prefersReducedMotion(),若每次 matchMedia 会分配新 MediaQueryList
+// (流式 rAF 频率重渲 → 每秒上百次,纯浪费)。.matches 是 live 属性,缓存单例仍正确;SSR/非浏览器下为 null。
+const reducedMotionMedia: MediaQueryList | null =
+  typeof window !== "undefined" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+
 function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return reducedMotionMedia?.matches ?? false;
 }
 
 export function useStreamText(text: string, streaming: boolean, onFrame?: () => void): StreamFrame {
@@ -101,17 +106,17 @@ export function useStreamText(text: string, streaming: boolean, onFrame?: () => 
   }, [flush, schedule, streaming, text]);
 
   useEffect(() => {
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (!reducedMotionMedia) return;
     const handleMotionChange = () => {
-      if (media.matches) flush(canonicalRef.current);
+      if (reducedMotionMedia.matches) flush(canonicalRef.current);
     };
     const handleVisibilityChange = () => {
       if (document.hidden) flush(canonicalRef.current);
     };
-    media.addEventListener("change", handleMotionChange);
+    reducedMotionMedia.addEventListener("change", handleMotionChange);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      media.removeEventListener("change", handleMotionChange);
+      reducedMotionMedia.removeEventListener("change", handleMotionChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (animationFrameRef.current !== undefined) cancelAnimationFrame(animationFrameRef.current);
     };
