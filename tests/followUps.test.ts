@@ -153,6 +153,101 @@ test("starts the next queued prompt automatically after the active Run finishes"
   }
 });
 
+test("rolls back every question interruption fact when its Tool Result cannot be committed", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-question-interrupt-rollback-"));
+  const { followUps, store, system } = createHarness(directory);
+  let reopened: RuntimeStore | undefined;
+  try {
+    store.appendContextEntry({
+      kind: "agent_text",
+      recordId: "context_duplicate",
+      runId: "run_current",
+      sessionId: "session_follow_up",
+      source: "model",
+      text: "",
+      toolCalls: [{ argumentsText: "{}", callId: "call_question", index: 0, name: "ask_user" }]
+    });
+    store.append({
+      data: {
+        question: {
+          callId: "call_question",
+          createdAt: system.now(),
+          interactionId: "question_pending",
+          prompts: [{ questionId: "scope", prompt: "要处理哪个范围？", type: "text" }],
+          purpose: "clarification",
+          runId: "run_current",
+          sessionId: "session_follow_up",
+          status: "pending"
+        }
+      },
+      runId: "run_current",
+      sessionId: "session_follow_up",
+      type: "question.asked"
+    });
+    const eventCount = store.readEvents("session_follow_up").length;
+    let published = 0;
+    const unsubscribe = store.subscribe("session_follow_up", (events) => { published += events.length; });
+    assert.throws(() => store.appendAtomically([{
+      data: {
+        followUp: {
+          accessMode: "request_approval",
+          createdAt: system.now(),
+          followUpId: "follow_up_atomic",
+          mode: "work",
+          model: "mock-agent",
+          planEntry: "suggest",
+          prompt: "改为先检查构建",
+          requestId: "request_atomic"
+        }
+      },
+      sessionId: "session_follow_up",
+      type: "follow_up.queued"
+    }, {
+      data: { interactionId: "question_pending", resolvedAt: system.now(), status: "cancelled" },
+      runId: "run_current",
+      sessionId: "session_follow_up",
+      type: "question.answered"
+    }, {
+      data: { answer: "用户选择结束问题澄清环节", finishedAt: system.now(), status: "cancelled" },
+      runId: "run_current",
+      sessionId: "session_follow_up",
+      type: "run.finished"
+    }], [{
+      isError: true,
+      kind: "tool_result",
+      recordId: "context_duplicate",
+      runId: "run_current",
+      sessionId: "session_follow_up",
+      source: "runtime",
+      text: "interrupted",
+      toolCallKey: "call_question",
+      toolName: "ask_user"
+    }]), /UNIQUE constraint failed/);
+    unsubscribe();
+
+    const inMemory = store.getSession("session_follow_up")!;
+    assert.equal(published, 0);
+    assert.equal(store.readEvents("session_follow_up").length, eventCount);
+    assert.equal(inMemory.followUps.length, 0);
+    assert.equal(inMemory.questions[0].status, "pending");
+    assert.equal(inMemory.runs[0].status, "waiting");
+
+    followUps.close();
+    store.close();
+    reopened = new RuntimeStore(directory);
+    const restored = reopened.getSession("session_follow_up")!;
+    assert.equal(restored.followUps.length, 0);
+    assert.equal(restored.questions[0].status, "pending");
+    assert.equal(restored.runs[0].status, "waiting");
+    assert.equal(reopened.readContextEntries("session_follow_up").filter((entry) => entry.toolCallKey === "call_question").length, 0);
+  } finally {
+    followUps.close();
+    try { store.close(); } catch { /* already closed for restart verification */ }
+    reopened?.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
 test("interrupts a pending question with one terminal tool result before starting the new Run", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-question-interrupt-"));
   const { followUps, launched, store, system } = createHarness(directory);

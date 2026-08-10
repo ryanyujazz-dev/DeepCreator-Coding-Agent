@@ -40,6 +40,13 @@ export interface ContextPort {
   readContextEntries(sessionId: string): ContextEntry[];
 }
 
+export interface AtomicWritePort {
+  appendAtomically(inputs: EventInput[], contextInputs: ContextInput[]): {
+    contextEntries: ContextEntry[];
+    events: Event[];
+  };
+}
+
 export interface EvidencePort {
   storeEvidence(sessionId: string, recordId: string, text: string): string;
   writeDebugSnapshot(sessionId: string, runId: string, value: unknown): void;
@@ -63,4 +70,4 @@ export interface StoreLifecyclePort {
   close(): void;
 }
 
-export type RuntimePorts = EventPort & SessionPort & DelegationPort & ContextPort & EvidencePort & MemoryPort & MetricPort & StoreLifecyclePort;
+export type RuntimePorts = AtomicWritePort & EventPort & SessionPort & DelegationPort & ContextPort & EvidencePort & MemoryPort & MetricPort & StoreLifecyclePort;
