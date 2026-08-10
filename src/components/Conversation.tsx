@@ -50,6 +50,13 @@ export function Conversation({
 }) {
   const scrollRef = useRef<HTMLElement>(null);
   const modeRef = useRef<ScrollFollowMode>("follow");
+  // 内容容器(.conversation-column)ref —— 给 ResizeObserver observe。两个有内容的分支
+  // (pendingRun / session)都绑它,React 在分支切换时自动把当前节点赋给 contentRef。
+  // 用 HTMLDivElement 而非 HTMLElement:<div> 的 ref 期望精确的 HTMLDivElement(React ref
+  // 类型不变,父类 HTMLElement 的 ref 不能赋给 div 元素)。ResizeObserver.observe 接受 Element,
+  // HTMLDivElement 兼容。
+  const contentRef = useRef<HTMLDivElement>(null);
+  const contentResizeObserverRef = useRef<ResizeObserver | null>(null);
   const [notAtBottom, setNotAtBottom] = useState(false);
   const [notAtTop, setNotAtTop] = useState(false);
   // 底部蒙层的 bottom:从 main 底部到 composer 上沿的距离。
@@ -132,6 +139,18 @@ export function Conversation({
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  // 内容增长(session 变化)时,在 React commit 后、浏览器 paint 前同步把视口钉到底。
+  // 根治 tool activity 等阶跃增长的「先 paint 在下方、200ms 后定时器才追上」跳动:
+  // useLayoutEffect 在 DOM mutation 后、paint 前同步执行 → scrollTop 已贴底再 paint,
+  // 新内容一出现就在它该在的贴底位置,没有「先下后上」。follow 门控(paused 时不滚)。
+  // session 每事件新引用(本组件无 memo、App 每帧重渲)→ 每次内容增长都触发。
+  useLayoutEffect(() => {
+    if (modeRef.current !== "follow") return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [session]);
+
   const setMode = useCallback((next: ScrollFollowMode) => {
     if (modeRef.current === next) return;
     modeRef.current = next;
@@ -161,6 +180,36 @@ export function Conversation({
     }
     setNotAtTop(el.scrollTop >= SCROLL_FOLLOW_EDGE_THRESHOLD);
   }, [distanceFromBottom, setMode]);
+
+  // 输入层预置 paused:向上滚轮(deltaY<0)立即 paused,不等 scroll 事件派生 —— 防 useLayoutEffect
+  // 每帧钉底把用户上翻「弹回」(scroll 事件派发晚于 rAF 1-2 帧)。复刻 ReasoningTrace.tsx 的
+  // pauseForUpwardScroll 模式。向下滚轮(deltaY>0,追最新)不 paused,follow 继续。
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLElement>) => {
+    if (event.deltaY < 0) setMode("paused");
+  }, [setMode]);
+
+  // ResizeObserver:覆盖非 session 驱动的异步撑高(mermaid React.lazy 首渲 pre→异步换 SVG、
+  // 字体/图片加载、InlinePlanCard max-height / operation-expander grid-rows 的 CSS 高度过渡、
+  // composerBottomOffset spacer 变化)—— 这些 useLayoutEffect([session]) 抓不到,原本最多滞后
+  // 200ms。RO 回调在 layout 后、paint 前触发,follow 时同步钉底赶上 paint。
+  // 依赖 [sessionId, pendingRun.key]:切会话/切分支时 contentRef.current 换成新 .conversation-column
+  // → 重建 RO;同会话内 sessionId 不变 → RO 持续 observe 同一节点(其高度变化,无论 session 驱动
+  // 还是异步,都被捕获),无需每帧重建。复用上面蒙层 RO(useLayoutEffect)的模式。
+  useEffect(() => {
+    const content = contentRef.current;
+    const scroll = scrollRef.current;
+    if (!content || !scroll) return;
+    const observer = new ResizeObserver(() => {
+      if (modeRef.current !== "follow") return;
+      scroll.scrollTop = scroll.scrollHeight;
+    });
+    observer.observe(content);
+    contentResizeObserverRef.current = observer;
+    return () => {
+      observer.disconnect();
+      contentResizeObserverRef.current = null;
+    };
+  }, [session?.sessionId, pendingRun?.key]);
 
   useEffect(() => {
     setMode("follow");
@@ -227,10 +276,11 @@ export function Conversation({
     <section
       className="conversation-scroll"
       onScroll={handleScroll}
+      onWheel={handleWheel}
       ref={scrollRef}
     >
       {pendingRun ? (
-        <div className="conversation-column">
+        <div className="conversation-column" ref={contentRef}>
           <div className="conversation-turn">
             <section className="user-turn"><p>{pendingRun.prompt}</p></section>
             <div className="run-stream">
@@ -242,7 +292,7 @@ export function Conversation({
           <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 60}px` }} />
         </div>
       ) : session && session.runs.length > 0 ? (
-        <div className="conversation-column">
+        <div className="conversation-column" ref={contentRef}>
           {notices?.map((notice, index) => (
             <div className="conversation-notice" key={`notice-${index}`}>{notice}</div>
           ))}

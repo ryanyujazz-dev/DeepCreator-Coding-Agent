@@ -14,6 +14,13 @@
   padding-bottom: 18px;
 }
 
+/* 禁用浏览器 scroll anchoring:Conversation.tsx 已完全手动管理贴底(useLayoutEffect 同步钉底
+   + ResizeObserver + 200ms 兜底定时器),anchoring(default auto)对「底部追加」无收益,却会在
+   running→completed 等既有元素高度变化时重选锚点 → scrollTop 被动漂移。关掉让钉底确定化。 */
+.conversation-scroll {
+  overflow-anchor: none;
+}
+
 /* 底部遮罩:对话流在 composer 浮窗后面滚动,composer 仅自身有白底,其下方与两侧的
    滚动内容会从浮窗周围透出来。用一块与对话区同底色(var(--app-canvas))的遮罩盖住
    composer 上沿以下的整条区域,让对话框像立在同色基座上、底部不再有文字穿过。
