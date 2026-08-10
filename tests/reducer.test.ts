@@ -278,6 +278,28 @@ test("结构性共享:未触及的 run 与子树保持引用,仅被改路径换�
   assert.equal(s2.runs[1].reasoning, "B 增量。");
 });
 
+test("结构性共享:run.finished 的 activities copy-on-write —— 已完成 activity 元素保持引用,运行中换新", () => {
+  // run.finished 用 activities.map 对 running/suspended 换新引用、对已完成项 return activity(保持引用)。
+  // 该分支不走 withUpdatedElement,需单独断言:已完成 activity 元素引用稳定(memo 据此跳过);
+  // 否则回归(把 return activity 改成 return {...activity})会静默击穿下游 memo 且无测试信号。
+  const s0 = createSession(registration, 1);
+  const s1 = reduceEvents(s0, [
+    runEvent("run_x", 2, "run.started", { model: "deepseek-chat", prompt: "X", startedAt }),
+    runEvent("run_x", 3, "activity.started", { audience: "user", kind: "thinking", startedAt, title: "" }, "ax_done"),
+    runEvent("run_x", 4, "activity.finished", { status: "completed", finishedAt }, "ax_done"),
+    runEvent("run_x", 5, "activity.started", { audience: "user", kind: "tool", startedAt, title: "" }, "ax_run")
+  ]);
+  const doneActivityBefore = s1.runs[0].activities[0];
+  const runningActivityBefore = s1.runs[0].activities[1];
+  assert.equal(runningActivityBefore.status, "running");
+
+  const s2 = reduceEvents(s1, [runEvent("run_x", 6, "run.finished", { answer: "ok", status: "completed", finishedAt })]);
+
+  assert.strictEqual(s2.runs[0].activities[0], doneActivityBefore, "已完成 activity 元素引用保持(return activity 分支)");
+  assert.notStrictEqual(s2.runs[0].activities[1], runningActivityBefore, "running activity 元素换新引用");
+  assert.equal(s2.runs[0].activities[1].status, "failed", "run 完成时 running activity 归为 failed");
+});
+
 test("activity.updated:argumentsDelta 与 tool 部分合并到新 tool 对象,共享原 tool 不被污染", () => {
   const setup = reduceEvents(createSession(registration, 1), [
     runEvent("run_t", 2, "run.started", { model: "deepseek-chat", prompt: "T", startedAt }),
