@@ -13,7 +13,7 @@ export class Database {
 
   constructor(filePath: string, private readonly migrationDirectory?: string) {
     this.raw = new DatabaseSync(filePath);
-    this.raw.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;");
+    this.raw.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;");
     this.migrationReport = this.migrate();
   }
 

@@ -117,5 +117,18 @@ export function useStreamText(text: string, streaming: boolean, onFrame?: () => 
     };
   }, [flush]);
 
+  // 渲染体同步派生可见 frame —— 凡「应立即显示全文」的情形(与下方 effect 的 flush 判定一致),
+  // 该次渲染本身就返回全文,不再回旧的 useState frame、不再等 commit+paint 之后的被动 effect 去 setFrame。
+  // 根治:message activity.finished 到达使 streaming 翻 false 后,原 flush 写在被动 useEffect 里,其执行
+  // 在工具执行期间被连续的工具事件渲染(每 chunk→applyEvents→rAF emit→React 重渲)当成低优先级
+  // macrotask 反复延后,直到工具结束才跑 → content「先两个字,工具完成后才一口气出全文」。
+  // 让可见输出在 streaming/文本变化的同一 commit 落定,即对被动 effect 调度抢占完全免疫。
+  // 原有两个 useEffect 保留:负责清 rAF/pending 与 frame state 最终一致(reduced-motion / visibility /
+  // 极少 false→true 复用),但其执行时机不再决定可见输出。此处只读 canonicalRef(反映上次 commit 的
+  // 全文),与 effect 中的写入配合,保证 startsWith 增量判定在渲染体与 effect 间一致。
+  const visiblePrevious = canonicalRef.current;
+  if (!streaming || prefersReducedMotion() || !text.startsWith(visiblePrevious)) {
+    return { fragments: [], stable: text };
+  }
   return frame;
 }
