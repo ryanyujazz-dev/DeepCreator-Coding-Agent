@@ -224,8 +224,18 @@ export function Conversation({
     const sync = () => {
       const column = contentRef.current;
       if (!column) return;
-      const width = composer.getBoundingClientRect().width;
-      if (width > 0) column.style.width = `${width}px`;
+      const composerRect = composer.getBoundingClientRect();
+      const scrollRect = scroll.getBoundingClientRect();
+      const paddingLeft = parseFloat(getComputedStyle(scroll).paddingLeft) || 0;
+      if (composerRect.width <= 0) return;
+      column.style.width = `${composerRect.width}px`;
+      // margin auto 在 column 宽 > scroll 内容盒(窄屏 padding 占比大)时负值解析不稳 → column 偏右、
+      // 右沿超窗口。改 margin 0 + transform 视觉对齐:translateX 让 column 左沿 = composer 左沿
+      // (相对 scroll 内容盒)。布局上 column 占 padding-left 起、margin 0(不触发负 margin),
+      // 视觉上整体平移到 composer 位置 —— 任何状态(普通/inspector/surface/窄屏)恒等对齐。
+      column.style.marginLeft = "0px";
+      column.style.marginRight = "0px";
+      column.style.transform = `translateX(${composerRect.left - scrollRect.left - paddingLeft}px)`;
     };
     sync();
     const observer = new ResizeObserver(sync);
