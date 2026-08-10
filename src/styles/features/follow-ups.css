@@ -14,6 +14,13 @@
   padding-bottom: 18px;
 }
 
+/* 禁用浏览器 scroll anchoring:仅 follow(贴底跟随)模式禁用 —— 手动钉底已覆盖;paused(用户上翻)
+   时恢复 anchoring(default auto),让 mermaid/图片/字体/展开项异步撑高时浏览器补偿,避免阅读
+   位置漂移(codex 审查 P2 回归)。Conversation.tsx 用 data-follow 切换(follow=true / paused=false)。 */
+.conversation-scroll[data-follow="true"] {
+  overflow-anchor: none;
+}
+
 /* 底部遮罩:对话流在 composer 浮窗后面滚动,composer 仅自身有白底,其下方与两侧的
    滚动内容会从浮窗周围透出来。用一块与对话区同底色(var(--app-canvas))的遮罩盖住
    composer 上沿以下的整条区域,让对话框像立在同色基座上、底部不再有文字穿过。

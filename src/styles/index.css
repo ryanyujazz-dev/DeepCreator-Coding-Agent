@@ -15,6 +15,7 @@
 @import "./features/composer-bar.css";
 @import "./features/agent-interaction-composer.css";
 @import "./features/task-history.css";
+@import "./features/markdown-streaming.css";
 
 /*
  * 全局滚动条策略:默认隐藏所有原生滚动条(保留滚动行为),唯独对话区 .conversation-scroll

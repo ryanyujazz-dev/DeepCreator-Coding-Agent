@@ -33,12 +33,12 @@ test("renders GFM structure and fenced code through the shared markdown surface"
   assert.match(html, /aria-label="复制代码"/);
 });
 
-test("maps a streaming source range to its five-frame markdown fade class", () => {
+test("maps a streaming source suffix to its markdown fade class", () => {
   const html = renderToStaticMarkup(createElement(MarkdownContent, {
     fragments: [{ frame: 3, id: 1, text: "新增内容" }],
     stable: "已有内容 "
   }));
-  assert.match(html, /streaming-fragment is-frame-3/);
+  assert.match(html, /markdown-streaming-fragment/);
   assert.match(html, />新增内容<\/span>/);
 });
 
