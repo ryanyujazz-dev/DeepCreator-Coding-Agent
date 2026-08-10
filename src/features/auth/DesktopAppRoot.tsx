@@ -50,7 +50,18 @@ export function DesktopAppRoot() {
     if (authState.mode === "local" && authState.profileSetupRequired && authState.user) {
       return (
         <LocalProfileSetup
-          onComplete={async (input) => { setAuthState(await desktop.auth.updateLocalProfile(input)); }}
+          onComplete={async (input, apiKey) => {
+            if (apiKey) {
+              const settings = await desktop.settings.read();
+              const result = await desktop.settings.save({
+                apiKey,
+                defaultModel: settings.defaultModel,
+                modelProtocols: settings.modelProtocols
+              });
+              runtimeApi.configure(result.connection);
+            }
+            setAuthState(await desktop.auth.updateLocalProfile(input));
+          }}
           user={authState.user}
         />
       );

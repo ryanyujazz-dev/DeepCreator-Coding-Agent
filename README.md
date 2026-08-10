@@ -73,6 +73,8 @@ Desktop Runtime data is stored in the active local Profile under Electron's `use
 
 `package:mac` creates an ad-hoc signed development application under `out/DeepCreator-darwin-arm64`. It does not perform Developer ID signing, notarization, or distribution packaging. If Electron's GitHub download is unavailable on the local network, install the binary once with a trusted mirror configured through `ELECTRON_MIRROR`, then rerun the package command.
 
+Friends-only preview releases build separate Apple Silicon, Intel macOS, and Windows artifacts, use the local Profile onboarding, and publish a SHA-256 checksum file. Follow the [friends preview release guide](docs/friend-preview-release.md) before creating a version tag.
+
 ## Runtime API
 
 ```text

@@ -40,6 +40,8 @@
     "package:mac": "npm run release:validate-version && node scripts/validate-release-auth.mjs && electron-forge package --platform=darwin",
     "package:windows": "npm run release:validate-version && node scripts/validate-release-auth.mjs && electron-forge package --platform=win32 --arch=x64",
     "make:mac": "npm run release:validate-version && node scripts/validate-release-auth.mjs && electron-forge make --platform=darwin",
+    "make:mac:arm64": "npm run release:validate-version && node scripts/validate-release-auth.mjs && electron-forge make --platform=darwin --arch=arm64",
+    "make:mac:x64": "npm run release:validate-version && node scripts/validate-release-auth.mjs && electron-forge make --platform=darwin --arch=x64",
     "make:windows": "npm run release:validate-version && node scripts/validate-release-auth.mjs && electron-forge make --platform=win32 --arch=x64",
     "test": "tsx --tsconfig tsconfig.tests.json --test tests/**/*.test.ts",
     "test:architecture": "tsx --tsconfig tsconfig.tests.json --test tests/architecture.test.ts",

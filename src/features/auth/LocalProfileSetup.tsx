@@ -1,4 +1,4 @@
-import { LockKeyhole, Save, ShieldCheck } from "lucide-react";
+import { KeyRound, LockKeyhole, Save, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { AuthUser, LocalProfileAvatar, LocalProfileInput } from "../../../shared/contracts/auth";
 import { desktopErrorMessage } from "../../platform/desktop";
@@ -9,19 +9,20 @@ export function LocalProfileSetup({
   onComplete,
   user
 }: {
-  onComplete: (input: LocalProfileInput) => Promise<void>;
+  onComplete: (input: LocalProfileInput, apiKey?: string) => Promise<void>;
   user: AuthUser;
 }) {
   const [avatar, setAvatar] = useState<LocalProfileAvatar>(user.avatar || "blue");
   const [busy, setBusy] = useState(false);
   const [displayName, setDisplayName] = useState(user.displayName === "本地 Profile" ? "" : user.displayName);
+  const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const submit = async (input: LocalProfileInput) => {
+  const submit = async (input: LocalProfileInput, deepSeekApiKey?: string) => {
     setBusy(true);
     setError(null);
     try {
-      await onComplete(input);
+      await onComplete(input, deepSeekApiKey);
     } catch (nextError) {
       setError(desktopErrorMessage(nextError));
     } finally {
@@ -31,7 +32,7 @@ export function LocalProfileSetup({
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    void submit({ avatar, displayName });
+    void submit({ avatar, displayName }, apiKey.trim() || undefined);
   };
 
   return (
@@ -72,13 +73,37 @@ export function LocalProfileSetup({
               ))}
             </div>
           </fieldset>
+          <section className="profile-model-readiness" aria-labelledby="profile-model-title">
+            <div className="profile-model-heading">
+              <KeyRound size={16} />
+              <div>
+                <h2 id="profile-model-title">连接 DeepSeek</h2>
+                <p>填入你自己的 API Key 后即可处理真实项目。</p>
+              </div>
+            </div>
+            <label className="profile-setup-field">
+              <span>DeepSeek API Key</span>
+              <input
+                autoComplete="off"
+                disabled={busy}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="sk-…"
+                type="password"
+                value={apiKey}
+              />
+              <small>Key 由系统安全存储加密保存在当前 Profile；未配置时仅使用 mock-agent 演示响应。</small>
+            </label>
+          </section>
           <div className="auth-status-line"><LockKeyhole size={16} /><span>不需要手机号或邮箱，不会上传个人资料</span></div>
           {error && <div className="auth-error" role="alert">{error}</div>}
           <div className="auth-actions profile-setup-actions">
-            <PillButton disabled={busy} onClick={() => void submit({ avatar: "blue", displayName: "本地 Profile" })}>暂时跳过</PillButton>
-            <PillButton className="auth-primary-action" disabled={busy || !displayName.trim()} type="submit"><Save size={15} />开始使用</PillButton>
+            <PillButton
+              disabled={busy}
+              onClick={() => void submit({ avatar, displayName: displayName.trim() || "本地 Profile" })}
+            >进入演示模式</PillButton>
+            <PillButton className="auth-primary-action" disabled={busy || !displayName.trim() || !apiKey.trim()} type="submit"><Save size={15} />保存并开始使用</PillButton>
           </div>
-          <footer><span>仅此设备</span><span>稍后可修改</span><span>无需联网</span></footer>
+          <footer><span>仅此设备</span><span>稍后可修改</span><span>已保存 Key 不回显</span></footer>
         </form>
       </main>
     </div>
