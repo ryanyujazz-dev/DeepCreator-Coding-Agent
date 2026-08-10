@@ -102,7 +102,7 @@ export function ProjectContextSelector({
   };
 
   return (
-    <div className="project-context-shelf">
+    <div className="composer-head project-context-shelf">
       <button
         aria-expanded={open}
         aria-haspopup="dialog"

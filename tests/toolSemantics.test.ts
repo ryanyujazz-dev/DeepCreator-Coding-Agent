@@ -49,6 +49,16 @@ test("keeps every model-visible tool description in Chinese", () => {
   assert.ok(descriptions.every((description) => /[\u3400-\u9fff]/.test(description)));
 });
 
+test("ask_user exposes only choice questions and leaves custom input to the interface", () => {
+  const askUser = toolSpecs.find((definition) => definition.name === "ask_user");
+  assert.ok(askUser);
+  const schema = JSON.stringify(askUser.inputSchema);
+  assert.match(schema, /"enum":\["single_choice","multiple_choice"\]/);
+  assert.doesNotMatch(schema, /"enum":\["single_choice","multiple_choice","text"\]/);
+  assert.match(askUser.description, /界面统一提供“其他”输入/);
+  assert.match(askUser.description, /必须调用 enter_plan/);
+});
+
 test("classifies command semantics through the tool registration", () => {
   const search = semantic("run_command", { command: "rg Activity src" });
   assert.equal(search.action, "search");

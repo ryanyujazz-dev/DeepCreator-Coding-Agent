@@ -1,5 +1,6 @@
-import { AccessMode, PlanDecision, Session } from "../../shared/contracts/runtime";
+import { AccessMode, PlanDecision, QuestionAnswer, Session } from "../../shared/contracts/runtime";
 import { ModelProtocol } from "../../shared/contracts/provider";
+import { normalizeQuestionAnswers, validateQuestionAnswers } from "../../shared/domain/questions";
 import { ContextPort, EventInput, EventPort, SessionPort } from "./runtimeRepo";
 import { AppError, AppErrorCode } from "./appError";
 import { SystemPort } from "./systemPort";
@@ -139,7 +140,7 @@ export function resolvePlan(input: {
 }
 
 export function answerQuestion(input: {
-  answers: Record<string, string>;
+  answers: Record<string, QuestionAnswer>;
   interactionId: string;
   sessionId: string;
   store: PlanReviewPorts;
@@ -149,18 +150,20 @@ export function answerQuestion(input: {
   if (!session) throw new PlanReviewError("Session not found.", "not_found");
   const question = session.questions.find((item) => item.interactionId === input.interactionId);
   if (!question) throw new PlanReviewError("Question interaction not found.", "not_found");
-  const answers = Object.fromEntries(question.prompts.map((prompt) => {
-    const answer = String(input.answers[prompt.questionId] ?? "").trim();
-    if (!answer) throw new PlanReviewError(`Question ${prompt.questionId} requires an answer.`, "invalid_input");
-    return [prompt.questionId, answer];
-  }));
+  const answers = Object.fromEntries(question.prompts.map((prompt) => [prompt.questionId, input.answers[prompt.questionId]]));
+  const validationIssue = validateQuestionAnswers(question, answers);
+  if (validationIssue) throw new PlanReviewError(validationIssue, "invalid_input");
   if (question.status === "answered") {
-    if (JSON.stringify(question.answers ?? {}) !== JSON.stringify(answers)) throw new PlanReviewError("Question interaction is stale.", "stale_revision");
+    if (JSON.stringify(normalizeQuestionAnswers(question) ?? {}) !== JSON.stringify(answers)) throw new PlanReviewError("Question interaction is stale.", "stale_revision");
     return { idempotent: true, session };
   }
   if (question.status !== "pending") throw new PlanReviewError("Question interaction is stale.", "stale_revision");
   const resolvedAt = input.system.now();
-  const enterPlan = question.purpose === "plan_entry" && answers.plan_entry === "进入计划模式";
+  const planEntryAnswer = answers.plan_entry;
+  const enterPlan = question.purpose === "plan_entry"
+    && planEntryAnswer?.status === "answered"
+    && planEntryAnswer.answer.kind === "choice"
+    && planEntryAnswer.answer.optionIds.includes("enter_plan");
   const events: EventInput[] = [{
     data: { answers, interactionId: question.interactionId, resolvedAt, status: "answered" },
     runId: question.runId,
@@ -184,7 +187,7 @@ export function answerQuestion(input: {
     source: "runtime",
     text: JSON.stringify({ answers, interactionId: question.interactionId, mode: enterPlan ? "plan" : session.mode }),
     toolCallKey: question.callId,
-    toolName: "ask_user"
+    toolName: question.purpose === "plan_entry" ? "enter_plan" : "ask_user"
   });
   const next = input.store.getSession(session.sessionId)!;
   return { idempotent: false, resume: resumeFor(next, question.runId), session: next };

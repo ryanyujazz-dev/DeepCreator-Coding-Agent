@@ -9,6 +9,7 @@ import { desktopBridge } from "./platform/desktop";
 import { useRuntimeObservers } from "./features/runtime/useRuntimeObservers";
 import { useFollowUps } from "./features/runtime/useFollowUps";
 import { useBranchCheckout } from "./features/runtime/useBranchCheckout";
+import { useQuestionInteractions } from "./features/runtime/useQuestionInteractions";
 
 export function useWorkspace() {
   const desktop = desktopBridge();
@@ -165,6 +166,15 @@ export function useWorkspace() {
     planEntry: draftPlanEntry,
     reportError,
     session,
+    setSession
+  });
+  const { answerQuestion, interruptQuestion } = useQuestionInteractions({
+    accessMode: draftAccessMode,
+    mode: draftMode,
+    model,
+    planEntry: draftPlanEntry,
+    session,
+    setError,
     setSession
   });
 
@@ -342,21 +352,11 @@ export function useWorkspace() {
     }
   }, [session, setSession]);
 
-  const answerQuestion = useCallback(async (interactionId: string, answers: Record<string, string>) => {
-    if (!session) return;
-    setError(null);
-    try {
-      const result = await runtimeApi.answerQuestion(session.sessionId, interactionId, answers);
-      setSession(result.session);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    }
-  }, [session, setSession]);
-
   return {
     activeRun,
     accessMode: draftAccessMode,
     answerQuestion,
+    interruptQuestion,
     archiveProjectSessions,
     archiveSession,
     balance,

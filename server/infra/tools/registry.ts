@@ -567,21 +567,35 @@ export const toolRegistry: ToolRegistration[] = [
     }
   },
   {
-    // 在计划模式中向用户提问
+    // 在计划或工作模式中向用户提问
     name: "ask_user",
-    description: "向用户提出一至三个会实质影响计划的简短问题，然后等待回答。每个问题可以提供两至三个选项，也可以开放回答。\n\n适用场景：在计划模式中已经收集足够上下文，可以形成方案，但完成计划前仍需要用户做关键决策，例如“使用 A 还是 B 库”“现在迁移还是保留向后兼容”。\n\n不适用场景：信息已经足够提交计划，应使用 submit_plan；当前处于工作模式，ask_user 仅限计划模式；问题琐碎且不会改变计划。\n\n重要：这是独立控制工具。只询问答案会改变计划的问题；能通过工具自行查明的信息不要询问用户。\n\n示例：\n  ask_user(questions=[\n    {questionId: \"q1\", label: \"状态库\", prompt: \"应使用哪个状态管理库？\", options: [\"Zustand\", \"Redux\", \"Jotai\"]},\n    {questionId: \"q2\", label: \"迁移\", prompt: \"现在迁移，还是暂时保留向后兼容？\"}\n  ])",
+    description: "在计划或工作模式中，向用户提出一至三个会实质影响后续工作的简短选择题，然后等待回答。支持单选和多选；每道题由界面统一提供“其他”输入，选项可以标注推荐项，但推荐不会被自动选择。\n\n适用场景：已经完成必要的只读调查，但仍存在无法自行查明、会改变实现方向或安全边界的关键选择。\n\n不适用场景：能通过读取、搜索或测试自行查明；问题琐碎；已有足够信息继续工作；只是汇报进度；询问用户是否进入计划模式，此时必须调用 enter_plan。\n\n重要：这是独立暂停工具，必须单独调用。Agent 必须提供二至四个简短选项，不要自行创建文本题，也不要传入“其他”选项、界面文案、布局或颜色。",
     inputSchema: objectSchema({
       questions: {
         type: "array",
         minItems: 1,
         maxItems: 3,
         items: objectSchema({
-          questionId: { type: "string", description: "问题的唯一标识符，用于映射答案" },
-          label: { type: "string", description: "以标签或标题形式展示的简短名称，最多 12 个字符" },
-          prompt: { type: "string", description: "完整问题文本" },
-          options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 3, description: "二至三个预设选项。开放式问题应省略此字段。" }
-        }, ["questionId", "label", "prompt"]),
-        description: "向用户提出的一至三个问题，每个问题都必须对计划产生实质影响。"
+          id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,31}$", description: "问题的唯一稳定标识符" },
+          question: { type: "string", minLength: 1, maxLength: 120, description: "用户看到的完整问题" },
+          type: { type: "string", enum: ["single_choice", "multiple_choice"] },
+          options: {
+            type: "array",
+            minItems: 2,
+            maxItems: 4,
+            items: objectSchema({
+              id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,31}$" },
+              title: { type: "string", minLength: 1, maxLength: 40 },
+              description: { type: "string", maxLength: 120 },
+              recommended: { type: "boolean" }
+            }, ["id", "title"])
+          },
+          minSelections: { type: "integer", minimum: 1 },
+          maxSelections: { type: "integer", minimum: 1 },
+          placeholder: { type: "string", maxLength: 80 },
+          multiline: { type: "boolean" }
+        }, ["id", "question", "type"]),
+        description: "一至三个真正阻塞后续工作的关键问题。"
       }
     }, ["questions"]),
     presentation: {

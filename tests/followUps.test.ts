@@ -152,3 +152,80 @@ test("starts the next queued prompt automatically after the active Run finishes"
     rmSync(directory, { force: true, recursive: true });
   }
 });
+
+test("interrupts a pending question with one terminal tool result before starting the new Run", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-question-interrupt-"));
+  const { followUps, launched, store, system } = createHarness(directory);
+  try {
+    store.appendContextEntry({
+      kind: "agent_text",
+      runId: "run_current",
+      sessionId: "session_follow_up",
+      source: "model",
+      text: "",
+      toolCalls: [{ argumentsText: "{}", callId: "call_question", index: 0, name: "ask_user" }]
+    });
+    store.append({
+      data: {
+        question: {
+          callId: "call_question",
+          createdAt: system.now(),
+          interactionId: "question_pending",
+          prompts: [{ questionId: "scope", prompt: "要处理哪个范围？", type: "text" }],
+          purpose: "clarification",
+          runId: "run_current",
+          sessionId: "session_follow_up",
+          status: "pending"
+        }
+      },
+      runId: "run_current",
+      sessionId: "session_follow_up",
+      type: "question.asked"
+    });
+
+    const result = await followUps.interruptQuestion({
+      accessMode: "request_approval",
+      interactionId: "question_pending",
+      mode: "work",
+      model: "mock-agent",
+      planEntry: "suggest",
+      prompt: "改为先检查构建",
+      requestId: "request_once",
+      sessionId: "session_follow_up"
+    });
+    assert.equal(result.idempotent, false);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const session = store.getSession("session_follow_up")!;
+    assert.equal(session.questions[0].status, "cancelled");
+    assert.equal(session.runs[0].status, "cancelled");
+    assert.equal(session.runs.at(-1)?.prompt, "改为先检查构建");
+    assert.equal(launched.at(-1)?.prompt, "改为先检查构建");
+    const results = store.readContextEntries("session_follow_up").filter((entry) => entry.toolCallKey === "call_question");
+    assert.equal(results.length, 1);
+    assert.deepEqual(JSON.parse(results[0].text ?? "{}"), {
+      interactionId: "question_pending",
+      message: "用户选择结束问题澄清环节",
+      reason: "user_started_new_run",
+      status: "interrupted"
+    });
+    assert.equal(store.readContextEntries("session_follow_up").some((entry) => entry.kind === "recovery_capsule" && entry.runId === "run_current"), false);
+
+    const retry = await followUps.interruptQuestion({
+      accessMode: "request_approval",
+      interactionId: "question_pending",
+      mode: "work",
+      model: "mock-agent",
+      planEntry: "suggest",
+      prompt: "改为先检查构建",
+      requestId: "request_once",
+      sessionId: "session_follow_up"
+    });
+    assert.equal(retry.idempotent, true);
+    assert.equal(store.readContextEntries("session_follow_up").filter((entry) => entry.toolCallKey === "call_question").length, 1);
+  } finally {
+    followUps.close();
+    store.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

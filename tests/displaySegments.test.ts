@@ -141,6 +141,27 @@ test("keeps an in-run user steer as a standalone timeline entry", () => {
   assert.equal(entries[1].activity.body, "停止修改配置，先检查测试。");
 });
 
+test("keeps ask_user as a standalone expandable execution fact", () => {
+  const askUser = activity(2, {
+    body: "等待用户回答方案问题。",
+    title: "询问方案问题",
+    tool: tool({
+      action: "plan",
+      callId: "call_question",
+      displayTarget: "方案问题",
+      effect: "control_only",
+      normalizedTarget: "方案问题",
+      targetKind: "plan",
+      toolName: "ask_user"
+    })
+  });
+  const entries = projectDisplayTimeline(run([message(1, "我需要确认一个选择。"), askUser, thinking(3)]));
+  assert.equal(entries.length, 3);
+  assert.equal(entries[1].type, "activity");
+  if (entries[1].type !== "activity") return;
+  assert.equal(entries[1].activity.tool?.toolName, "ask_user");
+});
+
 test("holds suspended thinking visually without treating it as terminal", () => {
   const held = onlySegment(run([thinking(1, "suspended")]));
   assert.equal(held.activitySlots[0]?.logicalState, "empty");

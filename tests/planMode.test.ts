@@ -107,6 +107,7 @@ test("PlanPolicy is authoritative and only permits narrowly read-only exploratio
   assert.equal(planPolicy({ args: { path: "src/App.tsx", content: "x" }, mode: "plan", planEntry: "auto", tool: tool("write_file", { path: "src/App.tsx", content: "x" }) }).allowed, false);
   assert.equal(planPolicy({ args: { command: "git status --short" }, mode: "plan", planEntry: "auto", tool: tool("run_command", { command: "git status --short" }) }).allowed, true);
   assert.equal(planPolicy({ args: { command: "npm test" }, mode: "plan", planEntry: "auto", tool: tool("run_command", { command: "npm test" }) }).allowed, false);
+  assert.equal(planPolicy({ args: {}, mode: "work", planEntry: "auto", tool: tool("ask_user", {}) }).allowed, true);
   assert.equal(planPolicy({ args: {}, mode: "work", planEntry: "manual", tool: tool("enter_plan", {}) }).allowed, false);
   assert.equal(hasConflictingControlStep([tool("enter_plan", {}), tool("write_file", { path: "a", content: "b" }, 1)]), true);
 });
@@ -335,12 +336,15 @@ test("suggested entry waits for user confirmation before changing mode", async (
     assert.equal(session.mode, "work");
     assert.equal(session.runs[0].status, "waiting");
     assert.equal(session.questions[0].purpose, "plan_entry");
-    const result = answerQuestion({ answers: { plan_entry: "进入计划模式" }, interactionId: session.questions[0].interactionId, sessionId: session.sessionId, store, system: testSystem });
+    assert.equal(session.questions[0].prompts[0].prompt, "是否进入计划模式？");
+    const result = answerQuestion({ answers: { plan_entry: { status: "answered", answer: { kind: "choice", optionIds: ["enter_plan"] } } }, interactionId: session.questions[0].interactionId, sessionId: session.sessionId, store, system: testSystem });
     session = result.session;
     assert.equal(session.mode, "plan");
     assert.equal(session.runs[0].status, "running");
     assert.equal(result.resume?.runId, "run_entry");
-    assert.equal(JSON.parse(store.readContextEntries("session_entry").find((entry) => entry.toolCallKey === enterCall.callId)?.text ?? "{}").mode, "plan");
+    const contextEntry = store.readContextEntries("session_entry").find((entry) => entry.toolCallKey === enterCall.callId);
+    assert.equal(contextEntry?.toolName, "enter_plan");
+    assert.equal(JSON.parse(contextEntry?.text ?? "{}").mode, "plan");
     store.close();
   } finally {
     rmSync(directory, { force: true, recursive: true });

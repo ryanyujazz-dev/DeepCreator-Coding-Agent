@@ -7,9 +7,8 @@ import {
   EvalCaseSummary,
   EvalRunRecord
 } from "../../../shared/contracts/evals";
-import { Changes, isRunDone, Plan, PlanDecision } from "../../../shared/contracts/runtime";
+import { Changes, isRunDone, Plan, PlanDecision, QuestionAnswer } from "../../../shared/contracts/runtime";
 import { ModelOption } from "../../../shared/contracts/provider";
-import { ApprovalDialog } from "../ApprovalDialog";
 import { Composer } from "../Composer";
 import { ConnectionPhase, ConnectionStatus } from "../ConnectionStatus";
 import { Conversation } from "../Conversation";
@@ -261,7 +260,7 @@ export function EvalWorkspace({
     }
   }, [session, sessionStore]);
 
-  const answerQuestion = useCallback(async (interactionId: string, answers: Record<string, string>) => {
+  const answerQuestion = useCallback(async (interactionId: string, answers: Record<string, QuestionAnswer>) => {
     if (!session) return;
     const response = await runtimeApi.answerQuestion(session.sessionId, interactionId, answers);
     sessionStore.replaceSnapshot(response.session);
@@ -285,7 +284,6 @@ export function EvalWorkspace({
           <div className="window-actions"><IconButton className={observerOpen ? "icon-button is-active" : "icon-button"} label="评测观察器" onClick={() => setObserverOpen((open) => !open)}><PanelRight size={14} /></IconButton></div>
           <Conversation notices={[]} onOpenAgent={() => setObserverOpen(true)} onOpenFile={revealObserver} onOpenPlan={() => setObserverOpen(true)} onOpenReview={revealObserver} onStopCommand={(commandId) => void runtimeApi.stopCommand(commandId)} pendingRun={pendingConversation} session={session} />
           {error && <div className="conversation-error-overlay"><div className="conversation-error-toast" role="alert">{error}</div></div>}
-          <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void runtimeApi.resolveApproval(pendingApproval!.approvalId, decision)} />
           <div className="composer-stack eval-composer-stack">
             <div className="eval-prompt-label"><span>评测数据集 · {selectedCase.caseId}</span><strong>任务内容只读</strong></div>
             {currentRun && <div aria-hidden={!evaluationBusy || Boolean(pendingPlan || pendingQuestion)} className={`composer-hud is-${currentRun.status} ${evaluationBusy && !pendingPlan && !pendingQuestion ? "is-visible" : "is-collapsed"}`}><TaskProgress active={agentRunning} label={workLabel} tasks={currentRun.tasks} /></div>}
@@ -301,14 +299,29 @@ export function EvalWorkspace({
               models={config.models as ModelOption[]}
               onAccessModeChange={() => undefined}
               onAnswerQuestion={answerQuestion}
+              onInterruptQuestion={async (interactionId, prompt) => {
+                if (!session) return false;
+                const response = await runtimeApi.interruptQuestion(session.sessionId, interactionId, {
+                  accessMode: session.accessMode,
+                  mode: session.mode,
+                  model: session.model,
+                  planEntry: session.planEntry,
+                  prompt,
+                  requestId: browserPlatform.createId("question_interrupt")
+                });
+                sessionStore.replaceSnapshot(response.session);
+                return true;
+              }}
               onCancel={() => void cancel()}
               onModeChange={() => undefined}
               onModelChange={setModel}
               onRefreshBalance={() => undefined}
               onRemoveFollowUp={() => undefined}
+              onResolveApproval={(decision) => pendingApproval ? runtimeApi.resolveApproval(pendingApproval.approvalId, decision).then(() => undefined) : undefined}
               onResolvePlan={resolvePlan}
               onSteerFollowUp={() => undefined}
               onSubmit={startEvaluation}
+              pendingApproval={pendingApproval}
               pendingPlan={pendingPlan}
               pendingQuestion={pendingQuestion}
               presetPrompt={selectedCase.userRequest}

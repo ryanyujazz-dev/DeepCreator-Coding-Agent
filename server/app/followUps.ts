@@ -4,6 +4,7 @@ import { RunRegistry } from "./runRegistry";
 import { ContextPort, EventPort, SessionPort } from "./runtimeRepo";
 import { StartRun } from "./startRun";
 import { SystemPort } from "./systemPort";
+import { finishRun } from "./runLifecycle";
 
 type FollowUpPorts = ContextPort & EventPort & SessionPort;
 
@@ -13,6 +14,7 @@ export type QueueFollowUpInput = {
   model: string;
   planEntry: PlanEntry;
   prompt: string;
+  requestId?: string;
   sessionId: string;
 };
 
@@ -31,6 +33,12 @@ export class FollowUpService {
     const prompt = input.prompt.trim();
     if (!prompt) throw new AppError("prompt is required", "invalid_input");
     const session = this.requireSession(input.sessionId);
+    if (input.requestId) {
+      const existing = this.deps.store.readEvents(input.sessionId).find((event) =>
+        event.type === "follow_up.queued" && event.data.followUp.requestId === input.requestId
+      );
+      if (existing) return { session };
+    }
     const activeRun = this.activeRun(session);
     if (!activeRun) {
       const result = await this.deps.startRun.execute(input);
@@ -43,11 +51,68 @@ export class FollowUpService {
       mode: input.mode,
       model: input.model,
       planEntry: input.planEntry,
-      prompt
+      prompt,
+      ...(input.requestId ? { requestId: input.requestId } : {})
     };
     this.deps.store.append({ data: { followUp }, sessionId: input.sessionId, type: "follow_up.queued" });
     this.watch(input.sessionId);
     return { session: this.requireSession(input.sessionId) };
+  }
+
+  async interruptQuestion(input: QueueFollowUpInput & {
+    interactionId: string;
+    requestId: string;
+  }): Promise<{ idempotent: boolean; session: Session }> {
+    const session = this.requireSession(input.sessionId);
+    const existingFollowUp = this.deps.store.readEvents(input.sessionId).find((event) =>
+      event.type === "follow_up.queued" && event.data.followUp.requestId === input.requestId
+    );
+    if (existingFollowUp) return { idempotent: true, session };
+    const question = session.questions.find((item) => item.interactionId === input.interactionId);
+    if (!question) throw new AppError("question interaction not found", "not_found");
+    if (question.status !== "pending") throw new AppError("question interaction is stale", "stale_revision");
+    const run = session.runs.find((item) => item.runId === question.runId);
+    if (!run || run.status !== "waiting") throw new AppError("question run is not waiting", "not_waiting");
+
+    await this.queue(input);
+    const resolvedAt = this.deps.system.now();
+    const message = "用户选择结束问题澄清环节";
+    this.deps.store.append({
+      data: { interactionId: question.interactionId, resolvedAt, status: "cancelled" },
+      runId: question.runId,
+      sessionId: input.sessionId,
+      type: "question.answered"
+    });
+    this.deps.store.appendContextEntry({
+      createdAt: resolvedAt,
+      isError: true,
+      kind: "tool_result",
+      metadata: {
+        interactionId: question.interactionId,
+        interruptionReason: "user_started_new_run"
+      },
+      runId: question.runId,
+      sessionId: input.sessionId,
+      source: "runtime",
+      text: JSON.stringify({
+        interactionId: question.interactionId,
+        message,
+        reason: "user_started_new_run",
+        status: "interrupted"
+      }),
+      toolCallKey: question.callId,
+      toolName: "ask_user"
+    });
+    finishRun({
+      answer: message,
+      projectRoot: session.projectRoot,
+      runId: question.runId,
+      sessionId: input.sessionId,
+      status: "cancelled",
+      store: this.deps.store,
+      system: this.deps.system
+    });
+    return { idempotent: false, session: this.requireSession(input.sessionId) };
   }
 
   remove(sessionId: string, followUpId: string): { session: Session } {

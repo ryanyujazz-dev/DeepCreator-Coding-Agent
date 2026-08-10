@@ -1,4 +1,4 @@
-import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, WorkspaceKind } from "../shared/contracts/runtime";
+import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, QuestionAnswer, WorkspaceKind } from "../shared/contracts/runtime";
 import {
   decodeArchiveSessionsResponse,
   decodeChanges,
@@ -141,10 +141,20 @@ export class RuntimeClient {
     this.request(`/api/sessions/${encodeURIComponent(sessionId)}/plans/${encodeURIComponent(plan.planId)}/revisions/${plan.revision}`, decodeSessionResponse, {
       body: JSON.stringify(input), method: "PUT"
     });
-  answerQuestion = (sessionId: string, interactionId: string, answers: Record<string, string>) =>
+  answerQuestion = (sessionId: string, interactionId: string, answers: Record<string, QuestionAnswer>) =>
     this.request(`/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(interactionId)}/answer`, decodeInteractionResponse, {
       body: JSON.stringify({ answers }), method: "POST"
     });
+  interruptQuestion = (sessionId: string, interactionId: string, input: {
+    model: string;
+    accessMode: AccessMode;
+    mode: Mode;
+    planEntry: PlanEntry;
+    prompt: string;
+    requestId: string;
+  }) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(interactionId)}/interrupt`, decodeInteractionResponse, {
+    body: JSON.stringify(input), method: "POST"
+  });
   resolveApproval = (approvalId: string, decision: ApprovalChoice) => this.request(`/api/approvals/${encodeURIComponent(approvalId)}/resolve`, decodeOkResponse, {
     body: JSON.stringify({ decision }), method: "POST"
   });

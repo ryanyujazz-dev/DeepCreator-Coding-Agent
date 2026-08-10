@@ -1,10 +1,11 @@
-import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GitBranch, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, Trash2, X } from "lucide-react";
-import { CSSProperties, FormEvent, KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AccessMode, FollowUp, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
+import { ArrowUp, ArrowUpDown, Check, ChevronDown, CornerDownRight, GitBranch, Lightbulb, Mic, Plus, Shield, ShieldAlert, ShieldCheck, Square, Trash2 } from "lucide-react";
+import { CSSProperties, FormEvent, KeyboardEvent, memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AccessMode, Approval, ApprovalChoice, FollowUp, Mode, Plan, PlanDecision, Question, QuestionAnswer } from "../../shared/contracts/runtime";
 import { ModelOption } from "../../shared/contracts/provider";
 import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver, RuntimeWorkspace } from "../runtimeApi";
 import { FloatingSurface, IconButton, PillButton } from "../shared-ui/ControlPrimitives";
 import { usePopoverState } from "../shared-ui/usePopoverState";
+import { AgentInteractionComposer } from "./AgentInteractionComposer";
 
 const accessOptions: Array<{ description: string; icon: typeof Shield; key: AccessMode; label: string }> = [
   { description: "外部访问和有风险的操作会先询问", icon: ShieldAlert, key: "request_approval", label: "请求批准" },
@@ -31,13 +32,16 @@ export const Composer = memo(function Composer({
   onAccessModeChange,
   onModeChange,
   onAnswerQuestion,
+  onInterruptQuestion,
   onModelChange,
   onRefreshBalance,
   onRemoveFollowUp,
+  onResolveApproval,
   onResolvePlan,
   onSubmit,
   onSteerFollowUp,
   resetKey,
+  pendingApproval,
   pendingPlan,
   pendingQuestion,
   presetPrompt,
@@ -59,13 +63,16 @@ export const Composer = memo(function Composer({
   onCheckoutBranch?: (branch: string) => void;
   onAccessModeChange: (mode: AccessMode) => void;
   onModeChange: (mode: Mode) => void;
-  onAnswerQuestion: (interactionId: string, answers: Record<string, string>) => Promise<void> | void;
+  onAnswerQuestion: (interactionId: string, answers: Record<string, QuestionAnswer>) => Promise<void> | void;
+  onInterruptQuestion: (interactionId: string, prompt: string) => Promise<boolean>;
   onModelChange: (model: string) => void;
   onRefreshBalance: () => void;
   onRemoveFollowUp: (followUpId: string) => void;
+  onResolveApproval: (decision: ApprovalChoice) => Promise<void> | void;
   onResolvePlan: (plan: Plan, decision: PlanDecision, comments?: string, nextAccessMode?: AccessMode) => Promise<void> | void;
   onSubmit: (prompt: string) => Promise<boolean>;
   onSteerFollowUp: (followUpId: string) => void;
+  pendingApproval?: Approval;
   pendingPlan?: Plan;
   pendingQuestion?: Question;
   presetPrompt?: string;
@@ -107,10 +114,6 @@ export const Composer = memo(function Composer({
   const branchMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
   const [contextSort, setContextSort] = useState<"protocol" | "tokens">("protocol");
   const contextSortMenu = usePopoverState<HTMLButtonElement, HTMLDivElement>();
-  const [comments, setComments] = useState("");
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [interactionBusy, setInteractionBusy] = useState(false);
   const selectedAccess = accessOptions.find((option) => option.key === accessMode) ?? accessOptions[0];
   const SelectedAccessIcon = selectedAccess.icon;
   // 分支选择器派生量:仅本地多分支且非运行中可切换(运行中切换会扰乱 Agent)。单分支/非 Git 仅展示。
@@ -118,13 +121,6 @@ export const Composer = memo(function Composer({
   const currentBranchLabel = workspace?.git ? (workspace.branch || "detached HEAD") : "非 Git 工作区";
   const activeBranch = workspace?.branch;
   const branchSwitchable = Boolean(workspace?.git) && branchList.length > 1 && !isRunning && Boolean(onCheckoutBranch);
-  useEffect(() => {
-    setComments("");
-  }, [pendingPlan?.planId, pendingPlan?.revision]);
-  useEffect(() => {
-    setAnswers({});
-    setQuestionIndex(0);
-  }, [pendingQuestion?.interactionId]);
   const contextSummary = useMemo(() => {
     const latest = contextObserver?.latest ?? contextConfig?.contextPreview;
     const windowTokens = latest?.providerContextWindowTokens ?? contextConfig?.contextWindowTokens ?? 1_000_000;
@@ -188,26 +184,8 @@ export const Composer = memo(function Composer({
       void sendDraft();
     }
   }
-  const resolvePlan = async (decision: PlanDecision) => {
-    if (!pendingPlan || interactionBusy) return;
-    setInteractionBusy(true);
-    try {
-      await onResolvePlan(pendingPlan, decision, comments, decision === "start_work" ? accessMode : undefined);
-    } finally {
-      setInteractionBusy(false);
-    }
-  };
-  const submitAnswers = async () => {
-    if (!pendingQuestion || interactionBusy || pendingQuestion.prompts.some((prompt) => !answers[prompt.questionId]?.trim())) return;
-    setInteractionBusy(true);
-    try {
-      await onAnswerQuestion(pendingQuestion.interactionId, answers);
-    } finally {
-      setInteractionBusy(false);
-    }
-  };
   const queuedRows = followUps.length > 0 ? (
-    <div aria-label="排队消息" className="queued-follow-ups" role="list">
+    <div aria-label="排队消息" className="composer-head queued-follow-ups" role="list">
       {followUps.map((followUp) => (
         <div className="queued-follow-up" key={followUp.followUpId} role="listitem">
           <CornerDownRight aria-hidden="true" size={14} />
@@ -225,67 +203,22 @@ export const Composer = memo(function Composer({
     </div>
   ) : null;
 
-  if (pendingPlan) {
-    return (
-      <>{queuedRows}<form className="composer interaction-composer plan-review-composer" onSubmit={(event) => event.preventDefault()}>
-        <header className="interaction-header">
-          <strong>实施此计划？</strong>
-          <IconButton disabled={interactionBusy} label="取消计划" onClick={() => void resolvePlan("cancel")}><X size={14} /></IconButton>
-        </header>
-        <button className="interaction-primary-row" disabled={interactionBusy} onClick={() => void resolvePlan("start_work")} type="button">
-          <span className="interaction-number">1</span>
-          <strong>是，实施此计划</strong>
-          <ArrowRight size={15} />
-        </button>
-        <div className="interaction-feedback-row">
-          <span className="interaction-number"><PencilLine size={13} /></span>
-          <textarea aria-label="计划调整意见" onChange={(event) => setComments(event.target.value)} placeholder="否，并告诉 Agent 应该如何调整" value={comments} />
-          <button disabled={interactionBusy} onClick={() => void resolvePlan("continue_planning")} type="button">继续规划</button>
-        </div>
-        <footer className="interaction-footer">
-          <div className="permission-selector">
-            <PillButton className="access-button" aria-expanded={accessMenu.open} onClick={accessMenu.toggle} ref={accessMenu.triggerRef}>
-              <SelectedAccessIcon size={15} /><span>{selectedAccess.label}</span><ChevronDown size={13} />
-            </PillButton>
-            {accessMenu.open && (
-              <FloatingSurface className="composer-popover composer-menu permission-menu" ref={accessMenu.contentRef} role="menu">
-                {accessOptions.map((option) => {
-                  const Icon = option.icon;
-                  return <button className={option.key === accessMode ? "is-selected" : ""} key={option.key} onClick={() => { onAccessModeChange(option.key); accessMenu.close(); }} role="menuitem" type="button"><Icon size={16} /><span><strong>{option.label}</strong><small>{option.description}</small></span>{option.key === accessMode && <Check size={15} />}</button>;
-                })}
-              </FloatingSurface>
-            )}
-          </div>
-          <button disabled={interactionBusy} onClick={() => void resolvePlan("cancel")} type="button">取消计划</button>
-        </footer>
-      </form></>
-    );
-  }
-
-  if (pendingQuestion) {
-    const prompt = pendingQuestion.prompts[questionIndex] ?? pendingQuestion.prompts[0];
-    const complete = pendingQuestion.prompts.every((item) => answers[item.questionId]?.trim());
-    return (
-      <>{queuedRows}<form className="composer interaction-composer question-composer" onSubmit={(event) => { event.preventDefault(); void submitAnswers(); }}>
-        <header className="interaction-header">
-          <strong>{prompt.prompt}</strong>
-          {pendingQuestion.prompts.length > 1 && <div className="question-pagination"><IconButton disabled={questionIndex === 0} label="上一项" onClick={() => setQuestionIndex((value) => Math.max(0, value - 1))}><ChevronLeft size={13} /></IconButton><span>{questionIndex + 1} of {pendingQuestion.prompts.length}</span><IconButton disabled={questionIndex === pendingQuestion.prompts.length - 1} label="下一项" onClick={() => setQuestionIndex((value) => Math.min(pendingQuestion.prompts.length - 1, value + 1))}><ChevronRight size={13} /></IconButton></div>}
-        </header>
-        {prompt.options?.map((option, index) => (
-          <button className={`interaction-option-row ${answers[prompt.questionId] === option ? "is-selected" : ""}`} key={option} onClick={() => setAnswers((current) => ({ ...current, [prompt.questionId]: option }))} type="button">
-            <span className="interaction-number">{index + 1}</span><span>{option}</span>{answers[prompt.questionId] === option ? <Check size={14} /> : <ArrowRight size={14} />}
-          </button>
-        ))}
-        {!prompt.options?.length && <div className="interaction-feedback-row"><span className="interaction-number"><PencilLine size={13} /></span><textarea aria-label={prompt.label} onChange={(event) => setAnswers((current) => ({ ...current, [prompt.questionId]: event.target.value }))} placeholder={prompt.label} value={answers[prompt.questionId] ?? ""} /></div>}
-        <footer className="interaction-footer"><span>{pendingQuestion.prompts.length > 1 ? `已回答 ${Object.values(answers).filter((value) => value.trim()).length}/${pendingQuestion.prompts.length}` : ""}</span><button className="interaction-submit" disabled={interactionBusy || !complete} type="submit">提交回答</button></footer>
-      </form></>
-    );
-  }
   const barClass = promptReadOnly ? "" : " composer-bar";
   return (
     <>
       {queuedRows}
-      <form aria-busy={submitting} className={`composer${barClass}`} onSubmit={submit}>
+      {pendingApproval || pendingPlan || pendingQuestion ? (
+        <AgentInteractionComposer
+          accessMode={accessMode}
+          approval={pendingApproval}
+          onAnswerQuestion={onAnswerQuestion}
+          onInterruptQuestion={onInterruptQuestion}
+          onResolveApproval={onResolveApproval}
+          onResolvePlan={(plan, decision, nextAccessMode) => onResolvePlan(plan, decision, undefined, nextAccessMode)}
+          plan={pendingPlan}
+          question={pendingQuestion}
+        />
+      ) : <form aria-busy={submitting} className={`composer${barClass}`} onSubmit={submit}>
         <textarea rows={1} aria-label={promptReadOnly ? "评测任务（只读）" : "输入任务"} aria-readonly={promptReadOnly} className={promptReadOnly ? "is-readonly-prompt" : undefined} disabled={isWaiting || submitting || Boolean(disabledReason)} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={disabledReason ?? (isWaiting ? "等待你的决定" : isRunning ? "输入后按 Enter 加入队列" : submitting ? "正在创建任务" : "随心输入")} readOnly={promptReadOnly} ref={textareaRef} value={draft} />
         <div className="composer-bar-actions">
           <IconButton className="plain-icon" disabled={isWaiting || submitting || promptReadOnly} label="语音输入"><Mic size={16} /></IconButton>
@@ -304,7 +237,7 @@ export const Composer = memo(function Composer({
             </IconButton>
           )}
         </div>
-      </form>
+      </form>}
       <div className="composer-foot">
         <div className="composer-foot-left">
           <div className="add-selector">

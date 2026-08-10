@@ -21,33 +21,40 @@
 /* pill / 圆角矩形输入条(同一半径 R)。0,2,0 > .composer(0,1,0 @ styles.css:5901);
    与 .composer-stack > .composer(0,2,0 @ :7186,只设 left/width/margin)平局,靠后导入取胜。 */
 .composer.composer-bar {
-  --composer-bar-radius: 26px;
+  --composer-bar-radius: 24px;
   display: flex;
   align-items: flex-end;              /* textarea 与按钮组都底对齐 → 发送按钮钉在右下角 */
   gap: 6px;
-  /* top/right/bottom = 8px:.composer 基类自带 1px 边框(border-box),故 padding 取 R−按钮半径−边框
-     = 26−17−1 = 8,使发送按钮(34px)圆心恰好落在圆角弧心(距外边缘 R=26);同时 1+8+34+8+1=52=2R,
+  /* top/right/bottom = 6px；34px 按钮在 48px 高输入条中保持垂直居中，
+     圆心落在距外边缘 24px 的药丸半圆圆心；6+34+6=48=2R，
      1 行时 bar 恰成真 pill(两端完整半圆)。left 留文本起始内缩。*/
-  padding: 8px 8px 8px 14px;
-  min-height: calc(2 * var(--composer-bar-radius));   /* 52px:1 行 = 2R → 两端半圆 */
+  padding: 6px 6px 6px 14px;
+  min-height: calc(2 * var(--composer-bar-radius));   /* 48px:1 行 = 2R → 两端半圆 */
   border-radius: var(--composer-bar-radius);          /* 固定 R:拉伸前后半径一致 */
 }
 
-/* 新任务的工作区 head 是输入条背后的上盖。它向下藏入 composer 一个半径，
+/* 工作区与排队消息共用输入条背后的淡蓝上盖。它向下藏入 composer 一个半径，
    下沿停在输入条横向中线；总高比输入条多 4px，故顶部上移且露出 30px。
-   上方两角沿用输入条的 26px 半径，下方两角保持直角。
-   高特异性同时覆盖 legacy 的桌面 / 760px 边距规则。 */
-.composer-stack.has-project-context {
-  --composer-bar-radius: 26px;
+   上方两角沿用输入条的 24px 半径，下方两角保持直角。内容超过一行时向上扩展，
+   与 composer 重叠的底部 padding 始终保持一个半径。 */
+.composer-stack:has(> .composer-head) {
+  --composer-bar-radius: 24px;
+  --composer-head-height: calc(2 * var(--composer-bar-radius) + var(--space-1));
 }
 
-.composer-stack.has-project-context > .project-context-shelf {
-  height: calc(2 * var(--composer-bar-radius) + var(--space-1));
-  min-height: calc(2 * var(--composer-bar-radius) + var(--space-1));
+.composer-stack > .composer-head {
+  min-height: var(--composer-head-height);
   margin: 0 0 calc(0px - var(--composer-bar-radius));
   padding: 0 20px var(--composer-bar-radius);
   align-items: center;
+  border: 0;
   border-radius: var(--composer-bar-radius) var(--composer-bar-radius) 0 0;
+  background: var(--theme-blue-gray-surface);
+}
+
+.composer-stack.has-project-context > .project-context-shelf,
+.composer-stack > .queued-follow-ups:has(> .queued-follow-up:only-child) {
+  height: var(--composer-head-height);
 }
 
 .composer-stack.has-project-context > .project-context-shelf > .project-context-trigger {
@@ -81,7 +88,7 @@
   line-height: 22px;
 }
 
-/* 右下角按钮组:语音 + 发送。flex 末子、底对齐,padding(9)使发送按钮圆心落在圆角弧心。*/
+/* 右下角按钮组:语音 + 发送。flex 末子、底对齐，单行时按钮圆心落在圆角弧心。*/
 .composer-bar-actions {
   display: inline-flex;
   align-items: center;
