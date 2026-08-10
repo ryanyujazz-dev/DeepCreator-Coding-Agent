@@ -30,9 +30,23 @@ export function splitTimelineIntoConversationTurns(runId: string, entries: Displ
   return turns;
 }
 
-function elapsed(run: Run): string {
-  const seconds = Math.max(0, Math.floor(((run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now()) - new Date(run.startedAt).getTime()) / 1000));
-  return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
+// Run 计时器:独立 1s tick,不依赖 SSE 驱动的重渲。
+// 旧实现 elapsed(run) 在渲染期调 Date.now(),而 RunTimeline 只在 SSE 事件(session 变化)时重渲 →
+// 等首 token / 工具执行时无事件 → elapsed 冻结;事件密集时每帧 run 引用变 → 狂跳。抽成子组件,
+// 内部按 active 门控每秒 setNow → 只重渲自己(不触发 RunTimeline 重渲,保护 memo + projection useMemo)。
+// active 时每秒走秒稳定;!active 时定格(finishedAt - startedAt)、不 tick(省一个定时器)。
+// run.started 早于 reasoning(startRun.ts append 先于 launch),故 run 一挂载计时器就走 —— 修复
+// 「模型思考时计时器才动」(原 elapsed 冻结在 0s 直到 reasoning 文本驱动重渲)。照搬 DisplaySegmentRenderer
+// 的 1s tick 范本。
+function RunElapsed({ startedAt, finishedAt, active }: { startedAt: string; finishedAt?: string; active: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  const seconds = Math.max(0, Math.floor(((finishedAt ? new Date(finishedAt).getTime() : now) - new Date(startedAt).getTime()) / 1000));
+  return <>{seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`}</>;
 }
 
 export const RunTimeline = memo(function RunTimeline({
@@ -137,7 +151,7 @@ export const RunTimeline = memo(function RunTimeline({
                         ? "新执行流 · Responses"
                         : run.protocol === "chat" ? "经典执行流 · Chat" : "历史执行流 · Chat"}
                     </span>
-                    <span>{elapsed(run)}</span>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    <span><RunElapsed active={active} finishedAt={run.finishedAt} startedAt={run.startedAt} /></span>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                   </button>
                 )}
                 {expanded && turn.entries.length > 0 && (
