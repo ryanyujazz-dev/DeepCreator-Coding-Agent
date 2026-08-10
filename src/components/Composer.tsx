@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GitBranch, Lightbulb, Mic, PencilLine, Plus, Shield, ShieldAlert, ShieldCheck, Square, Trash2, X } from "lucide-react";
-import { CSSProperties, FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AccessMode, FollowUp, Mode, Plan, PlanDecision, Question } from "../../shared/contracts/runtime";
 import { ModelOption } from "../../shared/contracts/provider";
 import { RuntimeBalance, RuntimeConfig, RuntimeContextObserver, RuntimeWorkspace } from "../runtimeApi";
@@ -12,7 +12,11 @@ const accessOptions: Array<{ description: string; icon: typeof Shield; key: Acce
   { description: "允许访问网络并执行本机操作", icon: Shield, key: "full_access", label: "完全访问" }
 ];
 
-export function Composer({
+// React.memo:内容流式期间 followUps/pendingPlan/pendingQuestion/balance/workspace 等数据 prop
+// 经 Phase 2 结构性共享保持引用稳定,handler 全部经 useStableCallbacks 稳定化 → 浅比较命中。
+// (balance/contextObserver 仅 2–3s 轮询翻转,非每帧;故流式期间 Composer 大多帧跳过 469 行重跑。)
+// 第二个消费者 EvalWorkspace 传内联箭头 + 字面 [],memo 永不命中 → 行为与今天逐字节一致。
+export const Composer = memo(function Composer({
   balance,
   contextConfig,
   contextObserver,
@@ -446,7 +450,7 @@ export function Composer({
       </div>
     </>
   );
-}
+});
 
 function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
