@@ -4005,7 +4005,7 @@ body.is-resizing-panel * {
   overflow: hidden;
   background: #ffffff;
   container-type: inline-size;
-  --stage-width: min(var(--layout-composer-width), calc(100cqw - 92px));
+  --stage-width: min(var(--layout-composer-width), calc(100cqw - 100px));
 }
 
 .conversation-main .conversation-scroll {
@@ -5848,6 +5848,8 @@ body {
 .conversation-main .conversation-column,
 .conversation-main .conversation-empty-state {
   width: var(--stage-width);
+  box-sizing: border-box;
+  padding-inline: 24px;
   transition: width 180ms cubic-bezier(0.2, 0.82, 0.18, 1);
 }
 
@@ -6080,7 +6082,7 @@ body {
   }
 
   .conversation-main {
-    --stage-width: calc(100cqw - 72px);
+    --stage-width: calc(100cqw - 100px);
   }
 
   .composer {
@@ -7532,7 +7534,7 @@ body {
 }
 
 .inspector-layout-reserved {
-  --stage-width: min(var(--layout-composer-width), calc(100cqw - var(--inspector-boundary-offset) - 92px));
+  --stage-width: min(var(--layout-composer-width), calc(100cqw - var(--inspector-boundary-offset) - 100px));
 }
 
 .inspector-layout-reserved .conversation-scroll {
