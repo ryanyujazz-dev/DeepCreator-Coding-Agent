@@ -225,17 +225,15 @@ export function Conversation({
       const column = contentRef.current;
       if (!column) return;
       const composerRect = composer.getBoundingClientRect();
-      const scrollRect = scroll.getBoundingClientRect();
-      const paddingLeft = parseFloat(getComputedStyle(scroll).paddingLeft) || 0;
       if (composerRect.width <= 0) return;
+      // 先清 transform 量 column 的自然左沿(实测,含 box-sizing/scrollbar-gutter 等,不靠 paddingLeft 推算),
+      // 再平移到 composer 左沿。margin 0 不触发 auto 负值解析;transform 纯视觉,布局不变。
+      column.style.transform = "";
+      const columnLeft = column.getBoundingClientRect().left;
       column.style.width = `${composerRect.width}px`;
-      // margin auto 在 column 宽 > scroll 内容盒(窄屏 padding 占比大)时负值解析不稳 → column 偏右、
-      // 右沿超窗口。改 margin 0 + transform 视觉对齐:translateX 让 column 左沿 = composer 左沿
-      // (相对 scroll 内容盒)。布局上 column 占 padding-left 起、margin 0(不触发负 margin),
-      // 视觉上整体平移到 composer 位置 —— 任何状态(普通/inspector/surface/窄屏)恒等对齐。
       column.style.marginLeft = "0px";
       column.style.marginRight = "0px";
-      column.style.transform = `translateX(${composerRect.left - scrollRect.left - paddingLeft}px)`;
+      column.style.transform = `translateX(${composerRect.left - columnLeft}px)`;
     };
     sync();
     const observer = new ResizeObserver(sync);
