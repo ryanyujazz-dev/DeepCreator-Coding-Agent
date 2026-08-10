@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { WorkspaceFile, WorkspaceInfo, WorkspaceQueryPort } from "../app/workspaceQueries";
 import { collectChanges } from "./tools/changes";
+import { listArtifacts } from "./tools/files";
 
 const execFileAsync = promisify(execFile);
 
@@ -69,5 +70,6 @@ export const workspaceQueryPort: WorkspaceQueryPort = {
   checkout: checkoutBranch,
   collectHeadChanges: (projectRoot) => collectChanges(projectRoot),
   describe: describeWorkspace,
+  listArtifacts: (projectRoot) => listArtifacts(projectRoot),
   readText: readWorkspaceFile
 };

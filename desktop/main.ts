@@ -287,6 +287,15 @@ function registerIpc(): void {
     if (!new Set(["http:", "https:"]).has(url.protocol)) throw new Error("只允许打开 HTTP 或 HTTPS 链接。");
     return shell.openExternal(url.toString());
   });
+  ipcMain.handle("desktop:open-path", (event, filePath: string) => {
+    trusted(event);
+    authenticated();
+    const resolved = path.resolve(filePath);
+    if (!store.recentProjects().some((project) => resolved === project.path || resolved.startsWith(`${project.path}${path.sep}`))) {
+      throw new Error("只能打开最近项目中的文件。");
+    }
+    return shell.openPath(resolved);
+  });
 }
 
 function createWindow(): BrowserWindow {

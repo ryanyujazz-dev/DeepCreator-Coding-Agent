@@ -11,7 +11,7 @@ import {
   SessionsResponse,
   WorkspaceResponse
 } from "../contracts/api";
-import { Changes, EventStream, Session, SessionSummary } from "../contracts/runtime";
+import { ArtifactEntry, Changes, EventStream, Session, SessionSummary } from "../contracts/runtime";
 import {
   EvalBatchResponse,
   EvalBatchRunRecord,
@@ -340,6 +340,16 @@ export function decodeChanges(value: unknown): Changes {
     string(file.operation, `$changes.files[${index}].operation`);
   });
   return item as Changes;
+}
+
+export function decodeArtifacts(value: unknown): ArtifactEntry[] {
+  return array(value, "$artifacts").map((entry, index) => {
+    const item = record(entry, `$artifacts[${index}]`);
+    string(item.path, `$artifacts[${index}].path`);
+    number(item.size, `$artifacts[${index}].size`);
+    string(item.mtime, `$artifacts[${index}].mtime`);
+    return item as ArtifactEntry;
+  });
 }
 
 export function decodeOkResponse(value: unknown): OkResponse {

@@ -85,7 +85,6 @@ export function App({ authState }: { authState?: AuthState }) {
     config,
     connection,
     contextObserver,
-    currentRun,
     draftRevision,
     draftWorkspace,
     balance,
@@ -125,7 +124,6 @@ export function App({ authState }: { authState?: AuthState }) {
     changeModel(nextModel);
     setModelNotices((prev) => [...prev, `已从 ${prevLabel} 切换至 ${nextLabel}`]);
   }, [changeModel, config?.models, model]);
-  const activeTask = (currentRun?.tasks ?? []).find((task) => task.status === "running");
   const waitingRun = activeRun?.status === "waiting" ? activeRun : undefined;
   const pendingPlan = waitingRun
     ? [...(session?.plans ?? [])].reverse().find((plan) => plan.runId === waitingRun.runId && plan.status === "proposed")
@@ -134,17 +132,6 @@ export function App({ authState }: { authState?: AuthState }) {
     ? [...(session?.questions ?? [])].reverse().find((question) => question.runId === waitingRun.runId && question.status === "pending")
     : undefined;
   const agentRunning = Boolean(activeRun && activeRun.status !== "waiting");
-  const workLabel = waitingRun
-    ? pendingPlan
-      ? "等待方案审阅"
-      : "等待你的回答"
-    : activeRun
-      ? activeTask?.label ?? "Agent 正在处理"
-    : currentRun?.status === "failed"
-      ? "工作已中断"
-      : currentRun?.status === "cancelled"
-        ? "工作已取消"
-        : "工作已结束";
   const {
     activeFileState,
     activeSurface,
@@ -382,10 +369,7 @@ export function App({ authState }: { authState?: AuthState }) {
                 connection={connection}
                 onOpenFile={openFileSurface}
                 onOpenPlan={openPlanSurface}
-                onOpenReview={stableOpenReview}
                 session={session}
-                taskActive={agentRunning}
-                taskLabel={workLabel}
               />
             )}
             <Conversation notices={modelNotices} onOpenAgent={openAgentSurface} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={stableOpenReview} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />

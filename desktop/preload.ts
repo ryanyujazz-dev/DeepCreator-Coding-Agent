@@ -30,6 +30,7 @@ const bridge: DesktopBridge = {
   },
   files: {
     openExternal: (url) => ipcRenderer.invoke("desktop:open-external", url),
+    openPath: (filePath) => ipcRenderer.invoke("desktop:open-path", filePath),
     reveal: (filePath) => ipcRenderer.invoke("desktop:reveal", filePath)
   },
   projects: {

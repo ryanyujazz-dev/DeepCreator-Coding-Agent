@@ -1,40 +1,43 @@
-import { ArrowRightLeft, ChevronDown, ChevronLeft, ChevronRight, FileCode2, FilePenLine, FilePlus2, FileText, Lightbulb, Maximize2, Sparkles, Trash2, Wifi } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileCode2, FileText, Image, Lightbulb, Maximize2, Sparkles, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Changes, FileChange, Session } from "../../shared/contracts/runtime";
+import { ArtifactEntry, Session } from "../../shared/contracts/runtime";
 import { ConnectionPhase } from "./ConnectionStatus";
 import { IconButton } from "../shared-ui/ControlPrimitives";
 import { ReasoningTrace } from "./ReasoningTrace";
 import { TaskPanel } from "./TaskPanel";
 import { useTaskHistory } from "../features/runtime/useTaskHistory";
-
-const OUTPUT_OPERATION_ICONS = {
-  created: FilePlus2,
-  edited: FilePenLine,
-  deleted: Trash2,
-  renamed: ArrowRightLeft,
-  unknown: FileCode2
-} as const;
+import { desktopBridge } from "../platform/desktop";
+import { runtimeApi } from "../runtimeApi";
 
 type CollapsibleSection = "task" | "plan" | "output";
+
+const MARKDOWN_RE = /\.(md|markdown|mdx)$/i;
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+
+function artifactIcon(path: string) {
+  if (MARKDOWN_RE.test(path)) return FileText;
+  if (IMAGE_RE.test(path)) return Image;
+  return FileCode2;
+}
+
+function formatSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export function Inspector({
   compact,
   connection,
   onOpenFile,
   onOpenPlan,
-  onOpenReview,
-  session,
-  taskActive,
-  taskLabel
+  session
 }: {
   compact: boolean;
   connection: ConnectionPhase;
   onOpenFile: (path: string) => void;
   onOpenPlan: (runId: string, callId: string) => void;
-  onOpenReview: (delta?: Changes) => void;
   session: Session | null;
-  taskActive: boolean;
-  taskLabel: string;
 }) {
   const run = session?.runs.at(-1);
   const { current, history } = useTaskHistory(session);
@@ -53,16 +56,23 @@ export function Inspector({
   }[connection];
   const activeTask = run?.tasks.find((task) => task.status === "running");
   const latestPlan = session?.plans.at(-1);
-  const outputFiles: FileChange[] = run?.changes.files ?? [];
-  const delta = run?.changes.comparisonBase === "run_start" ? run.changes : undefined;
-  const changeCount = run?.changes.comparisonBase === "run_start"
-    ? run.changes.fileCount
-    : 0;
-  const capsuleSummary = changeCount > 0
-    ? { icon: <FileCode2 size={13} />, label: `${changeCount} 个文件变更`, tone: "changes" }
-    : activeTask
-      ? { icon: <Sparkles size={13} />, label: activeTask.label, tone: "task" }
-      : { icon: <Wifi size={13} />, label: connectionLabel, tone: connection };
+
+  // 产物文件列表:扫描项目 output/ 目录,按 projectRoot 跨会话共享。run 状态变化(完成)/切会话时刷新。
+  const sessionId = session?.sessionId;
+  const runStatus = run?.status;
+  const [artifacts, setArtifacts] = useState<ArtifactEntry[]>([]);
+  useEffect(() => {
+    if (!sessionId) { setArtifacts([]); return; }
+    let cancelled = false;
+    void runtimeApi.getArtifacts(sessionId)
+      .then((data) => { if (!cancelled) setArtifacts(data); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [sessionId, runStatus]);
+
+  const capsuleSummary = activeTask
+    ? { icon: <Sparkles size={13} />, label: activeTask.label, tone: "task" }
+    : { icon: <Wifi size={13} />, label: connectionLabel, tone: connection };
 
   useEffect(() => {
     if (!compact) setOverlayOpen(false);
@@ -78,6 +88,18 @@ export function Inspector({
   }, [overlayOpen]);
 
   const collapsedNow = compact && !overlayOpen;
+  const projectRoot = session?.projectRoot;
+  const openArtifact = (relativePath: string) => {
+    if (MARKDOWN_RE.test(relativePath)) {
+      // md 走内置 FileSurface 渲染(MarkdownContent);路径相对 projectRoot,产物在 output/ 下。
+      onOpenFile(`output/${relativePath}`);
+      return;
+    }
+    // 其他类型(pdf/jpg/png/html 等)用系统默认程序打开(需桌面环境;浏览器/无桌面时静默 no-op)。
+    if (projectRoot) {
+      void desktopBridge()?.files.openPath(`${projectRoot}/output/${relativePath}`);
+    }
+  };
   return (
     <aside
       className={`environment-panel${collapsedNow ? " is-capsule" : ""}${compact && overlayOpen ? " is-overlay-open" : ""}`}
@@ -102,7 +124,6 @@ export function Inspector({
               <span>任务</span>
               <ChevronDown size={13} />
             </button>
-            {taskActive && taskLabel ? <small>{taskLabel}</small> : null}
           </header>
           {!collapsed.task && <TaskPanel current={current} history={history} />}
         </section>
@@ -145,27 +166,22 @@ export function Inspector({
               <span>输出</span>
               <ChevronDown size={13} />
             </button>
-            {outputFiles.length > 0 && delta ? (
-              <button className="output-review-link" onClick={() => onOpenReview(delta)} type="button">查看差异</button>
-            ) : null}
           </header>
-          {!collapsed.output && (outputFiles.length > 0 ? (
+          {!collapsed.output && (artifacts.length > 0 ? (
             <div className="output-file-list">
-              {outputFiles.map((file) => {
-                const OperationIcon = OUTPUT_OPERATION_ICONS[file.operation] ?? FileCode2;
+              {artifacts.map((file) => {
+                const ArtifactIcon = artifactIcon(file.path);
                 return (
                   <button
                     className="environment-row output-file-row"
                     key={file.path}
-                    onClick={() => onOpenFile(file.path)}
+                    onClick={() => openArtifact(file.path)}
                     title={file.path}
                     type="button"
                   >
-                    <OperationIcon size={15} />
+                    <ArtifactIcon size={15} />
                     <span className="output-file-path">{file.path}</span>
-                    {file.additions > 0 || file.deletions > 0 ? (
-                      <small className="output-file-stats">+{file.additions} −{file.deletions}</small>
-                    ) : null}
+                    <small className="output-file-stats">{formatSize(file.size)}</small>
                   </button>
                 );
               })}
@@ -173,7 +189,7 @@ export function Inspector({
           ) : (
             <div className="environment-row is-muted">
               <FileCode2 size={15} />
-              <span>尚无输出文件</span>
+              <span>尚无产物文件(output/ 目录为空)</span>
             </div>
           ))}
         </section>

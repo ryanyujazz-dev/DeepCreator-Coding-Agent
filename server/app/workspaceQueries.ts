@@ -1,6 +1,6 @@
 import { SessionPort } from "./runtimeRepo";
 import { AppError } from "./appError";
-import type { Changes } from "../../shared/contracts/runtime";
+import type { ArtifactEntry, Changes } from "../../shared/contracts/runtime";
 
 export type WorkspaceInfo = {
   branch?: string;
@@ -23,6 +23,7 @@ export interface WorkspaceQueryPort {
   checkout(projectRoot: string, branch: string): Promise<void>;
   collectHeadChanges(projectRoot: string): Promise<Changes>;
   describe(projectRoot: string): Promise<WorkspaceInfo>;
+  listArtifacts(projectRoot: string): Promise<ArtifactEntry[]>;
   readText(projectRoot: string, relativePath: string, maxChars: number): Promise<WorkspaceFile>;
 }
 
@@ -61,6 +62,12 @@ export class WorkspaceQueries {
     const session = this.sessions.getSession(sessionId);
     if (!session) throw new WorkspaceQueryError("session not found", "not_found");
     return this.workspace.collectHeadChanges(session.projectRoot);
+  }
+
+  async artifacts(sessionId: string): Promise<ArtifactEntry[]> {
+    const session = this.sessions.getSession(sessionId);
+    if (!session) throw new WorkspaceQueryError("session not found", "not_found");
+    return this.workspace.listArtifacts(session.projectRoot);
   }
 
   // 切换本地分支。先 describe 拿到本地分支白名单,只允许切到已知分支(杜绝任意 ref);

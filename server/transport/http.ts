@@ -280,6 +280,10 @@ app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/changes", {
   return workspace.changes(request.params.sessionId);
 });
 
+app.get<{ Params: { sessionId: string } }>("/api/sessions/:sessionId/artifacts", { schema: sessionParamsSchema }, async (request) => {
+  return workspace.artifacts(request.params.sessionId);
+});
+
 app.post<{ Params: { sessionId: string }; Body: { branch: string } }>(
   "/api/sessions/:sessionId/checkout",
   { schema: checkoutSchema },
