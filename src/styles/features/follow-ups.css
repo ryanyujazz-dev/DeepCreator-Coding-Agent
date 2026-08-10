@@ -14,10 +14,10 @@
   padding-bottom: 18px;
 }
 
-/* 禁用浏览器 scroll anchoring:Conversation.tsx 已完全手动管理贴底(useLayoutEffect 同步钉底
-   + ResizeObserver + 200ms 兜底定时器),anchoring(default auto)对「底部追加」无收益,却会在
-   running→completed 等既有元素高度变化时重选锚点 → scrollTop 被动漂移。关掉让钉底确定化。 */
-.conversation-scroll {
+/* 禁用浏览器 scroll anchoring:仅 follow(贴底跟随)模式禁用 —— 手动钉底已覆盖;paused(用户上翻)
+   时恢复 anchoring(default auto),让 mermaid/图片/字体/展开项异步撑高时浏览器补偿,避免阅读
+   位置漂移(codex 审查 P2 回归)。Conversation.tsx 用 data-follow 切换(follow=true / paused=false)。 */
+.conversation-scroll[data-follow="true"] {
   overflow-anchor: none;
 }
 

@@ -275,6 +275,7 @@ export function Conversation({
   return (
     <section
       className="conversation-scroll"
+      data-follow={!notAtBottom ? "true" : "false"}
       onScroll={handleScroll}
       onWheel={handleWheel}
       ref={scrollRef}

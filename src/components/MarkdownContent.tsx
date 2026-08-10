@@ -108,9 +108,17 @@ function PlainCodeBlock({ code, followOutput, language }: { code: string; follow
   const [copied, setCopied] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
   const stickToEnd = useRef(true);
+  // 首次挂载不滚到底:静态代码块(历史消息/最终回答/预览)应在顶部显示,只在流式增长(code 变化)
+  // 时跟随到末尾。STABLE_COMPONENTS 把 followOutput 恒设 true 后,首次挂载 effect 会把静态块滚到底
+  // —— 用 mounted 跳过首次,只对后续 code 变化生效(codex 审查 P1 回归)。
+  const mounted = useRef(false);
   useEffect(() => {
     const output = outputRef.current;
     if (!followOutput || !stickToEnd.current || !output) return;
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     output.scrollTop = output.scrollHeight;
   }, [code, followOutput]);
   return (
