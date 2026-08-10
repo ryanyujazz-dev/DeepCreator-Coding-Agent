@@ -15,6 +15,17 @@ const windowsCertificateFile = process.env.WINDOWS_CERTIFICATE_FILE?.trim();
 const windowsCertificatePassword = process.env.WINDOWS_CERTIFICATE_PASSWORD?.trim();
 const productionMacSigning = Boolean(appleSigningIdentity && appleId && appleIdPassword && appleTeamId);
 const productionWindowsSigning = Boolean(windowsCertificateFile && windowsCertificatePassword);
+const lifecycleEvent = process.env.npm_lifecycle_event || "";
+const targetPlatform = lifecycleEvent.includes(":windows")
+  ? "win32"
+  : lifecycleEvent.includes(":mac")
+    ? "darwin"
+    : process.platform;
+const appIcon = targetPlatform === "darwin"
+  ? "assets/app-icon.icns"
+  : targetPlatform === "win32"
+    ? "assets/app-icon.ico"
+    : "assets/app-icon.png";
 
 if (authMode !== "local" && authMode !== "github") {
   throw new Error("DEEPCREATOR_AUTH_MODE 只支持 local 或 github。");
@@ -36,6 +47,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     appBundleId: "com.deepcreator.desktop",
     asar: true,
+    icon: appIcon,
     extraResource: [
       "server/infra/migrations",
       "skills"
@@ -65,7 +77,8 @@ const config: ForgeConfig = {
       } : {}),
       name: "deepcreator",
       noMsi: true,
-      setupExe: "DeepCreator-Setup.exe"
+      setupExe: "DeepCreator-Setup.exe",
+      setupIcon: "assets/app-icon.ico"
     }, ["win32"])
   ],
   plugins: [

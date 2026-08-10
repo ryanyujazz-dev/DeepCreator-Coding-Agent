@@ -72,7 +72,12 @@ test("persists a skippable local Profile setup without exposing it outside Elect
   assert.match(store, /displayName\.length > 30/);
   assert.match(store, /localProfileSetupComplete = true/);
   assert.match(store, /localProfileSetupComplete = Boolean\(this\.device\.profileMigrationOwner\)/);
-  assert.match(setup, /暂时跳过/);
+  assert.match(setup, /进入演示模式/);
+  assert.match(setup, /DeepSeek API Key/);
+  assert.match(setup, /mock-agent 演示响应/);
+  assert.match(setup, /onComplete\(input, deepSeekApiKey\)/);
+  assert.match(setup, /type="password"/);
+  assert.match(readFileSync(path.join(root, "src/features/auth/DesktopAppRoot.tsx"), "utf8"), /desktop\.settings\.save/);
   assert.match(setup, /不需要手机号或邮箱，不会上传个人资料/);
   assert.match(compactSettings, /desktop\.auth\.updateLocalProfile/);
   assert.match(compactSettings, /desktop\.settings\.save/);
