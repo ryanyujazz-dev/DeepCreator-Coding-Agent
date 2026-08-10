@@ -1,5 +1,6 @@
 import { ToolCall } from "../../shared/contracts/provider";
-import { Plan, Question, QuestionPrompt, Task, ToolState } from "../../shared/contracts/runtime";
+import { Plan, Question, QuestionPrompt, QuestionType, Task, ToolState } from "../../shared/contracts/runtime";
+import { normalizeQuestionPrompt, validateQuestionPrompt } from "../../shared/domain/questions";
 import { ToolHost } from "./toolHost";
 import type { DelegateHandler, ToolContext, ToolOutcome } from "./toolPipeline";
 
@@ -87,10 +88,13 @@ export class ControlToolHandlers {
         createdAt: this.callbacks.now(),
         interactionId: this.callbacks.createId("question"),
         prompts: [{
-          label: "工作方式",
-          options: ["进入计划模式", "继续工作模式"],
-          prompt: reason,
-          questionId: "plan_entry"
+          options: [
+            { optionId: "enter_plan", title: "进入计划模式", recommended: true },
+            { optionId: "continue_work", title: "继续工作模式" }
+          ],
+          prompt: "是否进入计划模式？",
+          questionId: "plan_entry",
+          type: "single_choice"
         }],
         purpose: "plan_entry",
         runId: context.runId,
@@ -122,18 +126,46 @@ export class ControlToolHandlers {
     if (!Array.isArray(args.questions) || args.questions.length < 1 || args.questions.length > 3) {
       throw new Error("ask_user 需要一至三个问题。");
     }
-    const prompts = args.questions.map((raw, index): QuestionPrompt => {
+    const seenQuestionIds = new Set<string>();
+    const prompts = args.questions.map((raw): QuestionPrompt => {
       if (!raw || typeof raw !== "object") throw new Error("问题格式无效。");
       const item = raw as Record<string, unknown>;
-      const prompt = String(item.prompt ?? "").trim();
-      if (!prompt) throw new Error("问题内容不能为空。");
-      const options = Array.isArray(item.options) ? item.options.map(String).filter(Boolean).slice(0, 3) : undefined;
-      return {
-        label: String(item.label ?? `问题 ${index + 1}`).trim(),
-        options: options && options.length >= 2 ? options : undefined,
-        prompt,
-        questionId: String(item.questionId ?? `question_${index + 1}`)
+      const questionId = String(item.id ?? "").trim();
+      if (seenQuestionIds.has(questionId)) throw new Error("问题 ID 不能重复。");
+      seenQuestionIds.add(questionId);
+      const type = String(item.type ?? "") as QuestionType;
+      if (type !== "single_choice" && type !== "multiple_choice") {
+        throw new Error(`问题 ${questionId} 只支持单选或多选；自由输入由界面的“其他”选项提供。`);
+      }
+      const options = Array.isArray(item.options) ? item.options.map((rawOption) => {
+        if (!rawOption || typeof rawOption !== "object") throw new Error(`问题 ${questionId} 的选项格式无效。`);
+        const option = rawOption as Record<string, unknown>;
+        return {
+          optionId: String(option.id ?? "").trim(),
+          title: String(option.title ?? "").trim(),
+          ...(typeof option.description === "string" && option.description.trim() ? { description: option.description.trim() } : {}),
+          ...(option.recommended === true ? { recommended: true } : {})
+        };
+      }) : undefined;
+      const prompt: QuestionPrompt = {
+        questionId,
+        prompt: String(item.question ?? "").trim(),
+        type,
+        ...(options ? { options } : {}),
+        ...(typeof item.minSelections === "number" ? { minSelections: item.minSelections } : {}),
+        ...(typeof item.maxSelections === "number" ? { maxSelections: item.maxSelections } : {}),
+        ...(typeof item.placeholder === "string" && item.placeholder.trim() ? { placeholder: item.placeholder.trim() } : {}),
+        ...(typeof item.multiline === "boolean" ? { multiline: item.multiline } : {})
       };
+      const issue = validateQuestionPrompt(normalizeQuestionPrompt(prompt));
+      if (issue) throw new Error(issue);
+      if (
+        prompt.prompt.includes("计划模式")
+        && options?.some((option) => option.optionId === "enter_plan" || option.title.includes("进入计划模式"))
+      ) {
+        throw new Error("是否进入计划模式必须使用 enter_plan，不能通过 ask_user 提问。");
+      }
+      return prompt;
     });
     const question: Question = {
       callId: call.callId,

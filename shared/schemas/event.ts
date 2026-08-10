@@ -37,10 +37,6 @@ function oneOf<const T extends readonly string[]>(value: unknown, values: T): va
   return string(value) && values.includes(value);
 }
 
-function strings(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(string);
-}
-
 function task(value: unknown): boolean {
   return record(value)
     && string(value.taskId)
@@ -56,7 +52,8 @@ function followUp(value: unknown): boolean {
     && string(value.model)
     && oneOf(value.accessMode, ["request_approval", "smart_approval", "full_access"] as const)
     && oneOf(value.mode, ["work", "plan"] as const)
-    && oneOf(value.planEntry, ["manual", "suggest", "auto"] as const);
+    && oneOf(value.planEntry, ["manual", "suggest", "auto"] as const)
+    && optional(value.requestId, string);
 }
 
 function delegation(value: unknown): boolean {
@@ -102,11 +99,24 @@ function question(value: unknown): boolean {
     && Array.isArray(value.prompts)
     && value.prompts.every((prompt) => record(prompt)
       && string(prompt.questionId)
-      && string(prompt.label)
       && string(prompt.prompt)
-      && optional(prompt.options, strings))
+      && optional(prompt.label, string)
+      && optional(prompt.type, (item) => oneOf(item, ["single_choice", "multiple_choice", "text"] as const))
+      && optional(prompt.options, (items) => Array.isArray(items) && (
+        items.every(string)
+        || items.every((option) => record(option)
+          && string(option.optionId)
+          && string(option.title)
+          && optional(option.description, string)
+          && optional(option.recommended, (item) => typeof item === "boolean"))
+      ))
+      && optional(prompt.minSelections, number)
+      && optional(prompt.maxSelections, number)
+      && optional(prompt.placeholder, string)
+      && optional(prompt.multiline, (item) => typeof item === "boolean"))
     && oneOf(value.status, ["pending", "answered", "cancelled"] as const)
-    && string(value.createdAt);
+    && string(value.createdAt)
+    && optional(value.answers, record);
 }
 
 function fileChange(value: unknown): boolean {

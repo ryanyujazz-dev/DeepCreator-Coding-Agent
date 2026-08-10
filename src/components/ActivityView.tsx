@@ -1,6 +1,7 @@
-import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, TerminalSquare, Wrench } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleAlert, FileCode2, MessageCircleQuestion, TerminalSquare, Wrench } from "lucide-react";
 import React, { useState } from "react";
-import { Activity, Plan } from "../../shared/contracts/runtime";
+import { Activity, Plan, Question } from "../../shared/contracts/runtime";
+import { normalizeQuestionAnswers, normalizeQuestionPrompt } from "../../shared/domain/questions";
 import {
   activityTitle,
   fileDisplayName,
@@ -70,12 +71,70 @@ function MessageActivity({
   );
 }
 
+function questionAnswerLabel(question: Question, promptIndex: number): string {
+  const prompt = normalizeQuestionPrompt(question.prompts[promptIndex]);
+  const answer = normalizeQuestionAnswers(question)?.[prompt.questionId];
+  if (!answer) return question.status === "pending" ? "等待用户回答" : "未记录回答";
+  if (answer.status === "skipped") return "已跳过";
+  if (answer.answer.kind === "text") return answer.answer.text;
+  const selected = answer.answer.optionIds.flatMap((optionId) => {
+    const option = prompt.options.find((item) => item.optionId === optionId);
+    return option ? [option.title] : [];
+  });
+  if (answer.answer.customText?.trim()) selected.push(answer.answer.customText.trim());
+  return selected.join("、") || "未记录回答";
+}
+
+export function questionHistoryRows(question: Question): Array<{ answer: string; question: string }> {
+  return question.prompts.map((rawPrompt, index) => ({
+    answer: questionAnswerLabel(question, index),
+    question: normalizeQuestionPrompt(rawPrompt).prompt
+  }));
+}
+
+function AskUserActivity({ activity, question }: { activity: Activity; question?: Question }) {
+  const [expanded, setExpanded] = useState(false);
+  const statusLabel = question?.status === "answered"
+    ? "已询问用户"
+    : question?.status === "cancelled" ? "已结束问题澄清" : "等待用户回答";
+  return (
+    <article className={`work-step tool-step ask-user-history-step is-${question?.status ?? activity.status}`}>
+      <div className="work-dot"><MessageCircleQuestion size={13} /></div>
+      <div className="work-body">
+        <button
+          aria-expanded={expanded}
+          className="command-step-toggle"
+          disabled={!question}
+          onClick={() => setExpanded((value) => !value)}
+          type="button"
+        >
+          <strong>{statusLabel}</strong>
+          {question ? <ChevronDown size={12} /> : null}
+        </button>
+        {expanded && question ? (
+          <div className="ask-user-history-detail">
+            {questionHistoryRows(question).map((row, index) => {
+              return (
+                <div className="ask-user-history-item" key={`${index}:${row.question}`}>
+                  <span className="ask-user-history-question">{row.question}</span>
+                  <span className="ask-user-history-answer">{row.answer}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
 export function ActivityView({
   runActive,
   onOpenFile,
   onTextFrame,
   onOpenPlan,
   plan,
+  question,
   activity
 }: {
   runActive: boolean;
@@ -83,6 +142,7 @@ export function ActivityView({
   onTextFrame?: () => void;
   onOpenPlan: (runId: string, callId: string) => void;
   plan?: Plan;
+  question?: Question;
   activity: Activity;
 }) {
   const [commandExpanded, setCommandExpanded] = useState(false);
@@ -107,6 +167,9 @@ export function ActivityView({
   }
   if (activity.kind === "plan" && activity.tool?.callId) {
     return <InlinePlanCard activity={activity} onOpen={() => onOpenPlan(activity.runId, activity.tool!.callId)} onTextFrame={onTextFrame} plan={plan} runActive={runActive} />;
+  }
+  if (activity.tool?.toolName === "ask_user") {
+    return <AskUserActivity activity={activity} question={question} />;
   }
   if (activity.kind === "command") {
     const status = activity.command?.timedOut

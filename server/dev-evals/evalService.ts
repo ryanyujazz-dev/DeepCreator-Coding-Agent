@@ -13,7 +13,8 @@ import {
 } from "../../shared/contracts/evals";
 import { evalBatchSchedulingEnabled, evalDifficultyWeight, selectQueuedEvalRuns, summarizeEvalBatch } from "../../shared/domain/evalBatchScoring";
 import { resolveEvalPlanInteraction } from "../../shared/domain/evalInteractionPolicy";
-import { Event, isRunDone, QuestionPrompt, Session } from "../../shared/contracts/runtime";
+import { Event, isRunDone, QuestionAnswer, QuestionPrompt, Session } from "../../shared/contracts/runtime";
+import { normalizeQuestionPrompt } from "../../shared/domain/questions";
 import { rebuildSession } from "../../shared/domain/reducer";
 import { answerQuestion, resolvePlan } from "../app/planReview";
 import { RunLaunchPort } from "../app/runLauncher";
@@ -493,12 +494,15 @@ export class EvalService {
     if (result.resume) this.resume(result.resume);
   }
 
-  private answerFor(prompt: QuestionPrompt, strategy: NonNullable<FixtureInteractions["answerQuestions"]>): string {
-    if (strategy === "diagnosis_only") {
-      return prompt.options?.find((option) => /(?:暂不|不修改|仅.*诊断|只.*诊断)/.test(option))
-        ?? "暂不修改，只保留诊断结论。";
-    }
-    return prompt.options?.[0] ?? "继续。";
+  private answerFor(rawPrompt: QuestionPrompt, strategy: NonNullable<FixtureInteractions["answerQuestions"]>): QuestionAnswer {
+    const prompt = normalizeQuestionPrompt(rawPrompt);
+    if (prompt.type === "text") return { status: "answered", answer: { kind: "text", text: strategy === "diagnosis_only" ? "暂不修改，只保留诊断结论。" : "继续。" } };
+    const diagnosis = strategy === "diagnosis_only"
+      ? prompt.options.find((option) => /(?:暂不|不修改|仅.*诊断|只.*诊断)/.test(option.title))
+      : undefined;
+    const minimum = prompt.type === "multiple_choice" ? prompt.minSelections ?? 1 : 1;
+    const selected = [diagnosis, ...prompt.options].filter((option, index, items) => option && items.indexOf(option) === index).slice(0, minimum);
+    return { status: "answered", answer: { kind: "choice", optionIds: selected.map((option) => option!.optionId) } };
   }
 
   private resume(resume: { model: string; protocol: "chat" | "responses"; projectRoot: string; prompt: string; runId: string; sessionId: string }): void {

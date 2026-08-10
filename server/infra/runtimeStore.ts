@@ -24,6 +24,7 @@ import { MetricStore } from "./metricStore";
 import { SessionStore } from "./sessionStore";
 import { createContextEntry } from "./contextEntry";
 import {
+  AtomicWritePort,
   ContextPort,
   DelegationPort,
   EventInput,
@@ -49,7 +50,7 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-export class RuntimeStore implements EventPort, SessionPort, DelegationPort, ContextPort, EvidencePort, MemoryPort, MetricPort, StoreLifecyclePort {
+export class RuntimeStore implements AtomicWritePort, EventPort, SessionPort, DelegationPort, ContextPort, EvidencePort, MemoryPort, MetricPort, StoreLifecyclePort {
   readonly startupReport: RuntimeStoreStartupReport;
   private readonly contexts: ContextStore;
   private readonly database: Database;
@@ -216,6 +217,45 @@ export class RuntimeStore implements EventPort, SessionPort, DelegationPort, Con
     this.sessions.set(sessionId, session);
     this.publish(sessionId, events);
     return clone(events);
+  }
+
+  appendAtomically(inputs: EventInput[], contextInputs: ContextInput[]): {
+    contextEntries: ContextEntry[];
+    events: Event[];
+  } {
+    if (inputs.length === 0) throw new Error("An atomic Runtime write requires at least one Event.");
+    const sessionId = inputs[0].sessionId;
+    if (inputs.some((input) => input.sessionId !== sessionId)
+      || contextInputs.some((input) => input.sessionId !== sessionId)) {
+      throw new Error("An atomic Runtime write must belong to one Session.");
+    }
+    let session = this.sessions.get(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    const events: Event[] = [];
+    for (const input of inputs) {
+      const scope = { activityId: input.activityId, runId: input.runId, sessionId };
+      assertEventTransition(session, { data: input.data, scope, type: input.type });
+      const offset = session.lastOffset + 1;
+      const event = {
+        at: new Date().toISOString(),
+        data: input.data,
+        eventId: `${sessionId}:${offset}`,
+        offset,
+        scope,
+        type: input.type,
+        version: EVENT_VERSION
+      } as Event;
+      session = reduceEvent(session, event);
+      events.push(event);
+    }
+    this.ensureLegacyContext(sessionId);
+    let contextEntries: ContextEntry[] = [];
+    this.events.appendAcross([{ events, session }], () => {
+      contextEntries = contextInputs.map((input) => this.contexts.append(input));
+    });
+    this.sessions.set(sessionId, session);
+    this.publish(sessionId, events);
+    return clone({ contextEntries, events });
   }
 
   getSession(sessionId: string): Session | undefined {

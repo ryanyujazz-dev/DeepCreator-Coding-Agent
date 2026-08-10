@@ -1,11 +1,12 @@
 import { AccessMode, FollowUp, Mode, PlanEntry, Session } from "../../shared/contracts/runtime";
+import { ContextInput } from "../../shared/contracts/context";
 import { AppError } from "./appError";
 import { RunRegistry } from "./runRegistry";
-import { ContextPort, EventPort, SessionPort } from "./runtimeRepo";
+import { AtomicWritePort, ContextPort, EventInput, EventPort, SessionPort } from "./runtimeRepo";
 import { StartRun } from "./startRun";
 import { SystemPort } from "./systemPort";
 
-type FollowUpPorts = ContextPort & EventPort & SessionPort;
+type FollowUpPorts = AtomicWritePort & ContextPort & EventPort & SessionPort;
 
 export type QueueFollowUpInput = {
   accessMode: AccessMode;
@@ -13,6 +14,7 @@ export type QueueFollowUpInput = {
   model: string;
   planEntry: PlanEntry;
   prompt: string;
+  requestId?: string;
   sessionId: string;
 };
 
@@ -31,6 +33,12 @@ export class FollowUpService {
     const prompt = input.prompt.trim();
     if (!prompt) throw new AppError("prompt is required", "invalid_input");
     const session = this.requireSession(input.sessionId);
+    if (input.requestId) {
+      const existing = this.deps.store.readEvents(input.sessionId).find((event) =>
+        event.type === "follow_up.queued" && event.data.followUp.requestId === input.requestId
+      );
+      if (existing) return { session };
+    }
     const activeRun = this.activeRun(session);
     if (!activeRun) {
       const result = await this.deps.startRun.execute(input);
@@ -43,11 +51,130 @@ export class FollowUpService {
       mode: input.mode,
       model: input.model,
       planEntry: input.planEntry,
-      prompt
+      prompt,
+      ...(input.requestId ? { requestId: input.requestId } : {})
     };
     this.deps.store.append({ data: { followUp }, sessionId: input.sessionId, type: "follow_up.queued" });
     this.watch(input.sessionId);
     return { session: this.requireSession(input.sessionId) };
+  }
+
+  async interruptQuestion(input: QueueFollowUpInput & {
+    interactionId: string;
+    requestId: string;
+  }): Promise<{ idempotent: boolean; session: Session }> {
+    const session = this.requireSession(input.sessionId);
+    const existingFollowUp = this.deps.store.readEvents(input.sessionId).find((event) =>
+      event.type === "follow_up.queued" && event.data.followUp.requestId === input.requestId
+    );
+    if (existingFollowUp) return { idempotent: true, session };
+    const question = session.questions.find((item) => item.interactionId === input.interactionId);
+    if (!question) throw new AppError("question interaction not found", "not_found");
+    if (question.status !== "pending") throw new AppError("question interaction is stale", "stale_revision");
+    const run = session.runs.find((item) => item.runId === question.runId);
+    if (!run || run.status !== "waiting") throw new AppError("question run is not waiting", "not_waiting");
+
+    const resolvedAt = this.deps.system.now();
+    const message = "用户选择结束问题澄清环节";
+    const followUp: FollowUp = {
+      accessMode: input.accessMode,
+      createdAt: resolvedAt,
+      followUpId: this.deps.system.createId("follow_up"),
+      mode: input.mode,
+      model: input.model,
+      planEntry: input.planEntry,
+      prompt: input.prompt.trim(),
+      requestId: input.requestId
+    };
+    if (!followUp.prompt) throw new AppError("prompt is required", "invalid_input");
+    const events: EventInput[] = [{
+      data: { followUp },
+      sessionId: input.sessionId,
+      type: "follow_up.queued"
+    }, {
+      data: { interactionId: question.interactionId, resolvedAt, status: "cancelled" },
+      runId: question.runId,
+      sessionId: input.sessionId,
+      type: "question.answered"
+    }, ...run.activities
+      .filter((activity) => activity.status === "running" || activity.status === "suspended")
+      .map((activity): EventInput => ({
+        activityId: activity.activityId,
+        data: {
+          body: activity.body,
+          finishedAt: resolvedAt,
+          liveFiles: [],
+          status: "cancelled"
+        },
+        runId: question.runId,
+        sessionId: input.sessionId,
+        type: "activity.finished"
+      })), ...run.approvals
+      .filter((approval) => approval.state === "pending")
+      .map((approval): EventInput => ({
+        data: { approvalId: approval.approvalId, state: "dismissed" },
+        runId: question.runId,
+        sessionId: input.sessionId,
+        type: "approval.resolved"
+      })), {
+      data: { answer: message, finishedAt: resolvedAt, status: "cancelled" },
+      runId: question.runId,
+      sessionId: input.sessionId,
+      type: "run.finished"
+    }];
+    const existingContext = this.deps.store.readContextEntries(input.sessionId)
+      .filter((entry) => entry.runId === question.runId);
+    const toolName = question.purpose === "plan_entry" ? "enter_plan" : "ask_user";
+    const contextInputs: ContextInput[] = [{
+      createdAt: resolvedAt,
+      isError: true,
+      kind: "tool_result",
+      metadata: {
+        interactionId: question.interactionId,
+        interruptionReason: "user_started_new_run"
+      },
+      runId: question.runId,
+      sessionId: input.sessionId,
+      source: "runtime",
+      text: JSON.stringify({
+        interactionId: question.interactionId,
+        message,
+        reason: "user_started_new_run",
+        status: "interrupted"
+      }),
+      toolCallKey: question.callId,
+      toolName
+    }];
+    if (!existingContext.some((entry) => entry.kind === "human_text")) {
+      contextInputs.unshift({
+        createdAt: run.startedAt,
+        kind: "human_text",
+        runId: question.runId,
+        sessionId: input.sessionId,
+        source: "runtime",
+        text: run.prompt
+      });
+    }
+    if (!existingContext.some((entry) => entry.kind === "agent_text")) {
+      contextInputs.splice(contextInputs.length - 1, 0, {
+        createdAt: resolvedAt,
+        kind: "agent_text",
+        runId: question.runId,
+        sessionId: input.sessionId,
+        source: "model",
+        text: "",
+        toolCalls: [{
+          argumentsText: JSON.stringify({ questions: question.prompts }),
+          callId: question.callId,
+          index: 0,
+          name: toolName
+        }]
+      });
+    }
+    this.deps.store.appendAtomically(events, contextInputs);
+    this.watch(input.sessionId);
+    await this.drain(input.sessionId);
+    return { idempotent: false, session: this.requireSession(input.sessionId) };
   }
 
   remove(sessionId: string, followUpId: string): { session: Session } {

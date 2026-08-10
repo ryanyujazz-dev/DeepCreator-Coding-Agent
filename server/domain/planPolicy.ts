@@ -6,7 +6,7 @@ export type PlanPolicyDecision = {
   reason?: string;
 };
 
-const PLAN_CONTROLS = new Set(["ask_user", "submit_plan"]);
+const PLAN_CONTROLS = new Set(["submit_plan"]);
 
 export function planPolicy(input: {
   args: Record<string, unknown>;
@@ -21,6 +21,8 @@ export function planPolicy(input: {
     if (planEntry === "manual") return { allowed: false, reason: "当前配置只允许用户手动进入计划模式。" };
     return { allowed: true };
   }
+
+  if (tool.toolName === "ask_user") return { allowed: true };
 
   if (PLAN_CONTROLS.has(tool.toolName)) {
     return mode === "plan"

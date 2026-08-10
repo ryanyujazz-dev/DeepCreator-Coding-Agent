@@ -66,8 +66,9 @@ function toolCategory(activity: Activity): ActionKind | undefined {
 }
 
 function isInternal(activity: Activity): boolean {
-  return activity.audience === "internal"
-    || activity.tool?.action === "task"
+  if (activity.audience === "internal") return true;
+  if (activity.tool?.toolName === "ask_user") return false;
+  return activity.tool?.action === "task"
     || (activity.tool?.action === "plan" && activity.kind !== "plan");
 }
 
@@ -367,6 +368,14 @@ export function projectDisplayTimeline(
       skillSegment.transients.push({ activity, index });
       entries.push({ draft: skillSegment, type: "display_segment" });
       current = undefined;
+      continue;
+    }
+    if (activity.tool?.toolName === "ask_user") {
+      // A user question is a first-level interaction fact. It separates the
+      // work before the pause from the continuation after the answer.
+      if (current) current.transientBoundary = current.transients.length;
+      current = undefined;
+      entries.push({ activity, type: "activity" });
       continue;
     }
     if (toolCategory(activity)) {

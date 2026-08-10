@@ -1,0 +1,1030 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='7' fill='%2320272b'/%3E%3Cpath d='M12 7V4M8 4h4M6 9h12v9H6zM9 13h.01M15 13h.01' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <title>DeepCreator · 极简 Agent 交互框</title>
+  <style>
+    @font-face {
+      font-family: "HarmonyOS Sans SC";
+      src: url("../../src/assets/fonts/HarmonyOS_Sans_SC.ttf") format("truetype");
+      font-style: normal;
+      font-weight: 40 900;
+      font-display: swap;
+    }
+
+    :root {
+      color-scheme: light;
+      --canvas: #f5f7f9;
+      --surface: #ffffff;
+      --surface-raised: #ffffff;
+      --surface-soft: #f1f4f6;
+      --surface-hover: #e9eef1;
+      --decision-surface: #edf6ff;
+      --decision-hover: #e2effa;
+      --text: #20272b;
+      --text-secondary: #59646a;
+      --text-subtle: #8b969c;
+      --blue: #0877d1;
+      --blue-dark: #0063b1;
+      --danger: #b44c43;
+      --danger-soft: #fff0ee;
+      --success: #287450;
+      --shadow-window: 0 18px 44px rgba(37, 52, 60, .12), 0 2px 8px rgba(37, 52, 60, .05);
+      --shadow-composer: 0 8px 24px rgba(41, 56, 64, .10), 0 1px 3px rgba(41, 56, 64, .06);
+      --font-ui: "HarmonyOS Sans SC", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+      --font-code: "SFMono-Regular", Menlo, Consolas, monospace;
+      --composer-radius: 24px;
+      --ease: cubic-bezier(.22, .75, .18, 1);
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --canvas: #161a1d;
+      --surface: #202529;
+      --surface-raised: #252b2f;
+      --surface-soft: #2b3236;
+      --surface-hover: #343d42;
+      --decision-surface: #1d3446;
+      --decision-hover: #27445a;
+      --text: #edf1f3;
+      --text-secondary: #b9c2c7;
+      --text-subtle: #89959c;
+      --blue: #58aef0;
+      --blue-dark: #83c7f7;
+      --danger: #ef8a81;
+      --danger-soft: #432b2b;
+      --success: #75c99a;
+      --shadow-window: 0 20px 54px rgba(0, 0, 0, .35);
+      --shadow-composer: 0 10px 28px rgba(0, 0, 0, .25);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      overflow: hidden;
+      background: var(--canvas);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    button, input, textarea { font: inherit; }
+    button { color: inherit; }
+
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--blue) 72%, transparent);
+      outline-offset: 2px;
+    }
+
+    .icon {
+      width: 16px;
+      height: 16px;
+      flex: none;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .prototype {
+      display: grid;
+      min-height: 100vh;
+      grid-template-columns: 244px minmax(0, 1fr);
+    }
+
+    .controls {
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+      padding: 24px 18px 18px;
+      overflow: auto;
+      background: var(--surface);
+      box-shadow: 1px 0 0 color-mix(in srgb, var(--text) 9%, transparent);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border-radius: 9px;
+      background: var(--text);
+      color: var(--surface);
+    }
+
+    .brand strong { display: block; font-size: 14px; font-weight: 680; }
+    .brand small { display: block; color: var(--text-subtle); font-size: 11px; }
+
+    .control-group { margin-bottom: 24px; }
+    .control-label { display: block; margin: 0 4px 8px; color: var(--text-subtle); font-size: 11px; font-weight: 620; }
+
+    .scenario-list { display: grid; gap: 4px; }
+    .scenario-button {
+      display: flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      text-align: left;
+    }
+    .scenario-button:hover { background: var(--surface-soft); }
+    .scenario-button.is-active { background: var(--decision-surface); color: var(--text); font-weight: 630; }
+    .scenario-button span:last-child { color: var(--text-subtle); font-size: 11px; font-weight: 500; }
+
+    .width-control {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 3px;
+      padding: 3px;
+      border-radius: 11px;
+      background: var(--surface-soft);
+    }
+    .width-button {
+      min-height: 32px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .width-button.is-active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(37, 52, 60, .08); font-weight: 620; }
+
+    .principles {
+      display: grid;
+      gap: 10px;
+      padding: 13px;
+      border-radius: 12px;
+      background: var(--surface-soft);
+      color: var(--text-secondary);
+      font-size: 11px;
+    }
+    .principles p { display: flex; align-items: flex-start; gap: 7px; margin: 0; }
+    .principles i { width: 4px; height: 4px; flex: none; margin-top: 7px; border-radius: 50%; background: var(--blue); }
+
+    .control-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: auto;
+      color: var(--text-subtle);
+      font-size: 11px;
+    }
+
+    .icon-button {
+      display: inline-grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .icon-button:hover { background: var(--surface-soft); }
+
+    .preview {
+      display: grid;
+      min-width: 0;
+      min-height: 0;
+      place-items: center;
+      padding: 20px 28px;
+      overflow: auto;
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--text) 4%, transparent) 1px, transparent 1px) 0 0 / 40px 40px,
+        linear-gradient(color-mix(in srgb, var(--text) 4%, transparent) 1px, transparent 1px) 0 0 / 40px 40px,
+        var(--canvas);
+    }
+
+    .app-window {
+      display: grid;
+      width: min(100%, 1120px);
+      height: min(820px, calc(100vh - 40px));
+      min-height: 620px;
+      grid-template-rows: 42px minmax(0, 1fr);
+      overflow: hidden;
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: var(--shadow-window), inset 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent);
+      transition: width 280ms var(--ease);
+    }
+    .app-window[data-width="1024"] { width: min(100%, 900px); }
+    .app-window[data-width="760"] { width: min(100%, 700px); }
+
+    .titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px 0 18px;
+      background: color-mix(in srgb, var(--surface) 94%, var(--canvas));
+      box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 9%, transparent);
+    }
+    .traffic-lights { display: flex; gap: 8px; }
+    .traffic-lights i { width: 11px; height: 11px; border-radius: 50%; background: color-mix(in srgb, var(--text-subtle) 48%, transparent); }
+    .window-title { color: var(--text-subtle); font-size: 11px; }
+
+    .workspace { display: grid; min-height: 0; grid-template-columns: 176px minmax(0, 1fr); }
+    .sidebar {
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+      padding: 12px 10px;
+      background: color-mix(in srgb, var(--canvas) 82%, var(--surface));
+      box-shadow: 1px 0 0 color-mix(in srgb, var(--text) 8%, transparent);
+    }
+    .sidebar-new { display: flex; min-height: 34px; align-items: center; padding: 0 10px; gap: 8px; color: var(--text-secondary); font-weight: 580; }
+    .sidebar-label { margin: 18px 10px 6px; color: var(--text-subtle); font-size: 11px; }
+    .thread-row { padding: 8px 10px; border-radius: 9px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .thread-row.is-active { background: var(--surface); color: var(--text); }
+    .profile { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 8px; color: var(--text-secondary); }
+    .avatar { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: var(--decision-surface); color: var(--blue-dark); font-weight: 680; }
+
+    .conversation {
+      position: relative;
+      display: grid;
+      min-width: 0;
+      min-height: 0;
+      grid-template-rows: 44px minmax(0, 1fr) auto;
+      background: var(--surface);
+    }
+    .thread-header {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+    }
+    .thread-name { display: flex; min-width: 0; align-items: center; gap: 8px; font-weight: 620; }
+    .thread-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .runtime { display: flex; align-items: center; gap: 6px; color: var(--text-subtle); font-size: 11px; }
+    .runtime i { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+
+    .messages {
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+      gap: 22px;
+      padding: 28px max(24px, calc((100% - 720px) / 2));
+      overflow: auto;
+    }
+    .message { max-width: 680px; color: var(--text-secondary); }
+    .message strong { color: var(--text); font-weight: 640; }
+    .message.user { align-self: flex-end; max-width: 430px; padding: 10px 14px; border-radius: 16px 16px 4px 16px; background: var(--decision-surface); color: var(--text); }
+    .activity { display: flex; align-items: center; gap: 8px; color: var(--text-subtle); }
+    .spinner { width: 14px; height: 14px; border: 1.5px solid color-mix(in srgb, var(--text-subtle) 40%, transparent); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .composer-zone {
+      position: relative;
+      z-index: 5;
+      width: min(884px, calc(100% - 40px));
+      margin: 0 auto 16px;
+    }
+
+    .decision-shell {
+      position: relative;
+      width: 100%;
+      overflow: hidden;
+      border-radius: var(--composer-radius);
+      background: var(--surface-raised);
+      box-shadow: var(--shadow-composer);
+      transition: min-height 320ms var(--ease), border-radius 320ms var(--ease);
+    }
+
+    .decision-panel {
+      position: relative;
+      max-height: 560px;
+      padding: 14px 16px 7px;
+      overflow: hidden;
+      background: transparent;
+      opacity: 1;
+      transform: translateY(0) scaleY(1);
+      transform-origin: bottom;
+      transition: max-height 320ms var(--ease), padding 320ms var(--ease), opacity 180ms ease, transform 320ms var(--ease);
+    }
+    .decision-shell.is-collapsed .decision-panel {
+      max-height: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      opacity: 0;
+      transform: translateY(16px) scaleY(.94);
+      pointer-events: none;
+    }
+
+    .decision-head {
+      display: flex;
+      min-height: 34px;
+      align-items: center;
+      padding-right: 70px;
+      gap: 16px;
+    }
+    .decision-corner-actions {
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .decision-corner-actions .icon-button {
+      width: 30px;
+      height: 30px;
+      background: var(--surface-soft);
+    }
+    .decision-copy { min-width: 0; }
+    .decision-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .decision-title { color: var(--text); font-size: 14px; font-weight: 680; }
+    .decision-description { margin: 3px 0 0; color: var(--text-secondary); font-size: 12px; }
+    .step-badge { display: inline-flex; min-height: 21px; align-items: center; padding: 0 7px; border-radius: 999px; background: var(--decision-surface); color: var(--blue-dark); font-size: 10px; font-weight: 680; }
+
+    .decision-content { margin-top: 12px; }
+    .command {
+      padding: 11px 12px;
+      border-radius: 10px;
+      background: var(--surface-soft);
+      color: var(--text);
+      font: 12px/1.5 var(--font-code);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .summary { color: var(--text-secondary); font-size: 12px; }
+    .summary strong { display: block; margin-bottom: 2px; color: var(--text); font-size: 13px; font-weight: 640; }
+    .compact-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+    .fact { display: inline-flex; min-height: 25px; align-items: center; padding: 0 9px; border-radius: 999px; background: var(--surface-soft); color: var(--text-secondary); font-size: 11px; }
+    .hash { margin-top: 8px; color: var(--text-subtle); font: 10px/1.45 var(--font-code); overflow-wrap: anywhere; }
+
+    .question-options {
+      display: grid;
+      gap: 4px;
+      margin-top: 10px;
+    }
+    .question-option {
+      display: grid;
+      min-height: 56px;
+      grid-template-columns: minmax(0, 1fr) 24px;
+      align-items: center;
+      padding: 7px 11px;
+      gap: 12px;
+      border: 0;
+      border-radius: 9px;
+      background: var(--surface-soft);
+      color: var(--text-secondary);
+      text-align: left;
+      cursor: pointer;
+      transition: background 130ms ease, color 130ms ease;
+    }
+    .question-option:hover { background: var(--surface-hover); color: var(--text); }
+    .question-option.is-selected { background: var(--decision-surface); color: var(--text); }
+    .question-option-copy { min-width: 0; }
+    .question-option-heading { display: flex; min-width: 0; align-items: baseline; gap: 5px; }
+    .question-option-heading strong { color: var(--text); font-size: 13px; font-weight: 620; line-height: 20px; }
+    .question-option-recommended { color: var(--blue-dark); font-size: 10px; font-weight: 610; white-space: nowrap; }
+    .question-option-description { display: block; overflow: hidden; color: var(--text-subtle); font-size: 11px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
+    .question-option-number { justify-self: center; color: var(--text-subtle); font-size: 11px; }
+    .question-other { cursor: text; }
+    .question-other-copy { display: grid; gap: 5px; }
+    .question-other-input {
+      width: 100%;
+      min-width: 0;
+      height: 30px;
+      padding: 0 9px;
+      border: 0;
+      border-radius: 7px;
+      background: var(--surface-raised);
+      color: var(--text);
+    }
+    .question-other-input::placeholder { color: var(--text-subtle); }
+
+    .decision-bar {
+      position: relative;
+      display: flex;
+      min-height: 48px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px;
+      gap: 8px;
+      background: transparent;
+    }
+    .bar-group { display: flex; min-width: 0; align-items: center; gap: 5px; }
+    .bar-group.is-scrollable { overflow-x: auto; scrollbar-width: none; }
+    .bar-group.is-scrollable::-webkit-scrollbar { display: none; }
+
+    .bar-button {
+      display: inline-flex;
+      min-height: 34px;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      gap: 6px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      color: var(--text-secondary);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 130ms ease, color 130ms ease, transform 100ms ease;
+    }
+    .bar-button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+    .bar-button:active:not(:disabled) { transform: translateY(1px); }
+    .bar-button.primary { background: var(--blue); color: #fff; font-weight: 610; }
+    .bar-button.primary:hover:not(:disabled) { background: var(--blue-dark); color: #fff; }
+    .bar-button.danger { background: var(--danger-soft); color: var(--danger); }
+    .bar-button.ghost { background: transparent; }
+    .bar-button.is-selected { background: var(--decision-hover); color: var(--blue-dark); font-weight: 620; }
+    .bar-button:disabled { cursor: default; opacity: .42; }
+    .bar-button .key { color: currentColor; font-size: 10px; opacity: .65; }
+
+    .bar-input {
+      min-width: 0;
+      min-height: 34px;
+      flex: 1;
+      padding: 7px 9px;
+      border: 0;
+      border-radius: 17px;
+      resize: none;
+      background: var(--surface-soft);
+      color: var(--text);
+      line-height: 22px;
+    }
+    .bar-input::placeholder { color: var(--text-subtle); }
+    .bar-input.collapsed-input { padding-right: 8px; padding-left: 8px; background: transparent; }
+    .bar-input.collapsed-input:focus,
+    .bar-input.collapsed-input:focus-visible { outline: 0; }
+    .collapsed-voice { flex: none; color: var(--text-subtle); }
+
+    .circle-button {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      flex: none;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      cursor: pointer;
+    }
+    .circle-button.subtle { background: var(--surface-soft); color: var(--text-secondary); }
+    .circle-button.subtle:hover { background: var(--surface-hover); color: var(--text); }
+    .circle-button:disabled { background: var(--surface-hover); color: var(--text-subtle); cursor: default; }
+
+    .composer-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 8px 0;
+      color: var(--text-subtle);
+      font-size: 11px;
+    }
+    .foot-group { display: flex; align-items: center; gap: 4px; }
+    .foot-button { display: inline-flex; min-height: 26px; align-items: center; padding: 0 8px; gap: 5px; border: 0; border-radius: 999px; background: transparent; color: var(--text-subtle); cursor: pointer; }
+    .foot-button:hover { background: var(--surface-soft); }
+
+    .toast {
+      position: absolute;
+      z-index: 20;
+      top: 56px;
+      left: 50%;
+      min-height: 36px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: var(--surface-raised);
+      box-shadow: var(--shadow-composer);
+      color: var(--text-secondary);
+      opacity: 0;
+      transform: translate(-50%, -10px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 200ms var(--ease);
+    }
+    .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+
+    .busy-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: inherit;
+      background: color-mix(in srgb, var(--surface-raised) 90%, transparent);
+      color: var(--text-secondary);
+      opacity: 0;
+      pointer-events: none;
+      backdrop-filter: blur(5px);
+      transition: opacity 150ms ease;
+    }
+    .busy-layer.is-visible { opacity: 1; pointer-events: auto; }
+
+    @media (max-width: 940px) {
+      body { overflow: auto; }
+      .prototype { grid-template-columns: 1fr; }
+      .controls { min-height: auto; padding: 14px 16px; box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 9%, transparent); }
+      .brand { margin-bottom: 14px; }
+      .controls-grid { display: grid; grid-template-columns: 1fr 220px; gap: 12px; }
+      .control-group { margin: 0; }
+      .principles { display: none; }
+      .control-footer { margin-top: 12px; }
+      .preview { min-height: 710px; padding: 14px; }
+      .app-window { height: 690px; }
+    }
+
+    @media (max-width: 760px) {
+      .controls-grid { grid-template-columns: 1fr; }
+      .scenario-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .preview { padding: 8px; }
+      .app-window { height: 700px; min-height: 620px; border-radius: 12px; }
+      .workspace { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .messages { padding: 22px 16px; }
+      .composer-zone { width: calc(100% - 20px); margin-bottom: 10px; }
+      .decision-panel { padding-right: 14px; padding-left: 14px; }
+      .decision-bar { padding-left: 8px; }
+      .bar-button { padding: 0 10px; }
+      .bar-button .key { display: none; }
+      .runtime span { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg aria-hidden="true" width="0" height="0" style="position:absolute">
+    <!-- Lucide-compatible inline icon sprite. -->
+    <symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3z"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6M12 9v12"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></symbol>
+  </svg>
+
+  <main class="prototype">
+    <aside class="controls">
+      <div class="brand">
+        <div class="brand-mark"><svg class="icon"><use href="#i-bot"></use></svg></div>
+        <div><strong>极简交互框</strong><small>第二版排版原型</small></div>
+      </div>
+
+      <div class="controls-grid">
+        <section class="control-group">
+          <span class="control-label">内容场景</span>
+          <div class="scenario-list" id="scenarioControls">
+            <button class="scenario-button is-active" data-scenario="approval" type="button"><span>操作批准</span><span>1</span></button>
+            <button class="scenario-button" data-scenario="question_single" type="button"><span>单个问题</span><span>2</span></button>
+            <button class="scenario-button" data-scenario="question_group" type="button"><span>一组问题</span><span>3</span></button>
+            <button class="scenario-button" data-scenario="plan" type="button"><span>计划审阅</span><span>4</span></button>
+            <button class="scenario-button" data-scenario="skill" type="button"><span>Skill 信任</span><span>5</span></button>
+          </div>
+        </section>
+
+        <section class="control-group">
+          <span class="control-label">模拟窗口</span>
+          <div class="width-control" id="widthControls">
+            <button class="width-button is-active" data-width="1440" type="button">1440</button>
+            <button class="width-button" data-width="1024" type="button">1024</button>
+            <button class="width-button" data-width="760" type="button">760</button>
+          </div>
+        </section>
+      </div>
+
+      <section class="control-group">
+        <span class="control-label">本版约束</span>
+        <div class="principles"><p><i></i><span>药丸输入框直接向上长高</span></p><p><i></i><span>外部只有一个圆角矩形</span></p><p><i></i><span>内部无描边和分割线</span></p></div>
+      </section>
+
+      <div class="control-footer">
+        <span>点击底栏可完整体验</span>
+        <div><button class="icon-button" id="resetButton" aria-label="重置原型" title="重置原型" type="button"><svg class="icon"><use href="#i-refresh"></use></svg></button><button class="icon-button" id="themeButton" aria-label="切换深浅主题" title="切换深浅主题" type="button"><svg class="icon"><use href="#i-moon"></use></svg></button></div>
+      </div>
+    </aside>
+
+    <section class="preview">
+      <div class="app-window" data-width="1440" id="appWindow">
+        <header class="titlebar">
+          <div class="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></div>
+          <span class="window-title">DeepCreator · 原型预览</span>
+          <button class="icon-button" aria-label="布局" type="button"><svg class="icon"><use href="#i-panel"></use></svg></button>
+        </header>
+
+        <div class="workspace">
+          <aside class="sidebar">
+            <div class="sidebar-new"><svg class="icon"><use href="#i-plus"></use></svg><span>新建任务</span></div>
+            <div class="sidebar-label">今天</div>
+            <div class="thread-row is-active">统一 Agent 交互组件</div>
+            <div class="thread-row">整理 Skills 加载机制</div>
+            <div class="thread-row">发布版本准备</div>
+            <div class="profile"><span class="avatar">L</span><span>本地 Profile</span></div>
+          </aside>
+
+          <section class="conversation">
+            <header class="thread-header">
+              <div class="thread-name"><svg class="icon"><use href="#i-folder"></use></svg><span>DeepCreator-Coding-Agent</span></div>
+              <div class="runtime"><i></i><span>Runtime 已连接</span></div>
+            </header>
+
+            <div class="messages" id="messages">
+              <div class="message user">把批准、问题澄清等交互统一成一个极简组件。</div>
+              <div class="message"><strong>我会保留必要的安全信息，并把用户的决定集中到原输入框位置。</strong></div>
+              <div class="message activity"><span class="spinner"></span><span id="activityText">Agent 等待批准</span></div>
+            </div>
+
+            <div class="toast" id="toast" role="status">已提交</div>
+
+            <div class="composer-zone">
+              <div class="decision-shell" id="decisionShell">
+                <section class="decision-panel" aria-live="polite" id="decisionPanel"></section>
+                <div class="decision-bar" id="decisionBar"></div>
+                <div class="busy-layer" id="busyLayer"><span class="spinner"></span><span>正在提交决定</span></div>
+              </div>
+              <div class="composer-foot"><div class="foot-group"><button class="foot-button" type="button"><svg class="icon"><use href="#i-plus"></use></svg></button><button class="foot-button" type="button"><svg class="icon"><use href="#i-shield"></use></svg><span>请求批准</span><svg class="icon"><use href="#i-chevron-down"></use></svg></button></div><button class="foot-button" type="button"><span>DeepSeek V4 Flash</span><svg class="icon"><use href="#i-chevron-down"></use></svg></button></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      scenario: "approval",
+      width: "1440",
+      collapsed: false,
+      busy: false,
+      questionIndex: 0,
+      answers: {},
+      planFeedback: false,
+      collapsedDraft: ""
+    };
+
+    const panel = document.getElementById("decisionPanel");
+    const bar = document.getElementById("decisionBar");
+    const shell = document.getElementById("decisionShell");
+    const busyLayer = document.getElementById("busyLayer");
+    const activityText = document.getElementById("activityText");
+    const appWindow = document.getElementById("appWindow");
+
+    const meta = {
+      approval: "Agent 等待批准",
+      question_single: "Agent 等待你的回答",
+      question_group: "Agent 等待一组回答",
+      plan: "Agent 等待计划审阅",
+      skill: "Agent 等待安装信任"
+    };
+
+    function icon(id) {
+      return `<svg class="icon" aria-hidden="true"><use href="#${id}"></use></svg>`;
+    }
+
+    function cornerActions() {
+      return `<div class="decision-corner-actions"><button class="icon-button" data-collapse aria-label="收起" type="button">${icon("i-chevron-down")}</button><button class="icon-button" data-close aria-label="关闭" type="button">${icon("i-x")}</button></div>`;
+    }
+
+    function head(title, description, badge = "") {
+      return `<header class="decision-head"><div class="decision-copy"><div class="decision-title-line">${badge}<strong class="decision-title">${title}</strong></div>${description ? `<p class="decision-description">${description}</p>` : ""}</div>${cornerActions()}</header>`;
+    }
+
+    function approvalView() {
+      panel.innerHTML = `${head("允许运行此命令？", "需要修改当前项目")}
+        <div class="decision-content"><div class="command">npm install electron-updater && npm run build</div></div>`;
+      bar.innerHTML = `<div class="bar-group"><button class="bar-button danger" data-decision="拒绝" type="button">拒绝 <span class="key">Esc</span></button></div><div class="bar-group is-scrollable"><button class="bar-button" data-decision="本轮允许" type="button">本轮</button><button class="bar-button" data-decision="本会话允许" type="button">本会话</button><button class="bar-button primary" data-decision="允许一次" type="button">允许一次 <span class="key">⌘↵</span></button></div>`;
+    }
+
+    const singleQuestion = {
+      type: "single_choice",
+      title: "这个 Skill 应该安装在哪里？",
+      description: "",
+      options: [
+        { id: "project", label: "当前项目", description: "只在当前项目中使用", recommended: true },
+        { id: "global", label: "全局安装", description: "当前用户的所有项目都能使用" },
+        { id: "ask_each_time", label: "每次询问", description: "安装前再由用户决定范围" }
+      ]
+    };
+
+    const questionGroup = [
+      {
+        type: "single_choice",
+        title: "接下来希望 Agent 做哪类工作？",
+        description: "",
+        options: [
+          { id: "implement", label: "代码实现", description: "写代码、修 bug、重构等开发任务", recommended: true },
+          { id: "investigate", label: "代码调查", description: "搜索、理解、解释现有代码" },
+          { id: "review", label: "审查 / 测试", description: "审查改动、跑测试、验证正确性" },
+          { id: "demo", label: "只是演示", description: "只体验交互，不修改项目" }
+        ]
+      },
+      {
+        type: "multiple_choice",
+        title: "这次改动还需要覆盖哪些事项？（可多选）",
+        description: "",
+        minSelections: 1,
+        maxSelections: 3,
+        options: [
+          { id: "tests", label: "补充测试", description: "覆盖直接相关的状态和交互", recommended: true },
+          { id: "docs", label: "更新文档", description: "同步行为说明与开发约定", recommended: true },
+          { id: "cross_platform", label: "跨平台验证", description: "额外检查 macOS 与 Windows" },
+          { id: "cleanup", label: "顺带清理", description: "处理相邻但不阻塞的问题" }
+        ]
+      },
+      {
+        type: "single_choice",
+        title: "完成后需要怎样验证？",
+        description: "",
+        options: [
+          { id: "focused_tests", label: "聚焦测试", description: "运行与改动直接相关的验证" },
+          { id: "full_check", label: "完整检查", description: "运行类型检查、测试和构建", recommended: true },
+          { id: "cross_platform", label: "跨平台检查", description: "额外覆盖 macOS 与 Windows" }
+        ]
+      }
+    ];
+
+    function questionAnswerKey(grouped) {
+      return grouped ? `group_${state.questionIndex}` : "single";
+    }
+
+    function escapeAttribute(value) {
+      return String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    }
+
+    function questionView(grouped) {
+      const question = grouped ? questionGroup[state.questionIndex] : singleQuestion;
+      const answerKey = questionAnswerKey(grouped);
+      const answer = state.answers[answerKey] ?? { choiceIds: [], customText: "" };
+      const badge = grouped ? `<span class="step-badge">${state.questionIndex + 1}/${questionGroup.length}</span>` : "";
+      const optionRows = question.options.map((option, index) => `<button class="question-option ${answer.choiceIds.includes(option.id) ? "is-selected" : ""}" data-question-option="${option.id}" type="button" aria-pressed="${answer.choiceIds.includes(option.id)}"><span class="question-option-copy"><span class="question-option-heading"><strong>${option.label}</strong>${option.recommended ? '<span class="question-option-recommended">（推荐）</span>' : ""}</span><span class="question-option-description">${option.description}</span></span><span class="question-option-number">${index + 1}</span></button>`).join("");
+      const otherNumber = question.options.length + 1;
+      const otherRow = `<div class="question-option question-other ${answer.choiceIds.includes("other") ? "is-selected" : ""}"><div class="question-option-copy question-other-copy"><span class="question-option-heading"><strong>其他</strong></span><input class="question-other-input" data-question-other placeholder="输入自己的回答" value="${escapeAttribute(answer.customText)}" /></div><span class="question-option-number">${otherNumber}</span></div>`;
+      const validOther = !answer.choiceIds.includes("other") || Boolean(answer.customText.trim());
+      const minimum = question.type === "multiple_choice" ? question.minSelections ?? 1 : 1;
+      const hasAnswer = answer.choiceIds.length >= minimum && validOther;
+      const finalQuestion = !grouped || state.questionIndex === questionGroup.length - 1;
+      const submitLabel = grouped && !finalQuestion ? "下一题" : "提交回答";
+      const backButton = grouped && state.questionIndex > 0
+        ? `<button class="circle-button subtle" data-question-back aria-label="返回上一题" type="button">${icon("i-chevron-left")}</button>`
+        : `<span></span>`;
+      panel.innerHTML = `${head(question.title, question.description, badge)}<div class="question-options">${optionRows}${otherRow}</div>`;
+      bar.innerHTML = `${backButton}<div class="bar-group"><button class="bar-button ghost" data-question-skip type="button">跳过</button><button class="bar-button primary" data-question-submit ${hasAnswer ? "" : "disabled"} type="button">${submitLabel} <span class="key">Enter</span></button></div>`;
+    }
+
+    function planView() {
+      panel.innerHTML = `${head("实施此计划？", "统一 Agent 暂停交互组件")}
+        <div class="decision-content"><div class="summary">建立公共外壳，接入批准、问题和计划审阅；补齐键盘、加载与错误状态。</div></div>`;
+      if (state.planFeedback) {
+        bar.innerHTML = `<div class="bar-group" style="flex:1"><button class="icon-button" data-plan-back aria-label="返回" type="button">${icon("i-chevron-left")}</button><textarea class="bar-input" rows="1" data-plan-input placeholder="告诉 Agent 应该怎样调整"></textarea></div><button class="circle-button" data-plan-submit aria-label="继续规划" disabled type="button">${icon("i-arrow-up")}</button>`;
+      } else {
+        bar.innerHTML = `<div class="bar-group"><button class="bar-button danger" data-decision="取消计划" type="button">取消</button></div><div class="bar-group"><button class="bar-button" data-plan-feedback type="button">调整计划</button><button class="bar-button primary" data-decision="开始实施" type="button">开始实施 <span class="key">⌘↵</span></button></div>`;
+      }
+    }
+
+    function skillView() {
+      panel.innerHTML = `${head("信任并安装 Create PDF？", "1.2.0 · DeepCreator Community")}
+        <div class="decision-content"><div class="compact-facts"><span class="fact">当前项目</span><span class="fact">2 个脚本</span><span class="fact">可写入工作区</span></div><div class="hash">SHA-256 · 5d94e7f31fb9…b87126eda28f</div></div>`;
+      bar.innerHTML = `<div class="bar-group"><button class="bar-button danger" data-decision="拒绝安装" type="button">拒绝</button></div><button class="bar-button primary" data-decision="信任并安装" type="button">信任并安装 <span class="key">仅本次</span></button>`;
+    }
+
+    function collapsedComposerView() {
+      bar.innerHTML = `<button class="circle-button subtle" data-expand aria-label="展开交互内容" type="button">${icon("i-chevron-up")}</button><input class="bar-input collapsed-input" data-collapsed-input aria-label="输入新消息" placeholder="随心输入" value="${escapeAttribute(state.collapsedDraft)}" /><button class="icon-button collapsed-voice" aria-label="语音输入" type="button">${icon("i-mic")}</button><button class="circle-button" data-collapsed-send aria-label="发送并开始新一轮" ${state.collapsedDraft.trim() ? "" : "disabled"} type="button">${icon("i-arrow-up")}</button>`;
+    }
+
+    function render() {
+      ({ approval: approvalView, question_single: () => questionView(false), question_group: () => questionView(true), plan: planView, skill: skillView })[state.scenario]();
+      if (state.collapsed) collapsedComposerView();
+      shell.classList.toggle("is-collapsed", state.collapsed);
+      panel.inert = state.collapsed;
+      panel.setAttribute("aria-hidden", String(state.collapsed));
+      appWindow.dataset.width = state.width;
+      activityText.textContent = meta[state.scenario];
+      bindEvents();
+    }
+
+    function bindEvents() {
+      panel.querySelectorAll("[data-collapse], [data-close]").forEach((button) => button.addEventListener("click", () => {
+        state.collapsed = true;
+        render();
+      }));
+      bar.querySelector("[data-expand]")?.addEventListener("click", () => {
+        state.collapsed = false;
+        render();
+      });
+      const collapsedInput = bar.querySelector("[data-collapsed-input]");
+      collapsedInput?.addEventListener("input", (event) => {
+        state.collapsedDraft = event.target.value;
+        const send = bar.querySelector("[data-collapsed-send]");
+        if (send) send.disabled = !event.target.value.trim();
+      });
+      collapsedInput?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey && event.target.value.trim()) {
+          event.preventDefault();
+          sendCollapsedMessage();
+        }
+      });
+      bar.querySelector("[data-collapsed-send]")?.addEventListener("click", sendCollapsedMessage);
+      bar.querySelectorAll("[data-decision]").forEach((button) => button.addEventListener("click", () => submitDecision(button.dataset.decision)));
+      panel.querySelectorAll("[data-question-option]").forEach((button) => button.addEventListener("click", () => {
+        const grouped = state.scenario === "question_group";
+        const answerKey = questionAnswerKey(grouped);
+        const question = grouped ? questionGroup[state.questionIndex] : singleQuestion;
+        const current = state.answers[answerKey] ?? { choiceIds: [], customText: "" };
+        const optionId = button.dataset.questionOption;
+        const isMultiple = question.type === "multiple_choice";
+        const alreadySelected = current.choiceIds.includes(optionId);
+        let choiceIds = isMultiple
+          ? alreadySelected ? current.choiceIds.filter((id) => id !== optionId) : [...current.choiceIds, optionId]
+          : [optionId];
+        if (isMultiple && question.maxSelections && choiceIds.length > question.maxSelections) return;
+        state.answers[answerKey] = { ...current, choiceIds };
+        render();
+      }));
+      const otherInput = panel.querySelector("[data-question-other]");
+      otherInput?.addEventListener("focus", () => {
+        const grouped = state.scenario === "question_group";
+        const answerKey = questionAnswerKey(grouped);
+        const question = grouped ? questionGroup[state.questionIndex] : singleQuestion;
+        const current = state.answers[answerKey] ?? { choiceIds: [], customText: "" };
+        const choiceIds = question.type === "multiple_choice"
+          ? current.choiceIds.includes("other") ? current.choiceIds : [...current.choiceIds, "other"]
+          : ["other"];
+        state.answers[answerKey] = { ...current, choiceIds };
+        if (question.type === "multiple_choice") {
+          panel.querySelector(".question-other")?.classList.add("is-selected");
+        } else {
+          panel.querySelectorAll(".question-option").forEach((option) => option.classList.toggle("is-selected", option.classList.contains("question-other")));
+        }
+      });
+      otherInput?.addEventListener("input", (event) => {
+        const grouped = state.scenario === "question_group";
+        const answerKey = questionAnswerKey(grouped);
+        const question = grouped ? questionGroup[state.questionIndex] : singleQuestion;
+        const current = state.answers[answerKey] ?? { choiceIds: [], customText: "" };
+        const choiceIds = question.type === "multiple_choice"
+          ? current.choiceIds.includes("other") ? current.choiceIds : [...current.choiceIds, "other"]
+          : ["other"];
+        state.answers[answerKey] = { choiceIds, customText: event.target.value };
+        const submit = bar.querySelector("[data-question-submit]");
+        if (submit) submit.disabled = !event.target.value.trim();
+      });
+      otherInput?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && event.target.value.trim()) {
+          event.preventDefault();
+          bar.querySelector("[data-question-submit]")?.click();
+        }
+      });
+      bar.querySelector("[data-question-skip]")?.addEventListener("click", () => {
+        const grouped = state.scenario === "question_group";
+        if (grouped && state.questionIndex < questionGroup.length - 1) {
+          state.questionIndex += 1;
+          render();
+        } else submitDecision("跳过并提交");
+      });
+      bar.querySelector("[data-question-back]")?.addEventListener("click", () => {
+        state.questionIndex = Math.max(0, state.questionIndex - 1);
+        render();
+      });
+      bar.querySelector("[data-question-submit]")?.addEventListener("click", () => {
+        const grouped = state.scenario === "question_group";
+        if (grouped && state.questionIndex < questionGroup.length - 1) {
+          state.questionIndex += 1;
+          render();
+        } else submitDecision("提交回答");
+      });
+      bar.querySelector("[data-plan-feedback]")?.addEventListener("click", () => {
+        state.planFeedback = true;
+        render();
+        bar.querySelector("textarea")?.focus();
+      });
+      bar.querySelector("[data-plan-back]")?.addEventListener("click", () => {
+        state.planFeedback = false;
+        render();
+      });
+      bar.querySelector("[data-plan-input]")?.addEventListener("input", (event) => {
+        const submit = bar.querySelector("[data-plan-submit]");
+        if (submit) submit.disabled = !event.target.value.trim();
+      });
+      bar.querySelector("[data-plan-submit]")?.addEventListener("click", () => submitDecision("继续规划"));
+    }
+
+    function sendCollapsedMessage() {
+      const input = bar.querySelector("[data-collapsed-input]");
+      const text = input?.value.trim();
+      if (!text || state.busy) return;
+      const isClarification = state.scenario === "question_single" || state.scenario === "question_group";
+      const terminalLabel = isClarification ? "用户选择结束问题澄清环节" : "用户选择结束当前交互";
+      state.collapsedDraft = "";
+      activityText.previousElementSibling?.classList.remove("spinner");
+
+      const messages = document.getElementById("messages");
+      const userMessage = document.createElement("div");
+      userMessage.className = "message user";
+      userMessage.textContent = text;
+      messages.append(userMessage);
+
+      const nextRun = document.createElement("div");
+      nextRun.className = "message activity";
+      nextRun.innerHTML = `<span class="spinner"></span><span>已开启下一轮 Run</span>`;
+      messages.append(nextRun);
+      messages.scrollTop = messages.scrollHeight;
+
+      render();
+      activityText.textContent = terminalLabel;
+      showToast(isClarification ? "已结束问题澄清并开始新一轮" : "已开始新一轮");
+    }
+
+    function submitDecision(label) {
+      if (state.busy) return;
+      state.busy = true;
+      busyLayer.classList.add("is-visible");
+      window.setTimeout(() => {
+        state.busy = false;
+        busyLayer.classList.remove("is-visible");
+        state.collapsed = true;
+        render();
+        showToast(`已提交：${label}`);
+      }, 720);
+    }
+
+    function showToast(text) {
+      const toast = document.getElementById("toast");
+      toast.textContent = text;
+      toast.classList.add("is-visible");
+      clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove("is-visible"), 1700);
+    }
+
+    document.getElementById("scenarioControls").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-scenario]");
+      if (!button) return;
+      state.scenario = button.dataset.scenario;
+      state.collapsed = false;
+      state.planFeedback = false;
+      state.questionIndex = 0;
+      document.querySelectorAll("[data-scenario]").forEach((item) => item.classList.toggle("is-active", item === button));
+      render();
+    });
+
+    document.getElementById("widthControls").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-width]");
+      if (!button) return;
+      state.width = button.dataset.width;
+      document.querySelectorAll("[data-width]").forEach((item) => item.classList.toggle("is-active", item === button));
+      render();
+    });
+
+    document.getElementById("themeButton").addEventListener("click", (event) => {
+      const dark = document.documentElement.dataset.theme !== "dark";
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      event.currentTarget.querySelector("use").setAttribute("href", dark ? "#i-sun" : "#i-moon");
+    });
+
+    document.getElementById("resetButton").addEventListener("click", () => {
+      Object.assign(state, { scenario: "approval", width: "1440", collapsed: false, busy: false, questionIndex: 0, answers: {}, planFeedback: false });
+      document.querySelectorAll("[data-scenario]").forEach((item) => item.classList.toggle("is-active", item.dataset.scenario === "approval"));
+      document.querySelectorAll("[data-width]").forEach((item) => item.classList.toggle("is-active", item.dataset.width === "1440"));
+      render();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !state.busy) {
+        state.collapsed = true;
+        render();
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>

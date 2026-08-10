@@ -1,5 +1,5 @@
 import Fastify, { FastifyInstance } from "fastify";
-import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, Session, WorkspaceKind } from "../../shared/contracts/runtime";
+import { ApprovalChoice, AccessMode, EventStream, Mode, PlanDecision, PlanEntry, QuestionAnswer, Session, WorkspaceKind } from "../../shared/contracts/runtime";
 import { MemoryFact } from "../../shared/contracts/context";
 import { Provider, ModelOption, ModelProtocol } from "../../shared/contracts/provider";
 import {
@@ -18,6 +18,7 @@ import {
   planRevisionInputSchema,
   projectArchiveInputSchema,
   questionAnswerInputSchema,
+  questionInterruptInputSchema,
   runInputSchema,
   runParamsSchema,
   sessionListQuerySchema,
@@ -449,7 +450,7 @@ app.post<{
 
 app.post<{
   Params: { sessionId: string; interactionId: string };
-  Body: { answers?: Record<string, string> };
+  Body: { answers?: Record<string, QuestionAnswer> };
 }>("/api/sessions/:sessionId/questions/:interactionId/answer", { schema: questionAnswerInputSchema }, async (request) => {
   const result = answerQuestion({
     answers: request.body.answers ?? {},
@@ -460,6 +461,17 @@ app.post<{
   });
   if (result.resume) resumeRun(result.resume);
   return { idempotent: result.idempotent, session: result.session };
+});
+
+app.post<{
+  Params: { sessionId: string; interactionId: string };
+  Body: { model: string; accessMode: AccessMode; mode: Mode; planEntry: PlanEntry; prompt: string; requestId: string };
+}>("/api/sessions/:sessionId/questions/:interactionId/interrupt", { schema: questionInterruptInputSchema }, async (request) => {
+  return followUps.interruptQuestion({
+    ...request.body,
+    interactionId: request.params.interactionId,
+    sessionId: request.params.sessionId
+  });
 });
 
 app.post<{

@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Changes, Plan, Session } from "../../shared/contracts/runtime";
+import { Changes, Plan, Question, Session } from "../../shared/contracts/runtime";
 import {
   SCROLL_FOLLOW_EDGE_THRESHOLD,
   ScrollFollowMode,
@@ -11,6 +11,7 @@ import { RunTimeline } from "./RunTimeline";
 import { useStableCallback } from "../shared-ui/useStableCallback";
 
 const EMPTY_PLANS: Plan[] = [];
+const EMPTY_QUESTIONS: Question[] = [];
 
 // === 滚动跟随状态机 + 边缘渐变消隐(第一性设计)===
 //
@@ -79,6 +80,15 @@ export function Conversation({
     }
     return map;
   }, [session?.plans]);
+  const questionsByRun = useMemo(() => {
+    const map = new Map<string, Question[]>();
+    for (const question of session?.questions ?? []) {
+      const list = map.get(question.runId);
+      if (list) list.push(question);
+      else map.set(question.runId, [question]);
+    }
+    return map;
+  }, [session?.questions]);
 
   // 找到 .conversation-main 作为 Portal 目标
   useLayoutEffect(() => {
@@ -246,6 +256,7 @@ export function Conversation({
               onOpenReview={stableOpenReview}
               onStopCommand={stableStopCommand}
               plans={plansByRun.get(run.runId) ?? EMPTY_PLANS}
+              questions={questionsByRun.get(run.runId) ?? EMPTY_QUESTIONS}
             />
           ))}
           <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 60}px` }} />

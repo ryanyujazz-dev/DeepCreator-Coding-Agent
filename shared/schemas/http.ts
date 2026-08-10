@@ -226,6 +226,51 @@ export const planResolveInputSchema = {
   }
 } as const;
 
+const questionAnswerValueSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    kind: { type: "string", enum: ["choice", "text"] },
+    optionIds: { type: "array", items: id, uniqueItems: true },
+    customText: { type: "string" },
+    text: { type: "string" }
+  },
+  required: ["kind"],
+  allOf: [{
+    if: { properties: { kind: { const: "choice" } }, required: ["kind"] },
+    then: {
+      required: ["optionIds"],
+      not: { required: ["text"] }
+    }
+  }, {
+    if: { properties: { kind: { const: "text" } }, required: ["kind"] },
+    then: {
+      required: ["text"],
+      not: { anyOf: [{ required: ["optionIds"] }, { required: ["customText"] }] }
+    }
+  }]
+} as const;
+
+// Fastify 默认启用 AJV removeAdditional。判别联合若写成 oneOf，AJV 在尝试
+// skipped 分支时会先删除 answer，再使 answered 分支错误地报告缺少 answer。
+// 将所有合法字段声明在同一对象层级，并用 if/then 约束判别字段，可避免校验过程修改请求体。
+const questionAnswerSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    status: { type: "string", enum: ["answered", "skipped"] },
+    answer: questionAnswerValueSchema
+  },
+  required: ["status"],
+  allOf: [{
+    if: { properties: { status: { const: "answered" } }, required: ["status"] },
+    then: { required: ["answer"] }
+  }, {
+    if: { properties: { status: { const: "skipped" } }, required: ["status"] },
+    then: { not: { required: ["answer"] } }
+  }]
+} as const;
+
 export const questionAnswerInputSchema = {
   params: {
     type: "object",
@@ -237,8 +282,30 @@ export const questionAnswerInputSchema = {
     type: "object",
     additionalProperties: false,
     properties: {
-      answers: { type: "object", additionalProperties: { type: "string" } }
+      answers: { type: "object", additionalProperties: questionAnswerSchema }
     },
     required: ["answers"]
+  }
+} as const;
+
+export const questionInterruptInputSchema = {
+  params: {
+    type: "object",
+    additionalProperties: false,
+    properties: { sessionId: id, interactionId: id },
+    required: ["sessionId", "interactionId"]
+  },
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      model: id,
+      prompt: id,
+      requestId: id,
+      accessMode: { type: "string", enum: ["request_approval", "smart_approval", "full_access"] },
+      mode: { type: "string", enum: ["work", "plan"] },
+      planEntry: { type: "string", enum: ["manual", "suggest", "auto"] }
+    },
+    required: ["model", "prompt", "requestId", "accessMode", "mode", "planEntry"]
   }
 } as const;

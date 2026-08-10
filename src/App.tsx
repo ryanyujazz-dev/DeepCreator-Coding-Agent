@@ -1,7 +1,6 @@
 import { Component, CSSProperties, lazy, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Folder, LayoutPanelTop, PanelLeft, PanelRight } from "lucide-react";
 import { AppTopbar } from "./components/AppTopbar";
-import { ApprovalDialog } from "./components/ApprovalDialog";
 import { Composer } from "./components/Composer";
 import { ProjectContextSelector } from "./components/ProjectContextSelector";
 import { ConnectionStatus } from "./components/ConnectionStatus";
@@ -106,6 +105,7 @@ export function App({ authState }: { authState?: AuthState }) {
     refreshBalance,
     removeFollowUp,
     answerQuestion,
+    interruptQuestion,
     searchSessions,
     selectSession,
     setAccessMode,
@@ -302,9 +302,11 @@ export function App({ authState }: { authState?: AuthState }) {
     onAccessModeChange: (nextMode: AccessMode) => void setAccessMode(nextMode),
     onModeChange: (nextMode: Mode) => void setMode(nextMode),
     onAnswerQuestion: answerQuestion,
+    onInterruptQuestion: interruptQuestion,
     onModelChange: handleModelChange,
     onRefreshBalance: refreshBalance,
     onRemoveFollowUp: (followUpId: string) => void removeFollowUp(followUpId),
+    onResolveApproval: resolveApproval,
     onResolvePlan: resolvePlan,
     onSubmit: startRun,
     onSteerFollowUp: (followUpId: string) => void steerFollowUp(followUpId)
@@ -393,7 +395,6 @@ export function App({ authState }: { authState?: AuthState }) {
                 {error && <div className="conversation-error-toast" role="alert">{error}</div>}
               </div>
             )}
-            <ApprovalDialog approval={pendingApproval} onResolve={(decision) => void resolveApproval(decision)} />
             <div className={`composer-stack ${!session ? "has-project-context" : ""}`}>
               {!config?.hasApiKey && config && <div className="composer-notice">未配置 DeepSeek Key，当前使用 <strong>mock-agent</strong></div>}
               {!session && draftWorkspace && (
@@ -417,6 +418,7 @@ export function App({ authState }: { authState?: AuthState }) {
                 models={config?.models ?? EMPTY_MODELS}
                 {...composerHandlers}
                 pendingPlan={pendingPlan}
+                pendingApproval={pendingApproval}
                 pendingQuestion={pendingQuestion}
                 resetKey={session?.sessionId ?? `draft:${draftRevision}`}
                 workspace={workspace}

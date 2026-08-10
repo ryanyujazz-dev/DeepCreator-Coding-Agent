@@ -103,11 +103,53 @@ export type Plan = {
 
 export type PlanDecision = "continue_planning" | "start_work" | "cancel";
 
+export type QuestionType = "single_choice" | "multiple_choice" | "text";
+
+export type QuestionOption = {
+  optionId: string;
+  title: string;
+  description?: string;
+  recommended?: boolean;
+};
+
+/**
+ * `type`, structured options, and the input hints are the current contract.
+ * `label` and string options remain readable so persisted pre-v2 questions can
+ * be normalized without rewriting event history.
+ */
 export type QuestionPrompt = {
   questionId: string;
-  label: string;
   prompt: string;
-  options?: string[];
+  type?: QuestionType;
+  label?: string;
+  options?: QuestionOption[] | string[];
+  minSelections?: number;
+  maxSelections?: number;
+  placeholder?: string;
+  multiline?: boolean;
+};
+
+export type QuestionAnswer =
+  | {
+      status: "answered";
+      answer: {
+        kind: "choice";
+        optionIds: string[];
+        customText?: string;
+      };
+    }
+  | {
+      status: "answered";
+      answer: {
+        kind: "text";
+        text: string;
+      };
+    }
+  | { status: "skipped" };
+
+export type QuestionResolution = {
+  interactionId: string;
+  answers: Record<string, QuestionAnswer>;
 };
 
 export type Question = {
@@ -118,7 +160,7 @@ export type Question = {
   prompts: QuestionPrompt[];
   purpose?: "clarification" | "plan_entry";
   status: "pending" | "answered" | "cancelled";
-  answers?: Record<string, string>;
+  answers?: Record<string, QuestionAnswer | string>;
   createdAt: string;
   resolvedAt?: string;
 };
@@ -296,6 +338,7 @@ export type FollowUp = {
   accessMode: AccessMode;
   mode: Mode;
   planEntry: PlanEntry;
+  requestId?: string;
 };
 
 export type Session = {
@@ -401,7 +444,7 @@ export type EventPayloadMap = {
   };
   "question.asked": { question: Question };
   "question.answered": {
-    answers?: Record<string, string>;
+    answers?: Record<string, QuestionAnswer | string>;
     interactionId: string;
     resolvedAt: string;
     status: Question["status"];

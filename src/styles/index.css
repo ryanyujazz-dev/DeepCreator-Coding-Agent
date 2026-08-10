@@ -13,6 +13,7 @@
 @import "./theme-guardrails.css";
 @import "./features/inspector-output.css";
 @import "./features/composer-bar.css";
+@import "./features/agent-interaction-composer.css";
 @import "./features/task-history.css";
 
 /*

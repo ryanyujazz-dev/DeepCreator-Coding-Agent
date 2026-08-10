@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import React, { memo, useEffect, useMemo, useState } from "react";
-import { Run, Changes, Plan, isRunDone } from "../../shared/contracts/runtime";
+import { Run, Changes, Plan, Question, isRunDone } from "../../shared/contracts/runtime";
 import { projectDisplayTimeline } from "../../shared/projections/displaySegments";
 import { projectResponsesDisplayTimeline, responsesDisplayActivities } from "../../shared/projections/responsesDisplayTimeline";
 import { DisplayTimelineEntry } from "../../shared/projections/types";
@@ -43,6 +43,7 @@ export const RunTimeline = memo(function RunTimeline({
   onStopCommand,
   onOpenPlan,
   plans,
+  questions = [],
   onTextFrame
 }: {
   run: Run;
@@ -52,6 +53,7 @@ export const RunTimeline = memo(function RunTimeline({
   onStopCommand: (commandId: string) => void;
   onOpenPlan: (runId: string, callId: string) => void;
   plans: Plan[];
+  questions?: Question[];
   onTextFrame?: () => void;
 }) {
   const active = !isRunDone(run.status);
@@ -87,6 +89,11 @@ export const RunTimeline = memo(function RunTimeline({
     }
     return map;
   }, [plans]);
+  const questionByCallId = useMemo(() => {
+    const map = new Map<string, Question>();
+    for (const question of questions) map.set(question.callId, question);
+    return map;
+  }, [questions]);
   const [expanded, setExpanded] = useState(active);
   useEffect(() => setExpanded(active), [active]);
   return (
@@ -164,6 +171,7 @@ export const RunTimeline = memo(function RunTimeline({
                           onOpenPlan={onOpenPlan}
                           onTextFrame={onTextFrame}
                           plan={planCallId ? latestPlanByCallId.get(planCallId) : undefined}
+                          question={planCallId ? questionByCallId.get(planCallId) : undefined}
                           runActive={active}
                         />
                       );

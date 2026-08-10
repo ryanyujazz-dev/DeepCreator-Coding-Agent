@@ -358,6 +358,87 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     assert.equal(app.hasRoute({ method: "PUT", url: "/api/sessions/:sessionId/plans/:planId/revisions/:revision" }), true);
     assert.equal(app.hasRoute({ method: "POST", url: "/api/sessions/:sessionId/plans/:planId/revisions/:revision/resolve" }), true);
     assert.equal(app.hasRoute({ method: "POST", url: "/api/sessions/:sessionId/questions/:interactionId/answer" }), true);
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "mock-agent",
+      projectRoot: directory,
+      sessionId: "session_question_http",
+      title: "问题提交"
+    });
+    store.append({
+      data: { model: "mock-agent", prompt: "等待澄清", startedAt: createdAt },
+      runId: "run_question_http",
+      sessionId: "session_question_http",
+      type: "run.started"
+    });
+    store.append({
+      data: {
+        question: {
+          callId: "call_question_http",
+          createdAt,
+          interactionId: "question_http",
+          prompts: [{
+            options: [{ optionId: "python", title: "Python" }, { optionId: "electron", title: "Electron" }],
+            prompt: "主要技术栈？",
+            questionId: "project_stack",
+            type: "single_choice"
+          }, {
+            maxSelections: 2,
+            options: [{ optionId: "runtime", title: "Runtime" }, { optionId: "renderer", title: "Renderer" }],
+            prompt: "处理哪些部分？",
+            questionId: "targets",
+            type: "multiple_choice"
+          }, {
+            prompt: "还有哪些约束？",
+            questionId: "constraints",
+            type: "text"
+          }, {
+            options: [{ optionId: "fast", title: "快速" }, { optionId: "complete", title: "完整" }],
+            prompt: "验证方式？",
+            questionId: "verification",
+            type: "single_choice"
+          }],
+          purpose: "clarification",
+          runId: "run_question_http",
+          sessionId: "session_question_http",
+          status: "pending"
+        }
+      },
+      runId: "run_question_http",
+      sessionId: "session_question_http",
+      type: "question.asked"
+    });
+    const answerPayload = {
+      answers: {
+        project_stack: { status: "answered", answer: { kind: "choice", optionIds: ["python"] } },
+        targets: { status: "answered", answer: { kind: "choice", optionIds: ["runtime", "renderer"] } },
+        constraints: { status: "answered", answer: { kind: "text", text: "保持兼容" } },
+        verification: { status: "skipped" }
+      }
+    };
+    const invalidQuestionAnswer = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      payload: {
+        answers: {
+          ...answerPayload.answers,
+          constraints: { status: "answered", answer: { kind: "text", optionIds: ["runtime"], text: "保持兼容" } }
+        }
+      },
+      url: "/api/sessions/session_question_http/questions/question_http/answer"
+    });
+    assert.equal(invalidQuestionAnswer.statusCode, 400);
+    const submittedQuestionAnswer = await app.inject({
+      headers: { authorization: "Bearer runtime-test-token" },
+      method: "POST",
+      payload: answerPayload,
+      url: "/api/sessions/session_question_http/questions/question_http/answer"
+    });
+    assert.equal(submittedQuestionAnswer.statusCode, 200);
+    const answeredQuestion = submittedQuestionAnswer.json().session.questions[0];
+    assert.equal(answeredQuestion.status, "answered");
+    assert.deepEqual(answeredQuestion.answers, answerPayload.answers);
     assert.equal(app.hasRoute({ method: "POST", url: "/api/commands/:commandId/stop" }), true);
     const missingCommand = await app.inject({
       headers: { authorization: "Bearer runtime-test-token" },

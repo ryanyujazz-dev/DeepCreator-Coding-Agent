@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
-import { QuestionPrompt, Session } from "../../shared/contracts/runtime";
+import { QuestionAnswer, QuestionPrompt, Session } from "../../shared/contracts/runtime";
+import { normalizeQuestionPrompt } from "../../shared/domain/questions";
 import { startRuntime } from "../../server/bootstrap/runtime";
 import { loadUserConfig } from "../../server/infra/userConfig";
 import { quoteRuntimeShellArgument } from "../../server/infra/shell";
@@ -53,12 +54,15 @@ async function removeWorktree(repositoryRoot: string, workspaceRoot: string): Pr
   await runShell(repositoryRoot, "git worktree prune");
 }
 
-function answerFor(prompt: QuestionPrompt, strategy: NonNullable<EvalFixtureManifest["interactions"]>["answerQuestions"]): string {
-  if (strategy === "diagnosis_only") {
-    const diagnosis = prompt.options?.find((option) => /(?:暂不|不修改|仅.*诊断|只.*诊断)/.test(option));
-    return diagnosis ?? "暂不修改，只保留诊断结论。";
-  }
-  return prompt.options?.[0] ?? "继续。";
+function answerFor(rawPrompt: QuestionPrompt, strategy: NonNullable<EvalFixtureManifest["interactions"]>["answerQuestions"]): QuestionAnswer {
+  const prompt = normalizeQuestionPrompt(rawPrompt);
+  if (prompt.type === "text") return { status: "answered", answer: { kind: "text", text: strategy === "diagnosis_only" ? "暂不修改，只保留诊断结论。" : "继续。" } };
+  const diagnosis = strategy === "diagnosis_only"
+    ? prompt.options.find((option) => /(?:暂不|不修改|仅.*诊断|只.*诊断)/.test(option.title))
+    : undefined;
+  const minimum = prompt.type === "multiple_choice" ? prompt.minSelections ?? 1 : 1;
+  const selected = [diagnosis, ...prompt.options].filter((option, index, items) => option && items.indexOf(option) === index).slice(0, minimum);
+  return { status: "answered", answer: { kind: "choice", optionIds: selected.map((option) => option!.optionId) } };
 }
 
 export async function resolveWaitingInteraction(

@@ -9,6 +9,8 @@ const styles = readFileSync(path.join(root, "src/styles.css"), "utf8");
 const applicationSurfaces = readFileSync(path.join(root, "src/styles/features/application-surfaces.css"), "utf8");
 const authStyles = readFileSync(path.join(root, "src/styles/features/auth.css"), "utf8");
 const composerBarStyles = readFileSync(path.join(root, "src/styles/features/composer-bar.css"), "utf8");
+const agentInteractionStyles = readFileSync(path.join(root, "src/styles/features/agent-interaction-composer.css"), "utf8");
+const agentInteractionComposer = readFileSync(path.join(root, "src/components/AgentInteractionComposer.tsx"), "utf8");
 const followUpStyles = readFileSync(path.join(root, "src/styles/features/follow-ups.css"), "utf8");
 const updateStyles = readFileSync(path.join(root, "src/styles/features/updates.css"), "utf8");
 const composer = readFileSync(path.join(root, "src/components/Composer.tsx"), "utf8");
@@ -82,6 +84,11 @@ test("binds every execution hierarchy level to shared typography and columns", (
   assert.match(styles, /\.operation-group-expander,[\s\S]*margin-left:\s*0;[\s\S]*padding-left:\s*0;/);
 });
 
+test("wraps unbroken Markdown text without changing code block whitespace", () => {
+  assert.match(styles, /\.markdown-content\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(styles, /\.markdown-code-block code\s*\{[^}]*white-space:\s*pre;/s);
+});
+
 test("uses structural gaps for equal execution slot spacing", () => {
   assert.match(styles, /\.work-process\s*\{[^}]*gap:\s*var\(--execution-slot-gap\)/s);
   assert.match(styles, /\.display-segment\s*\{[^}]*gap:\s*var\(--execution-slot-gap\)/s);
@@ -109,12 +116,40 @@ test("anchors the scroll-to-bottom control to the responsive composer center", (
   assert.match(conversation, /createPortal\([\s\S]*className="scroll-to-bottom-button"[\s\S]*composerPortalTarget/s);
 });
 
-test("aligns the project context cap bottom to the composer centerline with a four-pixel lift", () => {
-  assert.match(composerBarStyles, /\.composer-stack\.has-project-context\s*\{[^}]*--composer-bar-radius:\s*26px/s);
-  assert.match(composerBarStyles, /\.composer-stack\.has-project-context > \.project-context-shelf\s*\{[^}]*height:\s*calc\(2 \* var\(--composer-bar-radius\) \+ var\(--space-1\)\);[^}]*margin:\s*0 0 calc\(0px - var\(--composer-bar-radius\)\);[^}]*padding:\s*0 20px var\(--composer-bar-radius\);[^}]*border-radius:\s*var\(--composer-bar-radius\) var\(--composer-bar-radius\) 0 0/s);
+test("shares one composer head between project context and queued messages", () => {
+  assert.match(projectContextSelector, /className="composer-head project-context-shelf"/);
+  assert.match(composer, /className="composer-head queued-follow-ups"/);
+  assert.match(composerBarStyles, /\.composer-stack:has\(> \.composer-head\)\s*\{[^}]*--composer-bar-radius:\s*24px;[^}]*--composer-head-height:\s*calc\(2 \* var\(--composer-bar-radius\) \+ var\(--space-1\)\)/s);
+  assert.match(composerBarStyles, /\.composer-stack > \.composer-head\s*\{[^}]*min-height:\s*var\(--composer-head-height\);[^}]*margin:\s*0 0 calc\(0px - var\(--composer-bar-radius\)\);[^}]*padding:\s*0 20px var\(--composer-bar-radius\);[^}]*border-radius:\s*var\(--composer-bar-radius\) var\(--composer-bar-radius\) 0 0;[^}]*background:\s*var\(--theme-blue-gray-surface\)/s);
+  assert.match(composerBarStyles, /\.composer-stack\.has-project-context > \.project-context-shelf,\s*\.composer-stack > \.queued-follow-ups:has\(> \.queued-follow-up:only-child\)\s*\{[^}]*height:\s*var\(--composer-head-height\)/s);
   assert.match(composerBarStyles, /\.project-context-shelf > \.project-context-trigger\s*\{[^}]*height:\s*22px;[^}]*padding:\s*var\(--space-0-5\) var\(--space-1\);[^}]*gap:\s*var\(--space-1-5\)/s);
   assert.match(composerBarStyles, /\.project-context-trigger > span\s*\{[^}]*font-size:\s*var\(--type-meta-size\);[^}]*line-height:\s*var\(--type-meta-line-height\)/s);
   assert.match(composerBarStyles, /\.project-context-trigger > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px/s);
+});
+
+test("uses one 24px Agent interaction surface with a 48px collapsed question composer", () => {
+  assert.match(agentInteractionStyles, /--agent-composer-radius:\s*24px/);
+  assert.match(agentInteractionStyles, /\.composer-stack > \.agent-interaction-shell\s*\{[^}]*grid-template-rows:\s*minmax\(0, 1fr\) 48px/s);
+  assert.match(agentInteractionStyles, /\.composer-stack > \.agent-interaction-shell\s*\{[^}]*border:\s*1px solid var\(--app-border\);[^}]*box-shadow:\s*var\(--shadow-floating\)/s);
+  assert.match(agentInteractionStyles, /\.agent-interaction-expandable\s*\{[^}]*grid-template-rows:\s*1fr;[^}]*transition:\s*grid-template-rows/s);
+  assert.match(agentInteractionStyles, /\.agent-interaction-shell\.is-collapsed \.agent-interaction-expandable\s*\{[^}]*grid-template-rows:\s*0fr/s);
+  assert.match(agentInteractionStyles, /\.agent-question-collapsed-bar\s*\{[^}]*height:\s*48px;[^}]*min-height:\s*48px/s);
+  assert.match(agentInteractionStyles, /\.agent-corner-action\.is-top-right\s*\{[^}]*top:\s*8px;[^}]*right:\s*8px/s);
+  assert.match(agentInteractionStyles, /\.agent-corner-action\.is-bottom-left\s*\{[^}]*bottom:\s*7px;[^}]*left:\s*7px;[^}]*width:\s*34px;[^}]*height:\s*34px/s);
+  assert.match(agentInteractionStyles, /\.agent-interaction-bar\s*\{[^}]*min-height:\s*48px/s);
+  assert.match(agentInteractionStyles, /\.agent-interaction-actions\s*\{[^}]*padding:\s*7px/s);
+  assert.match(agentInteractionStyles, /\.composer-stack > \.agent-interaction-shell:focus-within\s*\{[^}]*border-color:\s*var\(--app-border\);[^}]*box-shadow:\s*var\(--shadow-floating\)/s);
+  assert.match(agentInteractionStyles, /\.agent-interaction-actions > button,[\s\S]*?min-height:\s*34px;[\s\S]*?border-radius:\s*var\(--radius-pill\)/s);
+  assert.match(agentInteractionStyles, /\.agent-interaction-actions button\.is-primary\s*\{[^}]*background:\s*var\(--theme-blue-gray-hover\);[^}]*color:\s*var\(--color-text\)/s);
+  assert.match(agentInteractionStyles, /\.agent-interaction-actions button:hover:not\(:disabled\),[\s\S]*?background:\s*var\(--theme-blue\);[\s\S]*?color:\s*var\(--color-on-accent\)/s);
+  assert.match(agentInteractionStyles, /\.agent-interaction-actions button:disabled\s*\{[^}]*background:\s*var\(--color-surface-subtle\);[^}]*color:\s*var\(--color-text-muted\);[^}]*opacity:\s*1/s);
+  assert.match(agentInteractionStyles, /\.question-other > \.question-option-number\s*\{[^}]*top:\s*50%;[^}]*transform:\s*translateY\(-50%\)/s);
+  assert.match(agentInteractionComposer, /label="语音输入"[^>]*><Mic/);
+  assert.match(agentInteractionComposer, /function InteractionComposerShell/);
+  assert.match(agentInteractionComposer, /label="返回上一个问题"[\s\S]*?<ChevronLeft size=\{15\}/);
+  assert.doesNotMatch(agentInteractionComposer, /className="composer agent-question-collapsed"/);
+  assert.match(agentInteractionComposer, /option\.recommended \? <em>（推荐）<\/em>/);
+  assert.doesNotMatch(agentInteractionComposer, /style=\{\{[^}]*color/);
 });
 
 test("gives every composer popover one shared surface and keeps the model menu on canvas", () => {
@@ -127,7 +162,8 @@ test("gives every composer popover one shared surface and keeps the model menu o
 
 test("floats the composer and reserves its bottom offset plus 60px in the conversation flow", () => {
   assert.match(followUpStyles, /\.conversation-main > \.composer-stack\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*18px/s);
-  assert.match(followUpStyles, /\.queued-follow-ups\s*\{[^}]*background:\s*color-mix/s);
+  assert.match(followUpStyles, /\.queued-follow-up\s*\{[^}]*min-height:\s*30px;[^}]*grid-template-columns:\s*14px minmax\(0, 1fr\) auto 22px/s);
+  assert.doesNotMatch(followUpStyles, /\.queued-follow-ups\s*\{[^}]*(?:box-shadow|background):/s);
   const conversation = readFileSync(path.join(root, "src/components/Conversation.tsx"), "utf8");
   assert.match(conversation, /setComposerBottomOffset\(portalTarget\.clientHeight - composer\.offsetTop\)/);
   assert.match(conversation, /conversation-column-bottom-spacer" style=\{\{ height: `\$\{composerBottomOffset \+ 60\}px` \}\}/);

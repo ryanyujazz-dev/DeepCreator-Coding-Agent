@@ -258,7 +258,7 @@ export function reduceEvent(current: Session, event: Event): Session {
       if (questionIndex >= 0) {
         next.questions = withUpdatedElement(next.questions, questionIndex, { ...next.questions[questionIndex], ...clone(data) });
       }
-      run.status = "running";
+      if (data.status === "answered") run.status = "running";
       break;
     }
     case "changes.changed":

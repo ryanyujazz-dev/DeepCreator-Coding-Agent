@@ -167,7 +167,9 @@ test("Eval Runner answers diagnosis-only questions without authorizing a mutatio
     } as unknown as Session, { answerQuestions: "diagnosis_only" });
     assert.equal(resolved, true);
     assert.match(requests[0].url, /questions\/question_1\/answer$/);
-    assert.deepEqual(requests[0].body, { answers: { next: "暂不修改，仅保留诊断" } });
+    assert.deepEqual(requests[0].body, {
+      answers: { next: { status: "answered", answer: { kind: "choice", optionIds: ["option_2"] } } }
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
