@@ -7,12 +7,6 @@ import { StreamFragment } from "../stream/textFlow";
 import { useOptionalTheme } from "../theme/ThemeProvider";
 import { ModelCitation } from "../../shared/contracts/provider";
 
-type FadeRange = {
-  end: number;
-  frame: number;
-  start: number;
-};
-
 type HastNode = {
   children?: HastNode[];
   position?: { start?: { offset?: number } };
@@ -24,8 +18,12 @@ type HastNode = {
 
 const MermaidBlock = lazy(() => import("./MermaidBlock").then((module) => ({ default: module.MermaidBlock })));
 
-function fadePlugin(ranges: FadeRange[]) {
+// 把 source 中 [fadeStart, sourceEnd) 后缀(本次新到达、stable 前缀之后的部分)覆盖的文本节点
+// 包成 <span className="markdown-streaming-fragment">,由 CSS animation 自动播一次淡入(83ms),
+// 不再靠每帧 frame++ 改 className —— 故不依赖 React 重渲染,与上层 tree memo 配合根治收尾卡。
+function fadePlugin(fadeStart: number, sourceEnd: number) {
   return () => (tree: HastNode) => {
+    if (fadeStart >= sourceEnd) return;
     const visit = (parent: HastNode) => {
       if (!parent.children) return;
       parent.children = parent.children.flatMap((child) => {
@@ -33,31 +31,22 @@ function fadePlugin(ranges: FadeRange[]) {
           visit(child);
           return [child];
         }
-
         const nodeStart = child.position.start.offset;
         const nodeEnd = nodeStart + child.value.length;
-        const overlaps = ranges.filter((range) => range.start < nodeEnd && range.end > nodeStart);
-        if (overlaps.length === 0) return [child];
-
+        if (nodeEnd <= fadeStart || nodeStart >= sourceEnd) return [child];
+        const start = Math.max(0, fadeStart - nodeStart);
+        const end = Math.min(child.value.length, sourceEnd - nodeStart);
         const output: HastNode[] = [];
-        let cursor = 0;
-        for (const range of overlaps) {
-          const start = Math.max(0, range.start - nodeStart);
-          const end = Math.min(child.value.length, range.end - nodeStart);
-          if (start > cursor) output.push({ type: "text", value: child.value.slice(cursor, start) });
-          if (end > start) {
-            output.push({
-              children: [{ type: "text", value: child.value.slice(start, end) }],
-              properties: {
-                className: ["streaming-fragment", `is-frame-${range.frame}`]
-              },
-              tagName: "span",
-              type: "element"
-            });
-          }
-          cursor = Math.max(cursor, end);
+        if (start > 0) output.push({ type: "text", value: child.value.slice(0, start) });
+        if (end > start) {
+          output.push({
+            children: [{ type: "text", value: child.value.slice(start, end) }],
+            properties: { className: ["markdown-streaming-fragment"] },
+            tagName: "span",
+            type: "element"
+          });
         }
-        if (cursor < child.value.length) output.push({ type: "text", value: child.value.slice(cursor) });
+        if (end < child.value.length) output.push({ type: "text", value: child.value.slice(end) });
         return output;
       });
     };
@@ -186,39 +175,40 @@ function markdownComponents(followOutput: boolean): Components {
   };
 }
 
+// components 必须引用稳定(模块级常量):streaming 翻转时若 components 变 → tree memo bust →
+// 触发一次全文重解析(收尾 flip 帧)。followOutput 恒 true:PlainCodeBlock 的 scroll effect 仅在
+// code 变化时触发,流式结束后 code 不变即与原行为等价,无副作用。
+const STABLE_COMPONENTS = markdownComponents(true);
+
 export function MarkdownContent({
   citations = [],
   fragments = [],
   stable = "",
-  streaming = false,
   text
 }: {
   citations?: ModelCitation[];
   fragments?: StreamFragment[];
   stable?: string;
+  /** 保留以向后兼容(MessageActivity/测试仍传);components 已用模块级 STABLE_COMPONENTS,streaming 不再驱动渲染。解构不取 = 忽略。 */
   streaming?: boolean;
   text?: string;
 }) {
   const rawSource = text ?? stable + fragments.map((fragment) => fragment.text).join("");
   const source = useMemo(() => decorateCitations(rawSource, citations), [citations, rawSource]);
-  const ranges = useMemo(() => {
-    let cursor = stable.length;
-    return fragments.map((fragment) => {
-      const range = { end: cursor + fragment.text.length, frame: fragment.frame, start: cursor };
-      cursor = range.end;
-      return range;
-    });
-  }, [fragments, stable.length]);
-  const streamPlugin = useMemo(() => fadePlugin(ranges), [ranges]);
-  const components = useMemo(() => markdownComponents(streaming), [streaming]);
-
-  return (
-    <div className="markdown-content">
-      <ReactMarkdown components={components} rehypePlugins={[streamPlugin]} remarkPlugins={[remarkGfm]}>
-        {source}
-      </ReactMarkdown>
-    </div>
-  );
+  // fadeStart:仅随 source 变化时重算。text 直传(非流式全文已稳定)→ source.length(后缀空,不包 span);
+  // 否则(流式 fragments/stable)→ stable.length(新字 = stable 前缀之后的部分)。
+  // graduate(fragments 并入 stable)时 source 字符串值不变 → 此 memo 命中 → fadeStart 不变 →
+  // streamPlugin 引用不变 → tree memo 命中 → 零重解析(根治收尾卡)。
+  // 故意只列 source 依赖:text / stable.length 在 source 不变时若进 deps,graduate 会 bust memo → 修复静默失败。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fadeStart = useMemo(() => (text !== undefined ? source.length : stable.length), [source]);
+  const streamPlugin = useMemo(() => fadePlugin(fadeStart, source.length), [fadeStart, source.length]);
+  const tree = useMemo(() => (
+    <ReactMarkdown components={STABLE_COMPONENTS} rehypePlugins={[streamPlugin]} remarkPlugins={[remarkGfm]}>
+      {source}
+    </ReactMarkdown>
+  ), [source, streamPlugin]);
+  return <div className="markdown-content">{tree}</div>;
 }
 
 function safeCitationUrl(value: string): boolean {

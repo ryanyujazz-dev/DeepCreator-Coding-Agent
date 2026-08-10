@@ -1,0 +1,18 @@
+/* 流式 markdown 新字淡入:由 CSS animation 自动播一次(83ms ≈ 5 帧 × 16.67ms),不依赖 React
+   每帧重渲染 —— 配合 MarkdownContent 的 tree memo(source 不变即零重解析),根治收尾卡。
+   独立于 ReasoningTrace 仍用的旧 .streaming-fragment is-frame-N(transition + 5 档 opacity 驱动)。 */
+.markdown-streaming-fragment {
+  animation: stream-fade-in 83ms linear forwards;
+}
+
+@keyframes stream-fade-in {
+  from { opacity: 0.2; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-streaming-fragment {
+    animation: none;
+    opacity: 1;
+  }
+}
