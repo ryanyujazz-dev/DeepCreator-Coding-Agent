@@ -181,7 +181,7 @@ test("uses semantic aggregate icons and keeps the current aggregate active throu
   assert.doesNotMatch(styles, /@keyframes working-light-sweep/);
   assert.doesNotMatch(styles, /background-position:\s*110% 50%/);
   assert.doesNotMatch(styles, /purpose-text-sweep/);
-  assert.match(timeline, /activeDisplaySegmentId = run\.status === "running"/);
+  assert.match(timeline, /activeDisplaySegmentId:\s*run\.status === "running"/);
   assert.match(timeline, /continuationActive=\{entry\.entryId === activeDisplaySegmentId\}/);
   assert.doesNotMatch(renderer, /aggregate\.status === "failed" \? <CircleAlert/);
 });

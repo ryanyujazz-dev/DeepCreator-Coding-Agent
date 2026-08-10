@@ -1,13 +1,16 @@
 import { ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Changes, Session } from "../../shared/contracts/runtime";
+import { Changes, Plan, Session } from "../../shared/contracts/runtime";
 import {
   SCROLL_FOLLOW_EDGE_THRESHOLD,
   ScrollFollowMode,
   resolveScrollFollowMode
 } from "../stream/followScroll";
 import { RunTimeline } from "./RunTimeline";
+import { useStableCallback } from "../shared-ui/useStableCallback";
+
+const EMPTY_PLANS: Plan[] = [];
 
 // === 滚动跟随状态机 + 边缘渐变消隐(第一性设计)===
 //
@@ -58,6 +61,24 @@ export function Conversation({
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   // 滚动按钮直接挂到 Composer 容器，天然继承所有响应式位移和宽度变化。
   const [composerPortalTarget, setComposerPortalTarget] = useState<HTMLElement | null>(null);
+
+  // 事件回调引用恒定(useStableCallback),使 RunTimeline 的 memo 不被回调身份变化击穿;
+  // 闭包始终是最新的,点击行为不受影响。plansByRun 一次性按 runId 分组(O(plans)),
+  // 替代每个 run 一次 .filter(O(runs·plans));并让 plans prop 复用同一数组。
+  const stableOpenFile = useStableCallback(onOpenFile);
+  const stableOpenAgent = useStableCallback(onOpenAgent);
+  const stableOpenPlan = useStableCallback(onOpenPlan);
+  const stableOpenReview = useStableCallback(onOpenReview);
+  const stableStopCommand = useStableCallback(onStopCommand);
+  const plansByRun = useMemo(() => {
+    const map = new Map<string, Plan[]>();
+    for (const plan of session?.plans ?? []) {
+      const list = map.get(plan.runId);
+      if (list) list.push(plan);
+      else map.set(plan.runId, [plan]);
+    }
+    return map;
+  }, [session?.plans]);
 
   // 找到 .conversation-main 作为 Portal 目标
   useLayoutEffect(() => {
@@ -219,12 +240,12 @@ export function Conversation({
             <RunTimeline
               key={run.runId}
               run={run}
-              onOpenFile={onOpenFile}
-              onOpenAgent={onOpenAgent}
-              onOpenPlan={onOpenPlan}
-              onOpenReview={onOpenReview}
-              onStopCommand={onStopCommand}
-              plans={session.plans.filter((plan) => plan.runId === run.runId)}
+              onOpenFile={stableOpenFile}
+              onOpenAgent={stableOpenAgent}
+              onOpenPlan={stableOpenPlan}
+              onOpenReview={stableOpenReview}
+              onStopCommand={stableStopCommand}
+              plans={plansByRun.get(run.runId) ?? EMPTY_PLANS}
             />
           ))}
           <div className="conversation-column-bottom-spacer" style={{ height: `${composerBottomOffset + 60}px` }} />

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { memo, useEffect, useMemo, useState } from "react";
 import { Run, Changes, Plan, isRunDone } from "../../shared/contracts/runtime";
 import { projectDisplayTimeline } from "../../shared/projections/displaySegments";
 import { projectResponsesDisplayTimeline, responsesDisplayActivities } from "../../shared/projections/responsesDisplayTimeline";
@@ -35,7 +35,7 @@ function elapsed(run: Run): string {
   return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
 }
 
-export function RunTimeline({
+export const RunTimeline = memo(function RunTimeline({
   run,
   onOpenAgent,
   onOpenFile,
@@ -55,19 +55,38 @@ export function RunTimeline({
   onTextFrame?: () => void;
 }) {
   const active = !isRunDone(run.status);
-  const suppressedContentActivityIds = new Set(active
-    ? []
-    : run.activities
-        .filter((activity) => activity.kind === "message" && activity.body.trim() === run.answer.trim())
-        .map((activity) => activity.activityId));
-  const displayActivities = run.protocol === "responses" ? responsesDisplayActivities(run) : run.activities;
-  const timelineEntries = run.protocol === "responses"
-    ? projectResponsesDisplayTimeline(run, { suppressedContentActivityIds })
-    : projectDisplayTimeline(run, run.activities, { suppressedContentActivityIds });
-  const conversationTurns = splitTimelineIntoConversationTurns(run.runId, timelineEntries);
-  const activeDisplaySegmentId = run.status === "running"
-    ? [...timelineEntries].reverse().find((entry) => entry.type === "display_segment")?.entryId
-    : undefined;
+  // 投影(projectDisplayTimeline / projectResponsesDisplayTimeline / 拆轮次)只依赖 run,合并进一个
+  // useMemo。历史(已完成)run 在 run 引用稳定后(reducer 结构性共享,见后续 A 方案)整段跳过;
+  // 活跃 run 每个 SSE 事件 run 引用都变 → 照常重算(正确)。latestPlanByCallId 把每条目的
+  // plans.filter().sort()[0] 换成一次性建表 + O(1) 查表,无论 memo 是否生效都立刻减负。
+  const { displayActivities, conversationTurns, activeDisplaySegmentId } = useMemo(() => {
+    const suppressedContentActivityIds = new Set(active
+      ? []
+      : run.activities
+          .filter((activity) => activity.kind === "message" && activity.body.trim() === run.answer.trim())
+          .map((activity) => activity.activityId));
+    const displayActs = run.protocol === "responses" ? responsesDisplayActivities(run) : run.activities;
+    const entries = run.protocol === "responses"
+      ? projectResponsesDisplayTimeline(run, { suppressedContentActivityIds })
+      : projectDisplayTimeline(run, run.activities, { suppressedContentActivityIds });
+    return {
+      displayActivities: displayActs,
+      conversationTurns: splitTimelineIntoConversationTurns(run.runId, entries),
+      activeDisplaySegmentId: run.status === "running"
+        ? [...entries].reverse().find((entry) => entry.type === "display_segment")?.entryId
+        : undefined
+    };
+  }, [run, active]);
+
+  // 按 callId 取最高 revision 的 plan,替代每条目 plans.filter(...).sort((l,r) => r.revision - l.revision)[0]。
+  const latestPlanByCallId = useMemo(() => {
+    const map = new Map<string, Plan>();
+    for (const plan of plans) {
+      const existing = map.get(plan.callId);
+      if (!existing || plan.revision > existing.revision) map.set(plan.callId, plan);
+    }
+    return map;
+  }, [plans]);
   const [expanded, setExpanded] = useState(active);
   useEffect(() => setExpanded(active), [active]);
   return (
@@ -136,6 +155,7 @@ export function RunTimeline({
                           />
                         );
                       }
+                      const planCallId = entry.activity.tool?.callId;
                       return (
                         <ActivityView
                           activity={entry.activity}
@@ -143,7 +163,7 @@ export function RunTimeline({
                           onOpenFile={onOpenFile}
                           onOpenPlan={onOpenPlan}
                           onTextFrame={onTextFrame}
-                          plan={plans.filter((plan) => plan.callId === entry.activity.tool?.callId).sort((left, right) => right.revision - left.revision)[0]}
+                          plan={planCallId ? latestPlanByCallId.get(planCallId) : undefined}
                           runActive={active}
                         />
                       );
@@ -166,4 +186,4 @@ export function RunTimeline({
       })}
     </>
   );
-}
+});
