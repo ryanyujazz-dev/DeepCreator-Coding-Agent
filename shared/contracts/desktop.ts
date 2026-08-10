@@ -79,6 +79,7 @@ export type DesktopBridge = {
   };
   files: {
     openExternal: (url: string) => Promise<void>;
+    openPath: (filePath: string) => Promise<void>;
     reveal: (filePath: string) => Promise<void>;
   };
   projects: {

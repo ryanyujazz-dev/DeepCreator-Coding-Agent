@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { ArtifactEntry } from "../../../shared/contracts/runtime";
 import { ensureInsideRoot, isSensitivePath } from "./security";
 
 const IGNORED_DIRECTORIES = new Set([
@@ -30,6 +31,44 @@ export async function listFiles(projectRoot: string, input: { maxFiles?: number 
   }
   await walk(root);
   return output.join("\n") || "项目目录中没有文件。";
+}
+
+// 扫描 <projectRoot>/output/ 子树(agent 生成内容的约定目录 —— 与 listFiles「排除 output」相反),
+// 返回结构化产物列表(相对 output/ 的 path + size + mtime),供 Inspector「输出」段按项目跨会话展示。
+// 沿用 ensureInsideRoot 限定根、isSensitivePath 跳过密钥文件;output/ 不存在或为空返回 []。
+export async function listArtifacts(projectRoot: string): Promise<ArtifactEntry[]> {
+  const root = ensureInsideRoot(projectRoot);
+  const outputDir = path.join(root, "output");
+  const entries: ArtifactEntry[] = [];
+  async function walk(current: string): Promise<void> {
+    let listing: import("node:fs").Dirent[];
+    try {
+      listing = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      return; // 目录不存在/无权限 → 当作空
+    }
+    for (const entry of listing) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRECTORIES.has(entry.name)) continue;
+        await walk(fullPath);
+      } else if (!isSensitivePath(entry.name)) {
+        try {
+          const stat = await fs.stat(fullPath);
+          entries.push({
+            mtime: stat.mtime.toISOString(),
+            path: path.relative(outputDir, fullPath).split(path.sep).join("/"),
+            size: stat.size
+          });
+        } catch {
+          // 文件中途被删/不可读 → 跳过
+        }
+      }
+    }
+  }
+  await walk(outputDir);
+  entries.sort((left, right) => right.mtime.localeCompare(left.mtime)); // newest-first
+  return entries;
 }
 
 export async function readFile(projectRoot: string, input: { path: string; maxChars?: number }): Promise<string> {

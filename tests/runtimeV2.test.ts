@@ -319,6 +319,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     workspace: new WorkspaceQueries(store, {
       checkout: async () => {},
       collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
+      listArtifacts: async () => [],
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
     })
@@ -563,6 +564,7 @@ test("steers an active HTTP Run into model context and the top-level conversatio
     workspace: new WorkspaceQueries(store, {
       checkout: async () => {},
       collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
+      listArtifacts: async () => [],
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
     })
@@ -703,6 +705,7 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
     workspace: new WorkspaceQueries(store, {
       checkout: async () => {},
       collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
+      listArtifacts: async () => [],
       describe: async (projectRoot) => ({ dirtyFiles: 0, exists: true, git: false, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
     })
@@ -770,6 +773,7 @@ test("checks out a local branch and rejects unknown branches via the HTTP endpoi
     workspace: new WorkspaceQueries(store, {
       checkout: async (projectRoot, branch) => { checkoutCalls.push({ branch, projectRoot }); currentBranch = branch; },
       collectHeadChanges: async () => ({ additions: 0, comparisonBase: "git_head", deletions: 0, fileCount: 0, files: [] }),
+      listArtifacts: async () => [],
       describe: async (projectRoot) => ({ branch: currentBranch, branches: ["main", "feature"], dirtyFiles: 0, exists: true, git: true, name: "workspace", projectRoot }),
       readText: async (projectRoot, relativePath) => ({ content: "", path: relativePath, projectRoot, truncated: false })
     })

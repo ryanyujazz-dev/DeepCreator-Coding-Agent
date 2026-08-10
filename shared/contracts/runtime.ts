@@ -224,6 +224,13 @@ export type Changes = {
   comparisonBase?: "run_start" | "git_head";
 };
 
+// 产物文件(agent 生成的内容文件,扫描项目 output/ 目录)。按 projectRoot 跨会话共享。
+export type ArtifactEntry = {
+  path: string;       // 相对 output/ 的路径(含扩展名)
+  size: number;       // 字节数
+  mtime: string;      // ISO 时间戳
+};
+
 export type Usage = {
   contextTokens?: number;
   inputTokens?: number;

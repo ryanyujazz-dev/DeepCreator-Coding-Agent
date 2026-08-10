@@ -1,6 +1,7 @@
 import { Event, ApprovalChoice, AccessMode, EventStream, Mode, Plan, PlanDecision, PlanEntry, QuestionAnswer, WorkspaceKind } from "../shared/contracts/runtime";
 import {
   decodeArchiveSessionsResponse,
+  decodeArtifacts,
   decodeChanges,
   decodeContextObserverResponse,
   decodeEventStream,
@@ -95,6 +96,7 @@ export class RuntimeClient {
   getContextObserver = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/context-observer`, decodeContextObserverResponse);
   getFile = (sessionId: string, path: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/files?path=${encodeURIComponent(path)}`, decodeRuntimeFilePreview);
   getChanges = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/changes`, decodeChanges);
+  getArtifacts = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/artifacts`, decodeArtifacts);
   checkout = (sessionId: string, branch: string) => this.request(
     `/api/sessions/${encodeURIComponent(sessionId)}/checkout`,
     decodeWorkspaceResponse,
