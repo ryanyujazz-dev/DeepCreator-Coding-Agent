@@ -273,6 +273,14 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         return;
       }
       if (item.type === "message") {
+        // content item 完成(response.output_item.done for message)时立即 flush answer buffer 尾端。
+        // 根治 responses 协议 content 卡尾:content 最后 < ANSWER_FLUSH_CHARS 字进 answer buffer 走 16ms 定时器,
+        // 而紧随的 tool_call 参数流式(response.function_call_arguments.delta)只 update output_item、不发
+        // fragment、不触发 stepStream.flush,占用 event loop 把 16ms 定时器饿死 → content 尾端被挤到 tool_call
+        // 完成(response.output_item.done for function → tool_call fragment → flush)后才 flush,即「content 先出
+        // 大半,工具一执行,结尾几个字才蹦出来」。content item done 在 tool_call args 之前(stream 顺序:
+        // text deltas → message item done → tool args deltas → tool item done),此处同步 flush 把尾端立即放出。
+        if (item.status === "completed") stepStream.flush();
         const activityId = providerActivitiesByItemId.get(item.itemId) ?? answerActivity;
         if (activityId && item.citations) {
           updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, { citations: item.citations });
