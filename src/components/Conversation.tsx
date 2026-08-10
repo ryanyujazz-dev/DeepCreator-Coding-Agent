@@ -211,6 +211,29 @@ export function Conversation({
     };
   }, [session?.sessionId, pendingRun?.key]);
 
+  // 对话区宽度跟随对话框实测宽度(第一性):column 与 composer 共享 CSS --stage-width,但 CSS
+  // container query(100cqw)在嵌套/某些渲染路径下解析不稳(column 实测不随 composer 缩)。直接用
+  // JS ResizeObserver 把 column 的 width 绑到 composer 的实测宽度 —— composer 任何状态(普通/inspector/
+  // surface/窄屏)一变,column 立即同步,不依赖 CSS 公式/100cqw/margin 负值解析,数学上恒等。
+  // 依赖 [sessionId, pendingRun.key]:切会话/分支 contentRef.current 换 → 重绑。
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    const main = scroll?.parentElement;
+    const composer = main?.querySelector<HTMLElement>(".composer-stack");
+    if (!scroll || !main || !composer) return;
+    const sync = () => {
+      const column = contentRef.current;
+      if (!column) return;
+      const width = composer.getBoundingClientRect().width;
+      if (width > 0) column.style.width = `${width}px`;
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(composer);
+    observer.observe(main);
+    return () => observer.disconnect();
+  }, [session?.sessionId, pendingRun?.key]);
+
   useEffect(() => {
     setMode("follow");
     requestAnimationFrame(scrollToBottom);
