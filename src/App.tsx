@@ -18,10 +18,16 @@ import { browserPlatform } from "./platform/browser";
 import { desktopBridge } from "./platform/desktop";
 import { useSurfaceWorkspace } from "./features/surfaces/useSurfaceWorkspace";
 import { AuthState } from "../shared/contracts/auth";
+import { AccessMode, FollowUp, Mode } from "../shared/contracts/runtime";
+import { ModelOption } from "../shared/contracts/provider";
+import { useStableCallback, useStableCallbacks } from "./shared-ui/useStableCallback";
 
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const DEFAULT_SURFACE_WIDTH = 640;
 const DEVELOPER_VIEW_STORAGE_KEY = "deepcreator.developerView";
+// 稳定空数组:session/config 为 null 时 `?? []` 每帧新建数组会击穿 memo'd Composer 的浅比较。
+const EMPTY_FOLLOW_UPS: FollowUp[] = [];
+const EMPTY_MODELS: ModelOption[] = [];
 type WorkspaceView = "conversation" | "settings" | "evals";
 const SurfacePane = lazy(() => import("./components/SurfacePane").then((module) => ({ default: module.SurfacePane })));
 const DeveloperSettingsWorkspace = import.meta.env.DEV
@@ -270,6 +276,60 @@ export function App({ authState }: { authState?: AuthState }) {
       window.clearTimeout(clearAnim);
     };
   }, [sidebarAnim]);
+  // === Phase 3:稳定所有传给 memo'd SessionSidebar / Composer 的 handler ===
+  // 内容流式期间 session 每帧换引用 → 凡捕获 session 的回调(answerQuestion/resolvePlan/startRun/…)、
+  // useWorkspace return 里的内联箭头(searchSessions)或 App 内普通 const(toggleSidebar)都每帧是新引用,
+  // 令 memo 浅比较必败。useStableCallbacks 返回稳定容器、转发器调最新闭包(ref.current)→ 既稳定又不 stale。
+  // 4 个 desktop 条件回调无法用对象形式(恒为函数,无法表达 undefined)→ 单回调 + prop 位保留三元
+  // (desktop 稳定 → `desktop ? stableFn : undefined` 整体稳定,memo 命中)。
+  const sidebarHandlers = useStableCallbacks({
+    onArchiveProject: (root: string) => archiveProjectSessions(root),
+    onArchiveSession: (sessionId: string) => archiveSession(sessionId),
+    onNewSession: (preferredRoot?: string) => void createSession(preferredRoot),
+    onPinSession: (sessionId: string, pinned: boolean) => pinSession(sessionId, pinned),
+    onSearch: searchSessions,
+    onSelectSession: (sessionId: string) => void openSession(sessionId),
+    onToggleSidebar: toggleSidebar,
+    onSettings: () => {
+      if (DeveloperSettingsWorkspace) setWorkspaceView("settings");
+      else setQuickSettingsOpen(true);
+    },
+    onWidthReset: () => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)
+  });
+  const composerHandlers = useStableCallbacks({
+    onCancel: () => void cancelRun(),
+    onCheckoutBranch: checkoutBranch,
+    onAccessModeChange: (nextMode: AccessMode) => void setAccessMode(nextMode),
+    onModeChange: (nextMode: Mode) => void setMode(nextMode),
+    onAnswerQuestion: answerQuestion,
+    onModelChange: handleModelChange,
+    onRefreshBalance: refreshBalance,
+    onRemoveFollowUp: (followUpId: string) => void removeFollowUp(followUpId),
+    onResolvePlan: resolvePlan,
+    onSubmit: startRun,
+    onSteerFollowUp: (followUpId: string) => void steerFollowUp(followUpId)
+  });
+  const onOpenProject = useStableCallback((root: string) => {
+    if (!desktop) return;
+    // 返回 promise(而非 void 丢弃):SessionSidebar 的 runAction 会 await 它并把拒绝冒泡到
+    // .sidebar-action-error toast。丢弃会让菜单直接关闭、错误只进 devtools 控制台。
+    return desktop.projects.open(root);
+  });
+  const onPinProject = useStableCallback(async (root: string, pinned: boolean) => {
+    if (!desktop) return;
+    setProjects(await desktop.projects.pin(root, pinned));
+  });
+  const onRemoveProject = useStableCallback(async (root: string) => {
+    if (!desktop) return;
+    setProjects(await desktop.projects.remove(root));
+  });
+  const onRenameProject = useStableCallback(async (root: string, name: string) => {
+    if (!desktop) return;
+    setProjects(await desktop.projects.rename(root, name));
+  });
+  // openReviewSurface 的 deps 含 session?.runs(每帧换引用)→ 稳定包裹消除一层 churn,
+  // 为 Inspector/Conversation 下游 memo 路径铺垫;转发器调最新闭包,无 staleness。
+  const stableOpenReview = useStableCallback(openReviewSurface);
   return (
     <AppErrorBoundary>
       <div className="app-frame">
@@ -282,23 +342,12 @@ export function App({ authState }: { authState?: AuthState }) {
         <SessionSidebar
           authState={authState}
           desktopProjectsManaged={Boolean(desktop)}
-          onArchiveProject={(root) => archiveProjectSessions(root)}
-          onArchiveSession={(sessionId) => archiveSession(sessionId)}
-          onNewSession={(preferredRoot) => void createSession(preferredRoot)}
-          onOpenProject={desktop ? (root) => desktop.projects.open(root) : undefined}
-          onPinProject={desktop ? async (root, pinned) => setProjects(await desktop.projects.pin(root, pinned)) : undefined}
-          onPinSession={(sessionId, pinned) => pinSession(sessionId, pinned)}
-          onRemoveProject={desktop ? async (root) => setProjects(await desktop.projects.remove(root)) : undefined}
-          onRenameProject={desktop ? async (root, name) => setProjects(await desktop.projects.rename(root, name)) : undefined}
-          onSearch={searchSessions}
-          onSelectSession={(sessionId) => void openSession(sessionId)}
-          onToggleSidebar={toggleSidebar}
-          onSettings={() => {
-            if (DeveloperSettingsWorkspace) setWorkspaceView("settings");
-            else setQuickSettingsOpen(true);
-          }}
+          {...sidebarHandlers}
+          onOpenProject={desktop ? onOpenProject : undefined}
+          onPinProject={desktop ? onPinProject : undefined}
+          onRemoveProject={desktop ? onRemoveProject : undefined}
+          onRenameProject={desktop ? onRenameProject : undefined}
           onWidthChange={setSidebarWidth}
-          onWidthReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
           selectedSessionKey={session?.sessionId ?? null}
           sidebarWidth={sidebarWidth}
           sessions={sessions}
@@ -331,13 +380,13 @@ export function App({ authState }: { authState?: AuthState }) {
                 connection={connection}
                 onOpenFile={openFileSurface}
                 onOpenPlan={openPlanSurface}
-                onOpenReview={openReviewSurface}
+                onOpenReview={stableOpenReview}
                 session={session}
                 taskActive={agentRunning}
                 taskLabel={workLabel}
               />
             )}
-            <Conversation notices={modelNotices} onOpenAgent={openAgentSurface} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={openReviewSurface} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
+            <Conversation notices={modelNotices} onOpenAgent={openAgentSurface} onOpenFile={openFileSurface} onOpenPlan={openPlanSurface} onOpenReview={stableOpenReview} onStopCommand={(commandId) => void stopCommand(commandId)} session={session} />
             {(workspace?.exists === false || error) && (
               <div className="conversation-error-overlay">
                 {workspace?.exists === false && <div className="conversation-error-toast" role="alert">项目目录不存在，请新建任务并重新选择项目。</div>}
@@ -363,20 +412,10 @@ export function App({ authState }: { authState?: AuthState }) {
                 disabledReason={session ? workspace?.exists === false ? "项目目录不存在" : undefined : draftWorkspace ? undefined : "正在准备工作区"}
                 isRunning={agentRunning}
                 isWaiting={Boolean(waitingRun)}
-                followUps={session?.followUps ?? []}
+                followUps={session?.followUps ?? EMPTY_FOLLOW_UPS}
                 model={model}
-                models={config?.models ?? []}
-                onCancel={() => void cancelRun()}
-                onCheckoutBranch={checkoutBranch}
-                onAccessModeChange={(mode) => void setAccessMode(mode)}
-                onModeChange={(nextMode) => void setMode(nextMode)}
-                onAnswerQuestion={answerQuestion}
-                onModelChange={handleModelChange}
-                onRefreshBalance={refreshBalance}
-                onRemoveFollowUp={(followUpId) => void removeFollowUp(followUpId)}
-                onResolvePlan={resolvePlan}
-                onSubmit={startRun}
-                onSteerFollowUp={(followUpId) => void steerFollowUp(followUpId)}
+                models={config?.models ?? EMPTY_MODELS}
+                {...composerHandlers}
                 pendingPlan={pendingPlan}
                 pendingQuestion={pendingQuestion}
                 resetKey={session?.sessionId ?? `draft:${draftRevision}`}

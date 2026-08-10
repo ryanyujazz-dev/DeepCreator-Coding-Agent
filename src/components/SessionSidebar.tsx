@@ -11,7 +11,7 @@ import {
   Settings,
   X
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ProjectRef } from "../../shared/contracts/desktop";
 import { SessionSummary } from "../../shared/contracts/runtime";
@@ -80,7 +80,10 @@ export function partitionSidebarItems(projectRoots: string[], projects: ProjectR
   };
 }
 
-export function SessionSidebar({
+// React.memo:内容流式期间 Sidebar 的数据 prop(sessions/projects/selectedSessionKey/
+// sidebarWidth)与 handler(全部经 useStableCallbacks 稳定化)均引用不变 → 浅比较命中、整帧
+// 跳过 466 行函数体重跑。只在会话列表/项目集合真正变化时重渲。
+export const SessionSidebar = memo(function SessionSidebar({
   authState,
   desktopProjectsManaged = false,
   onArchiveProject,
@@ -463,4 +466,4 @@ export function SessionSidebar({
       {actionError && <div className="sidebar-action-error" role="alert">{actionError}<IconButton label="关闭错误" onClick={() => setActionError(null)}><X size={12} /></IconButton></div>}
     </aside>
   );
-}
+});
