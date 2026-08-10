@@ -5845,7 +5845,7 @@ body {
 
 .conversation-main .conversation-column,
 .conversation-main .conversation-empty-state {
-  width: min(var(--layout-conversation-width), calc(100% - 92px));
+  width: min(var(--layout-composer-width), calc(100% + 32px));
 }
 
 .conversation-column-bottom-spacer {
@@ -7541,7 +7541,7 @@ body {
 
 .inspector-layout-reserved .conversation-column,
 .inspector-layout-reserved .conversation-empty-state {
-  width: min(var(--layout-conversation-width), 100%);
+  width: min(var(--layout-composer-width), calc(100% + 32px));
 }
 
 .inspector-layout-reserved .composer-stack {
