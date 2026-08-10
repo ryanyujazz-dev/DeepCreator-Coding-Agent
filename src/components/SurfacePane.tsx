@@ -1,5 +1,5 @@
-import { Bot, CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minimize2, MoreHorizontal, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Bot, CheckSquare, Copy, ExternalLink, FileCode2, FolderOpen, GitPullRequest, Globe2, Lightbulb, Maximize2, Minimize2, MoreHorizontal, RefreshCw, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Changes, FileChange, Plan, Run, isRunDone } from "../../shared/contracts/runtime";
 import { RuntimeFilePreview, runtimeApi } from "../runtimeApi";
 import { CodeFileViewer, CodeReviewDiffViewer } from "./CodeEditorSurface";
@@ -132,6 +132,26 @@ function ReviewSurface({
       .catch((nextError) => setAllChanges({ error: nextError instanceof Error ? nextError.message : String(nextError), status: "error" }));
   }, [mode, ownerSessionId, surface.projectRoot, surface.id, allChanges.status, onUpdate]);
 
+  // 清 projectChangesCache + 重置 idle → 上面 fetch effect 自动重拉最新 git(working tree vs HEAD)。
+  // 只影响 all 模式(round 模式 effect 守卫 mode==="all" 不 fetch,refresh 无副作用)。
+  const refresh = useCallback(() => {
+    if (surface.projectRoot) clearProjectChanges(surface.projectRoot);
+    setAllChanges({ data: undefined, error: null, status: "idle" });
+  }, [surface.projectRoot]);
+
+  // 打开即拉最新(不显示旧 cache)+ 窗口聚焦/从后台切回时重拉(IDE/git 改完切回自动刷新)。
+  useEffect(() => {
+    refresh();
+    const onFocus = () => refresh();
+    const onVisible = () => { if (!document.hidden) refresh(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refresh]);
+
   const handleModeChange = (next: "all" | "round") => {
     onUpdate(surface.id, { mode: next });
     if (next === "all" && allChanges.status === "error") {
@@ -180,6 +200,7 @@ function ReviewSurface({
           <span><b>+{totals.additions}</b> <i>-{totals.deletions}</i></span>
         </div>
         <div className="surface-review-actions">
+          <IconButton label="刷新 diff" onClick={refresh}><RefreshCw size={14} /></IconButton>
           <IconButton label="更多审阅操作"><MoreHorizontal size={14} /></IconButton>
           <IconButton label="审阅设置"><GitPullRequest size={14} /></IconButton>
           <IconButton label="复制 diff" onClick={() => void navigator.clipboard?.writeText(combinedPatch)}><Copy size={14} /></IconButton>
