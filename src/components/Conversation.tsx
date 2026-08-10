@@ -239,6 +239,7 @@ export function Conversation({
     const observer = new ResizeObserver(sync);
     observer.observe(composer);
     observer.observe(main);
+    observer.observe(scroll);
     return () => observer.disconnect();
   }, [session?.sessionId, pendingRun?.key]);
 
