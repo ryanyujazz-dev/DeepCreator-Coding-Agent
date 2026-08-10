@@ -151,6 +151,7 @@ test("preserves executable permissions when replacing an existing file", async (
     const target = path.join(root, "script.sh");
     await fs.writeFile(target, "echo before\n", "utf8");
     await fs.chmod(target, 0o755);
+    const originalMode = (await fs.stat(target)).mode & 0o777;
     const patch = [
       "*** Begin Patch",
       "*** Update File: script.sh",
@@ -160,7 +161,7 @@ test("preserves executable permissions when replacing an existing file", async (
       "*** End Patch"
     ].join("\n");
     await applyPatch(root, { patch });
-    assert.equal((await fs.stat(target)).mode & 0o777, 0o755);
+    assert.equal((await fs.stat(target)).mode & 0o777, originalMode);
   } finally {
     await fs.rm(root, { force: true, recursive: true });
   }
