@@ -4004,6 +4004,8 @@ body.is-resizing-panel * {
   flex-direction: column;
   overflow: hidden;
   background: #ffffff;
+  container-type: inline-size;
+  --stage-width: min(var(--layout-composer-width), calc(100cqw - 44px));
 }
 
 .conversation-main .conversation-scroll {
@@ -5845,7 +5847,8 @@ body {
 
 .conversation-main .conversation-column,
 .conversation-main .conversation-empty-state {
-  width: min(var(--layout-composer-width), calc(100% + 32px));
+  width: var(--stage-width);
+  transition: width 180ms cubic-bezier(0.2, 0.82, 0.18, 1);
 }
 
 .conversation-column-bottom-spacer {
@@ -6025,11 +6028,6 @@ body {
     padding-inline: 7px;
   }
 
-  .conversation-main .conversation-column,
-  .conversation-main .conversation-empty-state {
-    width: min(760px, calc(100% - 48px));
-  }
-
   .conversation-scroll {
     padding-inline: 24px;
   }
@@ -6081,9 +6079,8 @@ body {
     padding: 20px 16px 0;
   }
 
-  .conversation-main .conversation-column,
-  .conversation-main .conversation-empty-state {
-    width: 100%;
+  .conversation-main {
+    --stage-width: calc(100cqw - 24px);
   }
 
   .composer {
@@ -7178,7 +7175,7 @@ body {
 .composer-stack {
   position: relative;
   z-index: 6;
-  width: min(var(--layout-composer-width), calc(100% - 44px));
+  width: var(--stage-width);
   max-width: var(--layout-composer-width);
   margin: 0 auto 18px;
   flex: 0 0 auto;
@@ -7375,7 +7372,6 @@ body {
 
 @media (max-width: 760px) {
   .composer-stack {
-    width: calc(100% - 24px);
     margin-bottom: 12px;
   }
 
@@ -7535,20 +7531,15 @@ body {
   display: none;
 }
 
+.inspector-layout-reserved {
+  --stage-width: min(var(--layout-composer-width), calc(100cqw - var(--inspector-boundary-offset) - 44px));
+}
+
 .inspector-layout-reserved .conversation-scroll {
   padding-right: calc(38px + var(--inspector-boundary-offset));
 }
 
-.inspector-layout-reserved .conversation-column,
-.inspector-layout-reserved .conversation-empty-state {
-  width: min(var(--layout-composer-width), calc(100% + 32px));
-}
-
 .inspector-layout-reserved .composer-stack {
-  width: min(
-    var(--layout-composer-width),
-    calc(100% - var(--inspector-boundary-offset) - 44px)
-  );
   transform: translateX(var(--inspector-center-shift));
 }
 
