@@ -100,6 +100,23 @@ function verifyElectronNodeRuntime(filePath) {
   console.log(`发布包 SQLite Runtime 可用：${filePath}`);
 }
 
+function verifyMacDistribution(packageRoot) {
+  const appPath = path.join(packageRoot, "DeepCreator.app");
+  const commands = [
+    ["codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath]],
+    ["spctl", ["--assess", "--type", "execute", "--verbose=4", appPath]],
+    ["xcrun", ["stapler", "validate", appPath]]
+  ];
+  for (const [command, args] of commands) {
+    const result = spawnSync(command, args, { encoding: "utf8", timeout: 30_000 });
+    if (result.error || result.status !== 0) {
+      const detail = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+      throw new Error(`macOS 签名或公证校验失败（${command}）：${detail || result.error?.message || `退出码 ${result.status}`}`);
+    }
+  }
+  console.log(`macOS Developer ID 签名与公证票据有效：${appPath}`);
+}
+
 const platform = option("platform");
 const architecture = option("arch");
 if (platform !== "darwin" && platform !== "win32") {
@@ -112,4 +129,7 @@ if (roots.length === 0) {
 for (const root of roots) {
   verifyAppAsar(asarPath(root, platform));
   verifyElectronNodeRuntime(executablePath(root, platform));
+  if (platform === "darwin" && process.env.DEEPCREATOR_REQUIRE_MAC_NOTARIZATION === "1") {
+    verifyMacDistribution(root);
+  }
 }

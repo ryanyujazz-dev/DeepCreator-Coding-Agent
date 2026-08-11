@@ -64,6 +64,7 @@ jobs:
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       DEEPCREATOR_AUTH_MODE: local
+      DEEPCREATOR_REQUIRE_MAC_NOTARIZATION: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

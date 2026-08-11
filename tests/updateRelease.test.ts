@@ -47,9 +47,12 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.doesNotMatch(runtimeHost, /utilityProcess/);
   assert.match(release, /macos-15-intel/);
   assert.match(release, /DEEPCREATOR_SIGNED_MAC_RELEASES/);
+  assert.match(release, /DEEPCREATOR_REQUIRE_MAC_NOTARIZATION: "1"/);
   assert.match(release, /needs: \[package-windows, package-mac\]/);
   assert.match(signingValidator, /Developer ID Application/);
   assert.match(signingValidator, /APPLE_CERTIFICATE_BASE64/);
+  assert.match(packageVerifier, /spctl/);
+  assert.match(packageVerifier, /stapler/);
   assert.match(release, /DeepCreator-\$\{\{ matrix\.artifact \}\}/);
   assert.match(release, /SHA256SUMS\.txt/);
   assert.match(release, /sha256sum/);
