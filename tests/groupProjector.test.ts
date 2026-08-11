@@ -75,7 +75,7 @@ test("coalesces thirty reads into one stable group without losing calls", () => 
   if (projection[0].type !== "activity_group") return;
   assert.equal(projection[0].group.totalCalls, 30);
   assert.equal(projection[0].group.uniqueTargets.length, 30);
-  assert.equal(projection[0].group.summaryLabel, "已检查 30 个文件");
+  assert.equal(projection[0].group.summaryLabel, "检查 30 个文件");
   assert.deepEqual(projection[0].group.memberActivityIds, activities.map((item) => item.activityId));
 });
 
@@ -174,7 +174,7 @@ test("keeps failed commands inside command groups with an explicit failure summa
   });
   const projection = projectGroups(run([activity(1), command, secondCommand, failedCommand]));
   assert.deepEqual(projection.map((entry) => entry.type), ["activity_group", "activity_group"]);
-  assert.equal(projection[1].type === "activity_group" && projection[1].group.summaryLabel, "已运行 3 条命令 · 1 条失败");
+  assert.equal(projection[1].type === "activity_group" && projection[1].group.summaryLabel, "运行 3 条命令 · 1 条失败");
   assert.equal(projection[1].type === "activity_group" && projection[1].group.failureCount, 1);
 });
 
@@ -220,7 +220,7 @@ test("hides plan updates without splitting a surrounding inspection group", () =
   ]));
   assert.equal(projection.length, 1);
   assert.equal(projection[0].type === "activity_group" && projection[0].group.totalCalls, 2);
-  assert.equal(projection[0].type === "activity_group" && projection[0].group.summaryLabel, "已检查 2 个文件");
+  assert.equal(projection[0].type === "activity_group" && projection[0].group.summaryLabel, "检查 2 个文件");
 });
 
 test("keeps a submitted Plan as an independent timeline projection", () => {
@@ -269,7 +269,7 @@ test("uses authoritative workspace delta for modification summaries", () => {
   const projection = projectGroups(input);
   assert.equal(projection[0].type, "activity_group");
   if (projection[0].type !== "activity_group") return;
-  assert.equal(projection[0].group.summaryLabel, "已修改 1 个文件 +22 -4");
+  assert.equal(projection[0].group.summaryLabel, "修改 1 个文件 +22 -4");
   assert.deepEqual(projection[0].group.changes, { additions: 22, deletions: 4, fileCount: 1 });
 });
 
@@ -299,7 +299,7 @@ test("projects standalone file mutations through the unified activity group", ()
   assert.equal(projection.length, 1);
   assert.equal(projection[0].type, "activity_group");
   assert.equal(projection[0].type === "activity_group" && projection[0].group.category, "modify");
-  assert.equal(projection[0].type === "activity_group" && projection[0].group.summaryLabel, "已修改 1 个文件 +0 -18");
+  assert.equal(projection[0].type === "activity_group" && projection[0].group.summaryLabel, "修改 1 个文件 +0 -18");
 });
 
 test.skip("updates the live group in place with a current target", () => {
