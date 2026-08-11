@@ -1,4 +1,5 @@
-import { app, utilityProcess, UtilityProcess } from "electron";
+import { app } from "electron";
+import { ChildProcess, fork } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -11,11 +12,11 @@ type WorkerMessage = { error?: string; port?: number; type: "ready" | "stopped" 
 export class RuntimeHost {
   private connectionValue?: RuntimeConnection;
   private listeners = new Set<Listener>();
-  private process?: UtilityProcess;
+  private process?: ChildProcess;
   private restartCount = 0;
   private state: RuntimeState = { phase: "stopped" };
   private startPromise?: Promise<RuntimeConnection>;
-  private stoppingProcesses = new WeakSet<UtilityProcess>();
+  private stoppingProcesses = new WeakSet<ChildProcess>();
 
   constructor(
     private readonly store: DesktopStore,
@@ -57,7 +58,7 @@ export class RuntimeHost {
     }
     this.stoppingProcesses.add(child);
     try {
-      child.postMessage({ type: "shutdown" });
+      child.send({ type: "shutdown" });
     } catch {
       child.kill();
     }
@@ -96,9 +97,10 @@ export class RuntimeHost {
       : path.join(app.getAppPath(), "skills");
     // 每次 spawn 时读取 Electron 当前系统语言，确保模型获得真实的桌面环境 locale。
     const systemLocale = app.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
-    const child = utilityProcess.fork(path.join(__dirname, "runtime-worker.js"), [], {
+    const child = fork(path.join(__dirname, "runtime-worker.js"), [], {
       env: {
         ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
         DEEPCREATOR_APP_VERSION: app.getVersion(),
         DEEPSEEK_API_KEY: this.store.apiKey(),
         ZHIPU_API_KEY: this.store.zhipuApiKey(),
@@ -117,8 +119,9 @@ export class RuntimeHost {
         RUNTIME_WORKSPACE_ROOT: app.getPath("home"),
         DEEPSEEK_LOCALE: systemLocale
       },
-      serviceName: "DeepCreator Runtime",
-      stdio: "pipe"
+      execArgv: [],
+      execPath: process.execPath,
+      stdio: ["ignore", "pipe", "pipe", "ipc"]
     });
     this.process = child;
     child.stdout?.on("data", (chunk) => process.stdout.write(`[runtime] ${chunk}`));

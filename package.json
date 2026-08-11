@@ -3,7 +3,7 @@
   "productName": "DeepCreator",
   "description": "A local-first desktop coding agent.",
   "author": "DeepCreator",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "repository": {
     "type": "git",

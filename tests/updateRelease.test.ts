@@ -12,6 +12,7 @@ test("publishes the native update assets required by macOS and Windows", () => {
   const release = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
   const viteMain = readFileSync(path.join(root, "vite.main.config.ts"), "utf8");
   const packageVerifier = readFileSync(path.join(root, "scripts/verify-packaged-app.mjs"), "utf8");
+  const runtimeHost = readFileSync(path.join(root, "desktop/runtime-host.ts"), "utf8");
 
   assert.match(forge, /new MakerZIP\(\{\}, \["darwin"\]\)/);
   assert.match(forge, /new MakerSquirrel\([\s\S]*name: "deepcreator"[\s\S]*\["win32"\]\)/);
@@ -38,6 +39,11 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(packageVerifier, /extractFile\(filePath, path\.normalize\(entryPoint\)\)/);
   assert.match(packageVerifier, /\.vite\/build\/runtime-worker\.js/);
   assert.match(packageVerifier, /electron-squirrel-startup/);
+  assert.match(packageVerifier, /new DatabaseSync\(":memory:"\)/);
+  assert.match(packageVerifier, /ELECTRON_RUN_AS_NODE: "1"/);
+  assert.match(runtimeHost, /fork\(path\.join\(__dirname, "runtime-worker\.js"\)/);
+  assert.match(runtimeHost, /ELECTRON_RUN_AS_NODE: "1"/);
+  assert.doesNotMatch(runtimeHost, /utilityProcess/);
   assert.match(release, /macos-15-intel/);
   assert.match(release, /DeepCreator-\$\{\{ matrix\.artifact \}\}/);
   assert.match(release, /SHA256SUMS\.txt/);

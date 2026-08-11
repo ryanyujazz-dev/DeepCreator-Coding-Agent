@@ -3,9 +3,17 @@ import { ModelProtocol } from "../shared/contracts/provider";
 
 type ParentPort = { on: (event: "message", listener: (message: unknown) => void) => void; postMessage: (message: unknown) => void };
 const parentPort = (process as NodeJS.Process & { parentPort?: ParentPort }).parentPort;
+const sendToParent = (message: unknown): void => {
+  if (parentPort) parentPort.postMessage(message);
+  else process.send?.(message);
+};
+const onParentMessage = (listener: (message: unknown) => void): void => {
+  if (parentPort) parentPort.on("message", listener);
+  else process.on("message", listener);
+};
 
 async function main(): Promise<void> {
-  if (!parentPort) throw new Error("Runtime Worker requires an Electron parent port.");
+  if (!parentPort && !process.send) throw new Error("Runtime Worker requires a parent IPC channel.");
   const evalsEnabled = import.meta.env.DEV && process.env.RUNTIME_EVALS_ENABLED === "1";
   const modelProtocols = process.env.DEEPSEEK_MODEL_PROTOCOLS
     ? JSON.parse(process.env.DEEPSEEK_MODEL_PROTOCOLS) as Record<string, ModelProtocol>
@@ -34,17 +42,17 @@ async function main(): Promise<void> {
     workspaceRoot: process.env.RUNTIME_WORKSPACE_ROOT ?? process.cwd(),
     zhipuApiKey: process.env.ZHIPU_API_KEY
   });
-  parentPort.postMessage({ port: runtime.port, type: "ready" });
-  parentPort.on("message", (message) => {
+  sendToParent({ port: runtime.port, type: "ready" });
+  onParentMessage((message) => {
     if ((message as { type?: string })?.type !== "shutdown") return;
     void runtime.close().finally(() => {
-      parentPort.postMessage({ type: "stopped" });
+      sendToParent({ type: "stopped" });
       process.exit(0);
     });
   });
 }
 
 void main().catch((error) => {
-  parentPort?.postMessage({ error: error instanceof Error ? error.message : String(error), type: "failed" });
+  sendToParent({ error: error instanceof Error ? error.message : String(error), type: "failed" });
   process.exit(1);
 });
