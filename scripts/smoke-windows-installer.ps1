@@ -32,6 +32,35 @@ function Write-SquirrelLogs {
   }
 }
 
+function Write-StartupDiagnostics {
+  param(
+    [string]$ProbePath,
+    [string]$StdoutPath,
+    [string]$StderrPath,
+    [System.Diagnostics.Process]$ApplicationProcess
+  )
+
+  Write-Host "DeepCreator startup process: pid=$($ApplicationProcess.Id), exited=$($ApplicationProcess.HasExited)"
+  foreach ($entry in @(
+    @{ Label = "Startup probe"; Path = $ProbePath },
+    @{ Label = "Startup stdout"; Path = $StdoutPath },
+    @{ Label = "Startup stderr"; Path = $StderrPath }
+  )) {
+    Write-Host "$($entry.Label): $($entry.Path)"
+    if (Test-Path $entry.Path) {
+      Get-Content $entry.Path -Tail 200 -ErrorAction SilentlyContinue
+    } else {
+      Write-Host "<missing>"
+    }
+  }
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq "DeepCreator.exe" } |
+    Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine |
+    Format-List |
+    Out-String |
+    Write-Host
+}
+
 if ([string]::IsNullOrWhiteSpace($SetupPath)) {
   $setup = Get-ChildItem -Path "out/make" -Filter "DeepCreator-Setup.exe" -File -Recurse |
     Select-Object -First 1
@@ -124,6 +153,11 @@ $applicationProcess = Start-Process `
   -RedirectStandardError $startupStderrPath `
   -PassThru
 if (-not $applicationProcess.WaitForExit(60000)) {
+  Write-StartupDiagnostics `
+    -ProbePath $startupProbePath `
+    -StdoutPath $startupStdoutPath `
+    -StderrPath $startupStderrPath `
+    -ApplicationProcess $applicationProcess
   $applicationProcess.Kill()
   throw "安装后的 DeepCreator 在 60 秒内没有完成真实启动验证。"
 }

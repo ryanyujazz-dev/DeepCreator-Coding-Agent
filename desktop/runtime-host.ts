@@ -1,13 +1,19 @@
 import { app } from "electron";
-import { ChildProcess, fork } from "node:child_process";
+import { ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { RuntimeConnection, RuntimeState } from "../shared/contracts/desktop";
+import {
+  encodeRuntimeWorkerControl,
+  RuntimeWorkerControlMessage,
+  RUNTIME_WORKER_NODE_BOOTSTRAP,
+  runtimeWorkerControlFromLine
+} from "../shared/runtimeWorkerProtocol";
 import { DesktopStore } from "./store";
 
 type Listener = (state: RuntimeState) => void;
-type WorkerMessage = { error?: string; port?: number; type: "ready" | "stopped" | "failed" };
 
 export class RuntimeHost {
   private connectionValue?: RuntimeConnection;
@@ -58,7 +64,8 @@ export class RuntimeHost {
     }
     this.stoppingProcesses.add(child);
     try {
-      child.send({ type: "shutdown" });
+      if (!child.stdin) throw new Error("Runtime control stream is unavailable.");
+      child.stdin.write(encodeRuntimeWorkerControl({ type: "shutdown" }));
     } catch {
       child.kill();
     }
@@ -97,7 +104,11 @@ export class RuntimeHost {
       : path.join(app.getAppPath(), "skills");
     // 每次 spawn 时读取 Electron 当前系统语言，确保模型获得真实的桌面环境 locale。
     const systemLocale = app.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
-    const child = fork(path.join(__dirname, "runtime-worker.js"), [], {
+    const child = spawn(process.execPath, [
+      "-e",
+      RUNTIME_WORKER_NODE_BOOTSTRAP,
+      path.join(__dirname, "runtime-worker.js")
+    ], {
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",
@@ -119,12 +130,10 @@ export class RuntimeHost {
         RUNTIME_WORKSPACE_ROOT: app.getPath("home"),
         DEEPSEEK_LOCALE: systemLocale
       },
-      execArgv: [],
-      execPath: process.execPath,
-      stdio: ["ignore", "pipe", "pipe", "ipc"]
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true
     });
     this.process = child;
-    child.stdout?.on("data", (chunk) => process.stdout.write(`[runtime] ${chunk}`));
     child.stderr?.on("data", (chunk) => process.stderr.write(`[runtime] ${chunk}`));
 
     return new Promise<RuntimeConnection>((resolve, reject) => {
@@ -143,20 +152,35 @@ export class RuntimeHost {
         reject(error);
       };
       const timeout = setTimeout(() => fail(new Error("Runtime 启动超时（30 秒）。"), true), 30_000);
-      child.on("message", (message: WorkerMessage) => {
+      child.once("spawn", () => console.log(`[runtime] Node worker started (pid ${child.pid ?? "unknown"}).`));
+      child.once("error", (error) => fail(new Error(`Runtime Node Worker 启动失败：${error.message}`), true));
+      const handleMessage = (message: RuntimeWorkerControlMessage) => {
         if (message.type === "ready" && message.port) {
           if (settled) return;
           settled = true;
           ready = true;
           clearTimeout(timeout);
+          console.log(`[runtime] ready on port ${message.port}.`);
           this.connectionValue = { baseUrl: `http://127.0.0.1:${message.port}`, phase: "ready", token };
           this.setState({ connection: this.connectionValue, phase: "ready" });
           resolve(this.connectionValue);
         } else if (message.type === "failed") {
           fail(new Error(message.error || "Runtime 启动失败。"));
         }
+      };
+      if (!child.stdout) {
+        fail(new Error("Runtime Node Worker 输出通道不可用。"), true);
+        return;
+      }
+      const output = createInterface({ input: child.stdout });
+      output.on("line", (line) => {
+        const message = runtimeWorkerControlFromLine(line);
+        if (message) handleMessage(message);
+        else process.stdout.write(`[runtime] ${line}\n`);
       });
-      child.once("exit", (_code) => {
+      child.once("exit", (code) => {
+        output.close();
+        console.log(`[runtime] Node worker exited (code ${code ?? "unknown"}).`);
         clearTimeout(timeout);
         const wasCurrent = this.process === child;
         if (wasCurrent) {
