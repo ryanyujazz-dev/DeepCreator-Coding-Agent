@@ -1,5 +1,5 @@
-import { app } from "electron";
-import { ChildProcess, fork } from "node:child_process";
+import { app, utilityProcess } from "electron";
+import type { UtilityProcess } from "electron";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -9,14 +9,29 @@ import { DesktopStore } from "./store";
 type Listener = (state: RuntimeState) => void;
 type WorkerMessage = { error?: string; port?: number; type: "ready" | "stopped" | "failed" };
 
+function workerMessageFrom(value: unknown): WorkerMessage | undefined {
+  const envelope = value && typeof value === "object" && "data" in value
+    ? (value as { data?: unknown }).data
+    : value;
+  if (!envelope || typeof envelope !== "object" || !("type" in envelope)) return undefined;
+  const type = (envelope as { type?: unknown }).type;
+  if (type !== "ready" && type !== "stopped" && type !== "failed") return undefined;
+  const message = envelope as { error?: unknown; port?: unknown; type: WorkerMessage["type"] };
+  return {
+    error: typeof message.error === "string" ? message.error : undefined,
+    port: typeof message.port === "number" ? message.port : undefined,
+    type: message.type
+  };
+}
+
 export class RuntimeHost {
   private connectionValue?: RuntimeConnection;
   private listeners = new Set<Listener>();
-  private process?: ChildProcess;
+  private process?: UtilityProcess;
   private restartCount = 0;
   private state: RuntimeState = { phase: "stopped" };
   private startPromise?: Promise<RuntimeConnection>;
-  private stoppingProcesses = new WeakSet<ChildProcess>();
+  private stoppingProcesses = new WeakSet<UtilityProcess>();
 
   constructor(
     private readonly store: DesktopStore,
@@ -58,7 +73,7 @@ export class RuntimeHost {
     }
     this.stoppingProcesses.add(child);
     try {
-      child.send({ type: "shutdown" });
+      child.postMessage({ type: "shutdown" });
     } catch {
       child.kill();
     }
@@ -97,10 +112,9 @@ export class RuntimeHost {
       : path.join(app.getAppPath(), "skills");
     // 每次 spawn 时读取 Electron 当前系统语言，确保模型获得真实的桌面环境 locale。
     const systemLocale = app.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
-    const child = fork(path.join(__dirname, "runtime-worker.js"), [], {
+    const child = utilityProcess.fork(path.join(__dirname, "runtime-worker.js"), [], {
       env: {
         ...process.env,
-        ELECTRON_RUN_AS_NODE: "1",
         DEEPCREATOR_APP_VERSION: app.getVersion(),
         DEEPSEEK_API_KEY: this.store.apiKey(),
         ZHIPU_API_KEY: this.store.zhipuApiKey(),
@@ -120,8 +134,8 @@ export class RuntimeHost {
         DEEPSEEK_LOCALE: systemLocale
       },
       execArgv: [],
-      execPath: process.execPath,
-      stdio: ["ignore", "pipe", "pipe", "ipc"]
+      serviceName: "DeepCreator Agent Runtime",
+      stdio: ["ignore", "pipe", "pipe"]
     });
     this.process = child;
     child.stdout?.on("data", (chunk) => process.stdout.write(`[runtime] ${chunk}`));
@@ -143,12 +157,19 @@ export class RuntimeHost {
         reject(error);
       };
       const timeout = setTimeout(() => fail(new Error("Runtime 启动超时（30 秒）。"), true), 30_000);
-      child.on("message", (message: WorkerMessage) => {
+      child.once("spawn", () => console.log(`[runtime] utility process started (pid ${child.pid ?? "unknown"}).`));
+      child.once("error", (type, location) => {
+        fail(new Error(`Runtime Utility Process 异常（${type}，${location}）。`), true);
+      });
+      child.on("message", (value: unknown) => {
+        const message = workerMessageFrom(value);
+        if (!message) return;
         if (message.type === "ready" && message.port) {
           if (settled) return;
           settled = true;
           ready = true;
           clearTimeout(timeout);
+          console.log(`[runtime] ready on port ${message.port}.`);
           this.connectionValue = { baseUrl: `http://127.0.0.1:${message.port}`, phase: "ready", token };
           this.setState({ connection: this.connectionValue, phase: "ready" });
           resolve(this.connectionValue);
@@ -156,7 +177,8 @@ export class RuntimeHost {
           fail(new Error(message.error || "Runtime 启动失败。"));
         }
       });
-      child.once("exit", (_code) => {
+      child.once("exit", (code) => {
+        console.log(`[runtime] utility process exited (code ${code}).`);
         clearTimeout(timeout);
         const wasCurrent = this.process === child;
         if (wasCurrent) {

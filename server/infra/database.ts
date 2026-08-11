@@ -12,6 +12,9 @@ export class Database {
   readonly migrationReport: MigrationReport;
 
   constructor(filePath: string, private readonly migrationDirectory?: string) {
+    if (typeof DatabaseSync !== "function") {
+      throw new Error(`当前 Agent Runtime 不支持 node:sqlite DatabaseSync（Node ${process.versions.node}）。`);
+    }
     this.raw = new DatabaseSync(filePath);
     this.raw.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;");
     this.migrationReport = this.migrate();
