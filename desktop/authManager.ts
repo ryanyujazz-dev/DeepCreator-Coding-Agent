@@ -110,6 +110,10 @@ function detailFrom(error: unknown): string {
   return String(error);
 }
 
+function runtimeFailureDetail(error: unknown): string {
+  return `DeepCreator ${app.getVersion()} 本机运行服务启动失败：${detailFrom(error)}`;
+}
+
 export class AuthManager {
   private accessExpiresAt = 0;
   private accessToken = "";
@@ -139,7 +143,7 @@ export class AuthManager {
         this.setState({ phase: "signed_in", user: developmentUser });
       } catch (error) {
         this.options.store.deactivateProfile();
-        this.setState({ detail: `本机运行服务启动失败：${detailFrom(error)}`, phase: "error" });
+        this.setState({ detail: runtimeFailureDetail(error), phase: "error" });
       }
       return this.getState();
     }
@@ -176,7 +180,7 @@ export class AuthManager {
           });
         } catch (runtimeError) {
           this.options.store.deactivateProfile();
-          this.setState({ detail: `本机运行服务启动失败：${detailFrom(runtimeError)}`, phase: "error" });
+          this.setState({ detail: runtimeFailureDetail(runtimeError), phase: "error" });
         }
       } else {
         this.clearCredentials();
@@ -188,7 +192,7 @@ export class AuthManager {
       await this.acceptBundle(bundle, "signed_in");
     } catch (error) {
       this.options.store.deactivateProfile();
-      this.setState({ detail: `本机运行服务启动失败：${detailFrom(error)}`, phase: "error" });
+      this.setState({ detail: runtimeFailureDetail(error), phase: "error" });
     }
     return this.getState();
   }
@@ -483,7 +487,7 @@ export class AuthManager {
       this.setState({ phase: "signed_in", profileSetupRequired: this.options.store.localProfileSetupRequired(), user });
     } catch (error) {
       this.options.store.deactivateProfile();
-      this.setState({ detail: `本机运行服务启动失败：${detailFrom(error)}`, phase: "error", user });
+      this.setState({ detail: runtimeFailureDetail(error), phase: "error", user });
     }
     return this.getState();
   }
