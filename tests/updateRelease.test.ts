@@ -44,6 +44,7 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(packageVerifier, /\.vite\/build\/runtime-worker\.js/);
   assert.match(packageVerifier, /electron-squirrel-startup/);
   assert.match(packageVerifier, /new DatabaseSync\(":memory:"\)/);
+  assert.match(packageVerifier, /"node:sqlite"/);
   assert.match(packageVerifier, /ELECTRON_RUN_AS_NODE: "1"/);
   assert.match(windowsInstallerSmoke, /DeepCreator-Setup\.exe/);
   assert.match(windowsInstallerSmoke, /SquirrelSetup\.log/);

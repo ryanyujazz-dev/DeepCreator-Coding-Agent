@@ -6,6 +6,7 @@ import { extractFile, listPackage } from "@electron/asar";
 
 const allowedExternalModules = new Set([
   "electron",
+  "node:sqlite",
   ...builtinModules,
   ...builtinModules.map((name) => `node:${name}`)
 ]);
