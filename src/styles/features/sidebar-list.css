@@ -381,12 +381,17 @@ html[data-color-scheme="dark"] .app-sidebar-list .thread-row-shell:not(.active-t
 }
 
 .app-sidebar-list .account-strip-copy {
+  display: flex;
   min-width: 0;
+  align-items: center;
   flex: 1 1 auto;
+  gap: 6px;
 }
 
 .app-sidebar-list .account-strip-copy > :is(strong, span) {
+  min-width: 0;
   overflow: hidden;
+  flex: 1 1 auto;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
