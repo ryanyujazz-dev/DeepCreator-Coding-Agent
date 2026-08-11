@@ -1,23 +1,25 @@
 import { startRuntime } from "../server/bootstrap/runtime";
 import { ModelProtocol } from "../shared/contracts/provider";
+import { createInterface } from "node:readline";
+import {
+  encodeRuntimeWorkerControl,
+  RuntimeWorkerControlMessage,
+  runtimeWorkerControlFromLine
+} from "../shared/runtimeWorkerProtocol";
 
-type ParentMessageEvent = { data?: unknown };
-type ParentPort = { on: (event: "message", listener: (event: ParentMessageEvent) => void) => void; postMessage: (message: unknown) => void };
-const parentPort = (process as NodeJS.Process & { parentPort?: ParentPort }).parentPort;
-const sendToParent = (message: unknown): void => {
-  if (parentPort) parentPort.postMessage(message);
-  else process.send?.(message);
+const sendToParent = (message: RuntimeWorkerControlMessage): void => {
+  process.stdout.write(encodeRuntimeWorkerControl(message));
 };
-const onParentMessage = (listener: (message: unknown) => void): void => {
-  if (parentPort) {
-    parentPort.on("message", (event) => listener(event.data));
-  }
-  else process.on("message", listener);
+const onParentMessage = (listener: (message: RuntimeWorkerControlMessage) => void): void => {
+  const input = createInterface({ input: process.stdin });
+  input.on("line", (line) => {
+    const message = runtimeWorkerControlFromLine(line);
+    if (message) listener(message);
+  });
 };
 
 async function main(): Promise<void> {
-  console.log(`[runtime-worker] started (type ${process.type ?? "node"}, Node ${process.versions.node}, parentPort ${parentPort ? "ready" : "missing"}).`);
-  if (!parentPort && !process.send) throw new Error("Runtime Worker requires a parent IPC channel.");
+  console.log(`[runtime-worker] started (type ${process.type ?? "node"}, Node ${process.versions.node}, stdio control ready).`);
   const evalsEnabled = import.meta.env.DEV && process.env.RUNTIME_EVALS_ENABLED === "1";
   const modelProtocols = process.env.DEEPSEEK_MODEL_PROTOCOLS
     ? JSON.parse(process.env.DEEPSEEK_MODEL_PROTOCOLS) as Record<string, ModelProtocol>
