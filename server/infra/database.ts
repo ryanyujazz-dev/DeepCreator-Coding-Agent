@@ -1,14 +1,23 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync as DatabaseSyncInstance } from "node:sqlite";
+
+type DatabaseSyncConstructor = typeof import("node:sqlite").DatabaseSync;
+
+const injectedDatabaseSync = (globalThis as typeof globalThis & {
+  __DEEPCREATOR_DATABASE_SYNC__?: DatabaseSyncConstructor;
+}).__DEEPCREATOR_DATABASE_SYNC__;
+const DatabaseSync = injectedDatabaseSync
+  ?? (createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite")).DatabaseSync;
 
 export type MigrationReport = {
   applied: Array<{ name: string; version: number }>;
 };
 
 export class Database {
-  readonly raw: DatabaseSync;
+  readonly raw: DatabaseSyncInstance;
   readonly migrationReport: MigrationReport;
 
   constructor(filePath: string, private readonly migrationDirectory?: string) {

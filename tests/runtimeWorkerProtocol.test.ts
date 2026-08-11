@@ -22,7 +22,10 @@ test("preloads SQLite before requiring the packaged Runtime Worker entry", () =>
   const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-runtime-bootstrap-"));
   const entry = path.join(directory, "entry.cjs");
   try {
-    writeFileSync(entry, 'process.stdout.write("DEEPCREATOR_RUNTIME_BOOTSTRAP_READY")');
+    writeFileSync(entry, [
+      'if (typeof globalThis.__DEEPCREATOR_DATABASE_SYNC__ !== "function") throw new Error("DatabaseSync was not injected")',
+      'process.stdout.write("DEEPCREATOR_RUNTIME_BOOTSTRAP_READY")'
+    ].join(";"));
     const result = spawnSync(process.execPath, ["-e", RUNTIME_WORKER_NODE_BOOTSTRAP, entry], {
       encoding: "utf8",
       timeout: 15_000
