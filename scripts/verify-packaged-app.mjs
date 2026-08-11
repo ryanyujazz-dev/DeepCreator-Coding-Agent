@@ -52,7 +52,7 @@ function verifyAppAsar(filePath) {
   const unresolved = new Map();
   for (const entryPoint of entryPoints) {
     if (!entries.has(`/${entryPoint}`)) throw new Error(`发布包缺少入口文件：${entryPoint}`);
-    const source = extractFile(filePath, entryPoint).toString("utf8");
+    const source = extractFile(filePath, path.normalize(entryPoint)).toString("utf8");
     const dependencies = [...new Set(externalRequires(source))];
     const missing = dependencies.filter((moduleName) => !entries.has(`/node_modules/${packageName(moduleName)}/package.json`));
     if (missing.length > 0) unresolved.set(entryPoint, missing);

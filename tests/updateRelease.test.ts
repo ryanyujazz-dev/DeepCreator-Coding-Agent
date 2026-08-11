@@ -35,6 +35,7 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(forge, /prune: true/);
   assert.match(packageVerifier, /发现未打包的第三方运行时依赖/);
   assert.match(packageVerifier, /replaceAll\("\\\\", "\/"\)/);
+  assert.match(packageVerifier, /extractFile\(filePath, path\.normalize\(entryPoint\)\)/);
   assert.match(packageVerifier, /\.vite\/build\/runtime-worker\.js/);
   assert.match(packageVerifier, /electron-squirrel-startup/);
   assert.match(release, /macos-15-intel/);
