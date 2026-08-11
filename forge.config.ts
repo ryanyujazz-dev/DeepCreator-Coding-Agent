@@ -76,7 +76,7 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerZIP({}, ["darwin"]),
+    new MakerZIP({}, ["darwin", "win32"]),
     new MakerSquirrel({
       ...(productionWindowsSigning ? {
         certificateFile: windowsCertificateFile,
