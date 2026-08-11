@@ -18,6 +18,7 @@ import { ModelSettings } from "./ModelSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { AccountSettings } from "./AccountSettings";
 import { AuthState } from "../../../shared/contracts/auth";
+import { desktopBridge } from "../../platform/desktop";
 
 type SettingsSection = "account" | "general" | "appearance" | "models" | "skills" | "evals";
 
@@ -71,6 +72,14 @@ const sections: SettingsSectionDefinition[] = [
 ];
 
 function GeneralSettings() {
+  const [version, setVersion] = useState("—");
+  useEffect(() => {
+    let active = true;
+    void desktopBridge()?.updates.getState().then((state) => {
+      if (active) setVersion(state.currentVersion);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
   return (
     <section className="settings-page">
       <header className="settings-page-header">
@@ -81,7 +90,7 @@ function GeneralSettings() {
         <h2>应用</h2>
         <div className="settings-preference-row">
           <div><strong>DeepCreator CodeAgent</strong><span>本地 Agent Runtime 与桌面工作区</span></div>
-          <span className="settings-readonly-value">0.1.0</span>
+          <span className="settings-readonly-value">{version}</span>
         </div>
         <div className="settings-preference-row">
           <div><strong>数据范围</strong><span>主题和桌面偏好保存在本机，不进入模型上下文。</span></div>
