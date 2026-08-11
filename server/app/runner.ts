@@ -202,6 +202,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     const modelStepId = input.registry.system.createId("model_step");
     const providerActivitiesByItemId = new Map<string, string>();
     const providerActivitiesByCallId = new Map<string, string>();
+    const providerActivitiesByIndex = new Map<number, string>();
+    const previousArgumentsByItemId = new Map<string, string>();
+    const applyPatchIndices = new Set<number>();
+    const pendingArgsByKey = new Map<string, { activityId: string; text: string }>();
+    let argsTimer: ReturnType<typeof setTimeout> | undefined;
     let thinkingSummaryPhaseEnded = false;
     const endThinkingSummaryPhase = () => {
       if (thinkingSummaryPhaseEnded) return;
@@ -256,6 +261,58 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       endThinking: endThinkingSummaryPhase,
       startVisibleStage: () => { visibleStageStarted = true; }
     });
+
+    // argumentsDelta 批处理(48 字/40ms,与 modelStepStream reasoning flush 一致):避免每 token
+    // sessions.save(O(session-size):JSON.stringify 全 session + searchText + UPSERT)。
+    const ARGS_FLUSH_CHARS = 48;
+    const ARGS_FLUSH_DELAY_MS = 40;
+    const flushPendingArgs = () => {
+      if (argsTimer) { clearTimeout(argsTimer); argsTimer = undefined; }
+      for (const [, entry] of pendingArgsByKey) {
+        if (!entry.text) continue;
+        updateActivity({ activityId: entry.activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, { argumentsDelta: entry.text });
+      }
+      pendingArgsByKey.clear();
+    };
+    const bufferArgsDelta = (key: string, activityId: string | undefined, delta: string) => {
+      if (!delta || !activityId) return;
+      const existing = pendingArgsByKey.get(key);
+      if (existing) existing.text += delta;
+      else pendingArgsByKey.set(key, { activityId, text: delta });
+      if ((pendingArgsByKey.get(key)?.text.length ?? 0) >= ARGS_FLUSH_CHARS) {
+        flushPendingArgs();
+        return;
+      }
+      argsTimer ??= setTimeout(flushPendingArgs, ARGS_FLUSH_DELAY_MS);
+    };
+
+    const openToolActivityOnName = (params: { callId: string; index: number; itemId?: string; name: string }): string | undefined => {
+      if (params.name === "wait_command" || params.name === "stop_command") return undefined;
+      if (!input.tools.has(params.name)) return undefined;
+      const outline = input.tools.outline(params.name);
+      const activityId = openActivity(input, {
+        audience: "user",
+        kind: "tool",
+        modelItemId: params.itemId,
+        modelStepId,
+        phase: "generating_args",
+        startedAt: input.registry.system.now(),
+        tool: {
+          callId: params.callId,
+          callIndex: params.index,
+          modelStepId,
+          toolName: params.name,
+          argumentsPreview: "",
+          normalizedTarget: "",
+          ...outline
+        }
+      });
+      providerActivitiesByCallId.set(params.callId, activityId);
+      providerActivitiesByIndex.set(params.index, activityId);
+      if (params.itemId) providerActivitiesByItemId.set(params.itemId, activityId);
+      if (params.name === "apply_patch") applyPatchIndices.add(params.index);
+      return activityId;
+    };
 
     const handleOutputItem = (item: Omit<import("../../shared/contracts/provider").ModelOutputItem, "modelStepId">) => {
       const durableItem = { ...item, modelStepId };
@@ -370,6 +427,48 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           });
         }
       }
+      if (item.type === "function" && item.callId && item.toolName) {
+        // responses 普通工具:name 识别时预开(phase generating_args),arguments delta 实时流到 activity(展开可见)。
+        // phase 翻 executing 统一在 toolPipeline 复用分支(不在流内)。
+        visibleStageStarted = true;
+        const callId = item.callId;
+        let activityId = providerActivitiesByItemId.get(item.itemId) ?? providerActivitiesByCallId.get(callId);
+        if (!activityId) {
+          activityId = openToolActivityOnName({ callId, index: item.outputIndex, itemId: item.itemId, name: item.toolName });
+        }
+        if (activityId) {
+          const prev = previousArgumentsByItemId.get(item.itemId) ?? "";
+          const current = item.argumentsText ?? "";
+          if (current.length > prev.length) {
+            bufferArgsDelta(`item:${item.itemId}`, activityId, current.slice(prev.length));
+          }
+          previousArgumentsByItemId.set(item.itemId, current);
+        }
+        return;
+      }
+    };
+
+    const handleToolCallFragment = (fragment: { callId: string; index: number; name?: string; argumentsText?: string }) => {
+      // chat 协议:name 到达时预开(phase generating_args),argumentsText 是 delta 原文直接 emit。
+      const index = fragment.index;
+      if (fragment.name) {
+        if (!providerActivitiesByIndex.has(index)) {
+          openToolActivityOnName({ callId: fragment.callId, index, name: fragment.name });
+        } else {
+          const existing = providerActivitiesByIndex.get(index)!;
+          // chat callId 不稳定(pending_N → 真 id):把 byCallId 旧 key 迁移到真 id
+          for (const [key, value] of providerActivitiesByCallId) {
+            if (value === existing && key !== fragment.callId) providerActivitiesByCallId.delete(key);
+          }
+          providerActivitiesByCallId.set(fragment.callId, existing);
+        }
+      }
+      const activityId = providerActivitiesByIndex.get(index);
+      if (!activityId || !fragment.argumentsText) return;
+      // apply_patch(chat)不发 args —— 内容是 JSON-wrapped patch,执行时 toolPipeline 抽 draft,避免重复流。
+      // 用 applyPatchIndices O(1) 判断(预开时记),避免每 fragment getRun 全 session 扫 + structuredClone。
+      if (applyPatchIndices.has(index)) return;
+      bufferArgsDelta(`idx:${index}`, activityId, fragment.argumentsText);
     };
 
     input.store.writeDebugSnapshot(input.sessionId, input.runId, {
@@ -399,7 +498,10 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           modelStepId,
           onFragment: (fragment) => {
             if (fragment.kind === "output_item") handleOutputItem(fragment.item);
-            else stepStream.push(fragment);
+            else {
+              if (fragment.kind === "tool_call") handleToolCallFragment(fragment);
+              stepStream.push(fragment);
+            }
           },
           protocol: input.protocol,
           signal: providerStep.signal,
@@ -414,7 +516,12 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         applyPendingSteers();
         continue;
       }
-      for (const activityId of providerActivitiesByItemId.values()) {
+      const orphanActivityIds = new Set<string>([
+        ...providerActivitiesByItemId.values(),
+        ...providerActivitiesByCallId.values(),
+        ...providerActivitiesByIndex.values()
+      ]);
+      for (const activityId of orphanActivityIds) {
         const current = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
         if (!current || (current.status !== "running" && current.status !== "suspended") || current.kind === "message") continue;
         const message = error instanceof Error ? error.message : String(error);
@@ -427,6 +534,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       }
       throw error;
     } finally {
+      flushPendingArgs();
       stepStream.finish();
       providerStep.release();
     }
@@ -585,6 +693,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       }, call, modelStepId, knownInstructionKeys, existingActivityId, stepRejection, stepHeadline);
     };
     let toolStep: Awaited<ReturnType<typeof executeToolStep>>;
+    flushPendingArgs();
     try {
       toolStep = await executeToolStep({
         calls: response.toolCalls,

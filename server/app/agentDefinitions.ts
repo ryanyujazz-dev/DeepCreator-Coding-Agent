@@ -100,6 +100,7 @@ export function createAgentToolHost(delegate: ToolHost, definition: AgentDefinit
     has: (name) => allowed.has(name) && delegate.has(name),
     kind: delegate.kind.bind(delegate),
     names: () => delegate.names().filter((name) => allowed.has(name)),
+    outline: delegate.outline.bind(delegate),
     parallel: (name) => allowed.has(name) && delegate.parallel(name),
     prepare: delegate.prepare.bind(delegate),
     retain: delegate.retain.bind(delegate),

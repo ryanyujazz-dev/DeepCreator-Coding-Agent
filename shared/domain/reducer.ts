@@ -275,6 +275,7 @@ export function reduceEvent(current: Session, event: Event): Session {
         ...clone(data),
         activityId: event.scope.activityId,
         body: data.body ?? "",
+        phase: data.phase ?? "generating_args",
         runId: run.runId,
         status: "running"
       }];
@@ -303,6 +304,7 @@ export function reduceEvent(current: Session, event: Event): Session {
       if (data.liveFiles) updated.liveFiles = clone(data.liveFiles);
       if (data.status) updated.status = data.status;
       if (data.kind) updated.kind = data.kind;
+      if (data.phase !== undefined) updated.phase = data.phase;
       if (data.title) updated.title = data.title;
       run.activities = withUpdatedElement(run.activities, activityIndex, updated);
       break;

@@ -273,6 +273,9 @@ export type Activity = {
   modelItemId?: string;
   kind: ActivityKind;
   status: ActivityStatus;
+  /** 工具运行时子阶段:start(name 识别)→ generating_args(模型吐参数)→ executing(工程层执行)。
+   *  仅工具 activity 用;前端折叠态不区分(统一"正在 X"),展开内容反映阶段。 */
+  phase?: "generating_args" | "executing";
   audience: Audience;
   /** @deprecated Legacy rendered label. New Events derive labels in projections. */
   title?: string;
@@ -467,6 +470,7 @@ export type EventPayloadMap = {
     citations?: Activity["citations"];
     draft?: Activity["draft"];
     kind?: Activity["kind"];
+    phase?: "generating_args" | "executing";
     liveFiles?: Activity["liveFiles"];
     status?: Extract<Activity["status"], "running" | "suspended">;
     title?: string;

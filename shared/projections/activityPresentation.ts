@@ -40,7 +40,7 @@ const SKILL_TOOL_NAMES = new Set([
 const SKILL_ACTIVITY_LABELS: Record<string, Record<Activity["status"], string>> = {
   invoke_capability: {
     cancelled: "已取消加载 Skill",
-    completed: "已加载 Skill",
+    completed: "加载 Skill",
     failed: "加载 Skill 失败",
     running: "正在加载 Skill",
     suspended: "已暂停加载 Skill"
@@ -82,7 +82,7 @@ const SKILL_ACTIVITY_LABELS: Record<string, Record<Activity["status"], string>> 
   },
   search_capabilities: {
     cancelled: "已取消搜索 Skill",
-    completed: "已搜索 Skill",
+    completed: "搜索 Skill",
     failed: "搜索 Skill 失败",
     running: "正在搜索 Skill",
     suspended: "已暂停搜索 Skill"
@@ -141,7 +141,7 @@ export function activityTitle(activity: Pick<Activity, "kind" | "title" | "tool"
 
 export function completedActionLabel(action: ActionKind, target: string): string | undefined {
   if (!target) return undefined;
-  if (action === "modify") return `已修改 ${target}`;
-  if (action === "inspect" || action === "search") return `已检查 ${target}`;
+  if (action === "modify") return `修改 ${target}`;
+  if (action === "inspect" || action === "search") return `检查 ${target}`;
   return undefined;
 }

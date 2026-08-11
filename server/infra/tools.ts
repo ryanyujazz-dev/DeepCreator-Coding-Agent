@@ -134,6 +134,14 @@ function registrationFor(name: string): ToolRegistration {
   return registration;
 }
 
+/** 预开占位元数据(无需 args):从 registration 的 presentation 取 action/targetKind/effect,给模型流式输出
+ *  tool_call name 时(还无合法 args,不能 prepare)的 activity 占位 ToolState 用。执行时 toolPipeline 复用
+ *  分支 durableToolState(prepared) 覆盖为精确值。未知工具抛(调用方应先 has 校验)。 */
+function toolOutline(name: string): { action: ActionKind; effect: ToolState["effect"]; targetKind: ToolState["targetKind"] } {
+  const presentation = registrationFor(name).presentation;
+  return { action: presentation.action, effect: presentation.effect, targetKind: presentation.targetKind };
+}
+
 export function hasTool(name: string): boolean {
   return name === "spawn_agent" || toolRegistry.some((tool) => tool.name === name);
 }
@@ -275,6 +283,7 @@ export function createToolHost(skillCatalog = defaultSkillCatalog, skillStore?: 
     has: hasTool,
     kind: activityKindForTool,
     names: toolNames,
+    outline: toolOutline,
     parallel: toolCanRunInParallel,
     prepare: createToolState,
     retain: retainBaseline,

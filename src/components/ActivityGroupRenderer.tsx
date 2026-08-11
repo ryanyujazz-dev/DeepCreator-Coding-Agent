@@ -62,19 +62,19 @@ function memberIcon(activity: Activity) {
 }
 
 function memberLabel(activity: Activity): string {
-  const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
+  const target = toolDisplayTarget(activity.tool);
   const active = activity.status === "running";
-  let action = active ? "正在执行" : "已完成";
-  if (activity.tool?.toolName === "run_command") action = active ? "正在运行" : "已运行";
-  else if (activity.tool?.toolName === "read_file") action = active ? "正在读取" : "已读取";
-  else if (activity.tool?.toolName === "list_files") action = active ? "正在列出" : "已列出";
-  else if (activity.tool?.toolName === "grep") action = active ? "正在搜索" : "已搜索";
-  else if (activity.tool?.toolName === "glob") action = active ? "正在匹配" : "已匹配";
-  else if (activity.tool?.action === "search") action = active ? "正在搜索" : "已搜索";
-  else if (activity.tool?.action === "modify") action = active ? "正在修改" : "已修改";
+  let action = active ? "正在执行" : "完成";
+  if (activity.tool?.toolName === "run_command") action = active ? "正在运行" : "运行";
+  else if (activity.tool?.toolName === "read_file") action = active ? "正在读取" : "读取";
+  else if (activity.tool?.toolName === "list_files") action = active ? "正在列出" : "列出";
+  else if (activity.tool?.toolName === "grep") action = active ? "正在搜索" : "搜索";
+  else if (activity.tool?.toolName === "glob") action = active ? "正在匹配" : "匹配";
+  else if (activity.tool?.action === "search") action = active ? "正在搜索" : "搜索";
+  else if (activity.tool?.action === "modify") action = active ? "正在修改" : "修改";
   const outcome = activity.command?.timedOut
     ? "超时"
-    : activity.status === "failed" ? "失败" : activity.status === "cancelled" ? "已取消" : "";
+    : activity.status === "failed" ? "失败" : activity.status === "cancelled" ? "取消" : "";
   return [action, target, outcome].filter(Boolean).join(" ");
 }
 
@@ -91,18 +91,18 @@ function FailureAwareLabel({ label }: { label: string }) {
 }
 
 function fileActionLabel(activity: Activity): string {
-  if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
-  if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "已搜索";
-  if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "已匹配";
-  if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
-  if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
-  return activity.status === "running" ? "正在处理" : "已处理";
+  if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "读取";
+  if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "搜索";
+  if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "匹配";
+  if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "修改";
+  if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "搜索";
+  return activity.status === "running" ? "正在处理" : "处理";
 }
 
 function memberOutcomeLabel(activity: Activity): string {
   if (activity.command?.timedOut) return "超时";
   if (activity.status === "failed") return "失败";
-  if (activity.status === "cancelled") return "已取消";
+  if (activity.status === "cancelled") return "取消";
   return "";
 }
 
@@ -115,22 +115,22 @@ function directActionLabel(activity: Activity): string {
     if (activity.tool?.toolName === "glob") return "匹配失败";
     return "执行失败";
   }
-  if (activity.status === "cancelled") return "已取消";
-  if (activity.tool?.toolName === "write_file") return active ? "正在创建" : "已创建";
-  if (activity.tool?.toolName === "edit_file") return active ? "正在编辑" : "已编辑";
-  if (activity.tool?.toolName === "delete_file") return active ? "正在删除" : "已删除";
-  if (activity.tool?.toolName === "read_file") return active ? "正在读取" : "已读取";
-  if (activity.tool?.toolName === "grep") return active ? "正在搜索" : "已搜索";
-  if (activity.tool?.toolName === "glob") return active ? "正在匹配" : "已匹配";
-  if (activity.tool?.action === "search") return active ? "正在搜索" : "已搜索";
-  return active ? "正在处理" : "已处理";
+  if (activity.status === "cancelled") return "取消";
+  if (activity.tool?.toolName === "write_file") return active ? "正在创建" : "创建";
+  if (activity.tool?.toolName === "edit_file") return active ? "正在编辑" : "编辑";
+  if (activity.tool?.toolName === "delete_file") return active ? "正在删除" : "删除";
+  if (activity.tool?.toolName === "read_file") return active ? "正在读取" : "读取";
+  if (activity.tool?.toolName === "grep") return active ? "正在搜索" : "搜索";
+  if (activity.tool?.toolName === "glob") return active ? "正在匹配" : "匹配";
+  if (activity.tool?.action === "search") return active ? "正在搜索" : "搜索";
+  return active ? "正在处理" : "处理";
 }
 
 function expandedActionLabel(group: ActivityGroup, members: Activity[]): string {
-  if (group.category === "modify") return "已编辑的文件";
-  if (group.category === "execute") return group.status === "failed" ? "运行失败的命令" : "已运行的命令";
-  if (group.category === "verify") return group.status === "failed" ? "验证失败的命令" : "已验证的命令";
-  if (members.every((activity) => activity.tool?.toolName === "read_file")) return "已读取的文件";
+  if (group.category === "modify") return "编辑的文件";
+  if (group.category === "execute") return group.status === "failed" ? "运行失败的命令" : "运行的命令";
+  if (group.category === "verify") return group.status === "failed" ? "验证失败的命令" : "验证的命令";
+  if (members.every((activity) => activity.tool?.toolName === "read_file")) return "读取的文件";
   if (members.every((activity) => activity.tool?.toolName === "grep")) return group.status === "failed" ? "失败的搜索" : "搜索记录";
   if (members.every((activity) => activity.tool?.toolName === "glob")) return group.status === "failed" ? "失败的匹配" : "匹配记录";
   if (members.every((activity) => activity.tool?.action === "search")) return "搜索记录";
@@ -138,9 +138,9 @@ function expandedActionLabel(group: ActivityGroup, members: Activity[]): string 
 }
 
 function modificationAction(operation: FileChange["operation"], active = false): string {
-  if (operation === "created") return active ? "正在创建" : "已创建";
-  if (operation === "deleted") return active ? "正在删除" : "已删除";
-  return active ? "正在编辑" : "已编辑";
+  if (operation === "created") return active ? "正在创建" : "创建";
+  if (operation === "deleted") return active ? "正在删除" : "删除";
+  return active ? "正在编辑" : "编辑";
 }
 
 function modificationGroupLabel(
@@ -149,7 +149,7 @@ function modificationGroupLabel(
 ): string {
   if (group.status === "failed" && group.failureCount === group.totalCalls) return "文件修改失败";
   const active = group.status === "running";
-  const action = active ? "正在编辑" : "已编辑";
+  const action = active ? "正在编辑" : "编辑";
   const fileCount = group.changes?.fileCount || changedFiles.length || group.uniqueTargets.length || group.totalCalls;
   return `${action} ${fileCount} 个文件`;
 }
@@ -175,7 +175,7 @@ function detailTitle(activity: Activity): string {
 
 function detailContent(activity: Activity): string {
   if (activity.tool?.toolName === "run_command") return commandOutput(activity);
-  return activity.body || activity.error || activity.tool?.argumentsPreview || "操作已完成。";
+  return activity.body || activity.error || activity.tool?.argumentsPreview || "操作完成。";
 }
 
 function OperationMemberRow({
@@ -204,8 +204,8 @@ function OperationMemberRow({
     const status = delegation.status === "running"
       ? "正在工作"
       : delegation.status === "waiting" ? "等待批准"
-        : delegation.status === "completed" ? "已完成"
-          : delegation.status === "cancelled" ? "已取消" : "失败";
+        : delegation.status === "completed" ? "完成"
+          : delegation.status === "cancelled" ? "取消" : "失败";
     return (
       <div className={`operation-member-call delegation-member is-${delegation.status}`}>
         <button
@@ -460,7 +460,7 @@ function aggregateIcon(aggregate: ToolAggregate) {
 
 function AggregateSummary({ aggregate, active }: { aggregate: ToolAggregate; active: boolean }) {
   const failureText = aggregate.failureCount > 0 ? `${aggregate.failureCount} 项失败` : "";
-  const cancelledText = aggregate.cancelledCount > 0 ? `${aggregate.cancelledCount} 项已取消` : "";
+  const cancelledText = aggregate.cancelledCount > 0 ? `${aggregate.cancelledCount} 项取消` : "";
   const failureLabel = failureText ? ` · ${failureText}` : "";
   const cancelledLabel = cancelledText ? ` · ${cancelledText}` : "";
   const baseLabel = aggregate.summaryLabel
@@ -528,14 +528,14 @@ export function ActivityAggregateRenderer({
       >
         <span className="operation-group-icon">{allDelegations ? <Bot size={13} /> : aggregateIcon(aggregate)}</span>
         <span className="operation-group-action">{allDelegations
-          ? <span className={delegationRunning > 0 ? "working-glow" : ""}>委派 {members.length} 个子代理{delegationWaiting ? ` · ${delegationWaiting} 个等待批准` : ""}{delegationFailed ? ` · ${delegationFailed} 个失败` : ""}{delegationCancelled ? ` · ${delegationCancelled} 个已取消` : ""}</span>
+          ? <span className={delegationRunning > 0 ? "working-glow" : ""}>委派 {members.length} 个子代理{delegationWaiting ? ` · ${delegationWaiting} 个等待批准` : ""}{delegationFailed ? ` · ${delegationFailed} 个失败` : ""}{delegationCancelled ? ` · ${delegationCancelled} 个取消` : ""}</span>
           : <AggregateSummary active={headlineActive} aggregate={aggregate} />}</span>
         <ChevronRight className="operation-summary-chevron" size={13} />
       </DisclosureRow>
       <div className={`operation-group-expander ${expanded ? "is-expanded" : ""}`}>
         <div>
           {hasOpened && (
-            <div className="operation-group-details" aria-label="已完成的工具调用">
+            <div className="operation-group-details" aria-label="完成的工具调用">
               {members.map((activity) => {
                 const changedFile = activity.tool?.action === "modify"
                   ? (activity.files?.find((file) => file.path.replaceAll("\\", "/") === activity.tool?.normalizedTarget)

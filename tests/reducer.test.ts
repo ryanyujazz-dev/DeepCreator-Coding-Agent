@@ -362,3 +362,26 @@ test("delegation.created 仅设置父 activity 的 .delegation 字段,不覆盖 
   assert.equal(activity.delegation?.childRunId, "child_run", ".delegation 子字段正确");
   assert.equal(result.delegations?.[0]?.delegationId, "del_1", "session.delegations 记录委派");
 });
+
+test("activity phase: started 默认 generating_args,updated 切 executing,显式 phase 透传", () => {
+  const s0 = createSession(registration, 1);
+  // started 无 phase → 默认 generating_args
+  const s1 = reduceEvents(s0, [
+    runEvent("run_ph", 2, "run.started", { model: "deepseek-chat", prompt: "P", startedAt }),
+    runEvent("run_ph", 3, "activity.started", { audience: "user", kind: "tool", startedAt, title: "" }, "act_ph")
+  ]);
+  assert.equal(s1.runs[0].activities[0].phase, "generating_args", "started 无 phase → 默认 generating_args");
+
+  // updated 切 executing
+  const s2 = reduceEvents(s1, [
+    runEvent("run_ph", 4, "activity.updated", { phase: "executing" }, "act_ph")
+  ]);
+  assert.equal(s2.runs[0].activities[0].phase, "executing", "updated phase 切换");
+
+  // started 显式带 phase 透传(不被默认覆盖)
+  const s3 = reduceEvents(s0, [
+    runEvent("run_ph", 2, "run.started", { model: "deepseek-chat", prompt: "P", startedAt }),
+    runEvent("run_ph", 5, "activity.started", { audience: "user", kind: "tool", phase: "executing", startedAt, title: "" }, "act_ph2")
+  ]);
+  assert.equal(s3.runs[0].activities[0].phase, "executing", "started 显式 phase 透传");
+});

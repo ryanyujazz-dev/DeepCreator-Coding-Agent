@@ -182,7 +182,7 @@ test("creates no empty aggregate on tool start and creates it immediately on don
 
   const completedRead = activity(2);
   const after = onlySegment(run([content, completedRead]));
-  assert.equal(after.aggregate?.summaryLabel, "已读取 1 个文件");
+  assert.equal(after.aggregate?.summaryLabel, "读取 1 个文件");
   assert.equal(after.aggregate?.status, "completed");
   assert.equal(after.activitySlots[0]?.logicalState, "empty");
   assert.equal(after.activitySlots[0]?.visual.label, "正在读取 App.tsx");
@@ -222,7 +222,7 @@ test("aggregates mixed completed tools under one header in a segment", () => {
     edit
   ]));
   assert.equal(segment.aggregate?.headlineLabel, "修改项目文件");
-  assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件 · 已编辑 1 个文件");
+  assert.equal(segment.aggregate?.summaryLabel, "读取 1 个文件 · 编辑 1 个文件");
   assert.deepEqual(segment.aggregate?.memberActivityIds, ["activity_2", "activity_3"]);
 });
 
@@ -268,7 +268,7 @@ test("uses a standalone Skill segment to split aggregate headers on both sides",
   assert.deepEqual(before.aggregate?.memberActivityIds, ["activity_2"]);
   assert.deepEqual(before.activitySlots, []);
   assert.equal(skill.aggregate, undefined);
-  assert.equal(skill.activitySlots[0]?.visual.label, "已加载 Skill · skill:release-electron");
+  assert.equal(skill.activitySlots[0]?.visual.label, "加载 Skill · skill:release-electron");
   assert.deepEqual(after.aggregate?.memberActivityIds, ["activity_4"]);
 });
 
@@ -312,7 +312,7 @@ test("does not leave a thinking-only row before a standalone Skill segment", () 
   assert.equal(entries.length, 1);
   assert.equal(entries[0].type, "display_segment");
   if (entries[0].type !== "display_segment") return;
-  assert.equal(entries[0].segment.activitySlots[0]?.visual.label, "已搜索 Skill · 发布 Electron");
+  assert.equal(entries[0].segment.activitySlots[0]?.visual.label, "搜索 Skill · 发布 Electron");
 });
 
 test("uses the sealed step headline before every tool in that step has started", () => {
@@ -321,7 +321,7 @@ test("uses the sealed step headline before every tool in that step has started",
     activity(2, { tool: tool({ stepHeadline: "modify" }) })
   ]));
   assert.equal(segment.aggregate?.headlineLabel, "修改项目文件");
-  assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件");
+  assert.equal(segment.aggregate?.summaryLabel, "读取 1 个文件");
 });
 
 test("counts only successful objects and reports failed attempts separately", () => {
@@ -339,7 +339,7 @@ test("counts only successful objects and reports failed attempts separately", ()
   });
   const segment = onlySegment(run([message(1, "开始处理。"), activity(2), failedEdit]));
   assert.equal(segment.aggregate?.headlineLabel, "修改项目文件");
-  assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件 · 1 项失败");
+  assert.equal(segment.aggregate?.summaryLabel, "读取 1 个文件 · 1 项失败");
   assert.equal(segment.aggregate?.successCount, 1);
   assert.equal(segment.aggregate?.failureCount, 1);
 });
@@ -408,7 +408,7 @@ test("starts a new segment only when the next content arrives", () => {
 test("supports a tool-only segment while preserving the held start label", () => {
   const segment = onlySegment(run([thinking(1, "completed"), activity(2)]));
   assert.equal(segment.mainActivity, undefined);
-  assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件");
+  assert.equal(segment.aggregate?.summaryLabel, "读取 1 个文件");
   assert.equal(segment.activitySlots[0]?.logicalState, "empty");
   assert.equal(segment.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 });
@@ -438,7 +438,7 @@ test("projects delegation as its own aggregate semantic and promotes child statu
   const segment = onlySegment(run([message(1, "我会委派调查。"), delegated]));
   assert.equal(segment.aggregate?.semantic, "delegation");
   assert.equal(segment.aggregate?.status, "running");
-  assert.equal(segment.aggregate?.summaryLabel, "已委派 1 个子代理");
+  assert.equal(segment.aggregate?.summaryLabel, "委派 1 个子代理");
 });
 
 test("starts content after a tool-only segment without moving its aggregate header", () => {
@@ -451,7 +451,7 @@ test("starts content after a tool-only segment without moving its aggregate head
   assert.ok(after.every((entry) => entry.type === "display_segment"));
   if (after[0].type !== "display_segment" || after[1].type !== "display_segment") return;
   assert.equal(after[0].segment.mainActivity, undefined);
-  assert.equal(after[0].segment.aggregate?.summaryLabel, "已读取 1 个文件");
+  assert.equal(after[0].segment.aggregate?.summaryLabel, "读取 1 个文件");
   assert.deepEqual(after[0].segment.activitySlots, []);
   assert.equal(after[1].segment.mainActivity?.body, "检查完成。");
 });
@@ -461,7 +461,7 @@ test("projects render state without changing authoritative activity facts", () =
   const input = run([message(1, "开始。"), completedRead]);
   const before = structuredClone(input.activities);
   const segment = onlySegment(input);
-  assert.equal(segment.aggregate?.summaryLabel, "已读取 1 个文件");
+  assert.equal(segment.aggregate?.summaryLabel, "读取 1 个文件");
   assert.deepEqual(input.activities, before);
   assert.equal(completedRead.status, "completed");
   assert.equal(completedRead.finishedAt, "2026-07-20T10:00:02.500Z");
@@ -478,7 +478,7 @@ test("uses suppressed final content as a boundary without rendering a duplicate 
   if (entries[0].type !== "display_segment") return;
   assert.equal(entries[0].segment.mainActivity?.body, "先检查。");
   assert.deepEqual(entries[0].segment.activitySlots, []);
-  assert.equal(entries[0].segment.aggregate?.summaryLabel, "已读取 1 个文件");
+  assert.equal(entries[0].segment.aggregate?.summaryLabel, "读取 1 个文件");
 });
 
 test("shows only the last running tool and falls back to the remaining tool", () => {

@@ -23,32 +23,32 @@ function iconFor(activity: Activity) {
 function completedTitle(activity: Activity): string {
   if (activity.command?.timedOut) return "命令运行超时";
   if (activity.kind === "command" && activity.status === "failed") return "命令运行失败";
-  if (activity.kind === "command" && activity.status === "cancelled") return "命令已取消";
+  if (activity.kind === "command" && activity.status === "cancelled") return "命令取消";
   if (activity.status !== "completed") return activityTitle(activity);
   if (activity.kind === "command") {
-    return activity.command?.command ? `已运行 ${activity.command.command}` : "命令执行完成";
+    return activity.command?.command ? `运行 ${activity.command.command}` : "命令执行完成";
   }
   const target = toolDisplayTarget(activity.tool);
   if (activity.tool && target) {
-    if (activity.tool.action === "task") return "已更新执行任务";
-    if (activity.tool.action === "plan") return "已更新方案";
-    if (activity.tool.action === "modify") return `已修改 ${target}`;
-    if (activity.tool.action === "inspect" || activity.tool.action === "search") return `已检查 ${target}`;
+    if (activity.tool.action === "task") return "更新执行任务";
+    if (activity.tool.action === "plan") return "更新方案";
+    if (activity.tool.action === "modify") return `修改 ${target}`;
+    if (activity.tool.action === "inspect" || activity.tool.action === "search") return `检查 ${target}`;
   }
   const firstLine = activity.body.split("\n", 1)[0]?.trim();
-  if (firstLine?.startsWith("已") && firstLine.length <= 120) return firstLine;
+  if (firstLine?.startsWith("") && firstLine.length <= 120) return firstLine;
   return activityTitle(activity);
 }
 
 function fileActionLabel(activity: Activity): string {
   if (activity.status === "failed") return "失败";
-  if (activity.status === "cancelled") return "已取消";
-  if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "已读取";
-  if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "已搜索";
-  if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "已匹配";
-  if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "已修改";
-  if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "已搜索";
-  return activity.status === "running" ? "正在处理" : "已处理";
+  if (activity.status === "cancelled") return "取消";
+  if (activity.tool?.toolName === "read_file") return activity.status === "running" ? "正在读取" : "读取";
+  if (activity.tool?.toolName === "grep") return activity.status === "running" ? "正在搜索" : "搜索";
+  if (activity.tool?.toolName === "glob") return activity.status === "running" ? "正在匹配" : "匹配";
+  if (activity.tool?.action === "modify") return activity.status === "running" ? "正在修改" : "修改";
+  if (activity.tool?.action === "search") return activity.status === "running" ? "正在搜索" : "搜索";
+  return activity.status === "running" ? "正在处理" : "处理";
 }
 
 function MessageActivity({
@@ -75,7 +75,7 @@ function questionAnswerLabel(question: Question, promptIndex: number): string {
   const prompt = normalizeQuestionPrompt(question.prompts[promptIndex]);
   const answer = normalizeQuestionAnswers(question)?.[prompt.questionId];
   if (!answer) return question.status === "pending" ? "等待用户回答" : "未记录回答";
-  if (answer.status === "skipped") return "已跳过";
+  if (answer.status === "skipped") return "跳过";
   if (answer.answer.kind === "text") return answer.answer.text;
   const selected = answer.answer.optionIds.flatMap((optionId) => {
     const option = prompt.options.find((item) => item.optionId === optionId);
@@ -95,8 +95,8 @@ export function questionHistoryRows(question: Question): Array<{ answer: string;
 function AskUserActivity({ activity, question }: { activity: Activity; question?: Question }) {
   const [expanded, setExpanded] = useState(false);
   const statusLabel = question?.status === "answered"
-    ? "已询问用户"
-    : question?.status === "cancelled" ? "已结束问题澄清" : "等待用户回答";
+    ? "询问用户"
+    : question?.status === "cancelled" ? "结束问题澄清" : "等待用户回答";
   return (
     <article className={`work-step tool-step ask-user-history-step is-${question?.status ?? activity.status}`}>
       <div className="work-dot"><MessageCircleQuestion size={13} /></div>
