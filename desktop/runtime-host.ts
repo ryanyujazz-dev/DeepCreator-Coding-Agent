@@ -8,6 +8,7 @@ import { RuntimeConnection, RuntimeState } from "../shared/contracts/desktop";
 import {
   encodeRuntimeWorkerControl,
   RuntimeWorkerControlMessage,
+  RUNTIME_WORKER_NODE_BOOTSTRAP,
   runtimeWorkerControlFromLine
 } from "../shared/runtimeWorkerProtocol";
 import { DesktopStore } from "./store";
@@ -103,7 +104,11 @@ export class RuntimeHost {
       : path.join(app.getAppPath(), "skills");
     // 每次 spawn 时读取 Electron 当前系统语言，确保模型获得真实的桌面环境 locale。
     const systemLocale = app.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
-    const child = spawn(process.execPath, [path.join(__dirname, "runtime-worker.js")], {
+    const child = spawn(process.execPath, [
+      "-e",
+      RUNTIME_WORKER_NODE_BOOTSTRAP,
+      path.join(__dirname, "runtime-worker.js")
+    ], {
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",

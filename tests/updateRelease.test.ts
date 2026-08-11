@@ -55,7 +55,7 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(windowsInstallerSmoke, /runtime\.phase -ne "ready"/);
   assert.match(main, /DEEPCREATOR_STARTUP_PROBE_FILE/);
   assert.match(main, /runtime\.currentState\(\)/);
-  assert.match(runtimeHost, /spawn\(process\.execPath, \[path\.join\(__dirname, "runtime-worker\.js"\)\]/);
+  assert.match(runtimeHost, /spawn\(process\.execPath, \[[\s\S]*RUNTIME_WORKER_NODE_BOOTSTRAP[\s\S]*path\.join\(__dirname, "runtime-worker\.js"\)/);
   assert.match(runtimeHost, /ELECTRON_RUN_AS_NODE: "1"/);
   assert.match(runtimeHost, /windowsHide: true/);
   assert.doesNotMatch(runtimeHost, /utilityProcess/);

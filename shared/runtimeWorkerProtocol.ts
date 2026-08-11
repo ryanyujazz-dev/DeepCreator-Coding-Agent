@@ -1,4 +1,9 @@
 export const RUNTIME_WORKER_CONTROL_PREFIX = "__DEEPCREATOR_RUNTIME_CONTROL__";
+export const RUNTIME_WORKER_NODE_BOOTSTRAP = [
+  'const sqlite = require("node:sqlite")',
+  'if (typeof sqlite.DatabaseSync !== "function") throw new Error(`node:sqlite DatabaseSync is unavailable in Node ${process.versions.node}`)',
+  "require(process.argv[1])"
+].join(";");
 
 export type RuntimeWorkerControlMessage =
   | { type: "shutdown" }
