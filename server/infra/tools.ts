@@ -105,7 +105,7 @@ export async function executeTool(input: {
   if (name === "edit_file") return { mutatedWorkspace: true, output: await editFile(projectRoot, args as never, fileCtx) };
   if (name === "multi_edit") return { mutatedWorkspace: true, output: await multiEdit(projectRoot, args as never, fileCtx) };
   if (name === "delete_file") return { mutatedWorkspace: true, output: await deleteFile(projectRoot, args as never) };
-  if (name === "apply_patch") return { mutatedWorkspace: true, output: await applyPatch(projectRoot, args as never) };
+  if (name === "apply_patch") return { mutatedWorkspace: true, output: await applyPatch(projectRoot, args as never, fileCtx) };
   if (name === "fetch_url") return { mutatedWorkspace: false, output: await fetchUrl(args as never, signal) };
   if (name === "web_search") return { mutatedWorkspace: false, output: await webSearch(args as never, signal) };
   if (name === "run_command") {

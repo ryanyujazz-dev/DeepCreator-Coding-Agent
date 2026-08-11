@@ -59,7 +59,7 @@ function applyHunks(filePath: string, contents: string, hunks: ApplyPatchHunk[])
   return source.join("\n") + (trailingNewline ? "\n" : "");
 }
 
-export async function applyPatch(projectRoot: string, input: { patch: string }): Promise<string> {
+export async function applyPatch(projectRoot: string, input: { patch: string }, ctx?: { runId?: string; fileState?: { recordWrite(runId: string | undefined, projectRoot: string, rawPath: string, contents: string): void } }): Promise<string> {
   const operations = parseApplyPatch(String(input.patch ?? ""));
   if (operations.length === 0) throw new Error("apply_patch 没有包含文件操作。补丁草稿未应用。");
   const staged = new Map<string, string | null>();
@@ -171,5 +171,10 @@ export async function applyPatch(projectRoot: string, input: { patch: string }):
   await Promise.all(prepared.flatMap((entry) => [entry.temporary, entry.backup]
     .filter(Boolean)
     .map((target) => fs.rm(target!, { force: true }).catch(() => undefined))));
+  if (ctx?.fileState && ctx.runId) {
+    for (const [relativePath, contents] of staged) {
+      if (contents !== null) ctx.fileState.recordWrite(ctx.runId, projectRoot, relativePath, contents);
+    }
+  }
   return `已应用补丁，涉及 ${staged.size} 个文件`;
 }
