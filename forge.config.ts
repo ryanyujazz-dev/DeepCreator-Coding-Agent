@@ -48,6 +48,13 @@ const config: ForgeConfig = {
     appBundleId: "com.deepcreator.desktop",
     asar: true,
     icon: appIcon,
+    // The Vite plugin normally copies only .vite. Main and Runtime Worker dependencies are
+    // intentionally externalized, so production node_modules must travel with the app as well.
+    ignore: (filePath) => {
+      if (!filePath) return false;
+      return !filePath.startsWith("/.vite") && !filePath.startsWith("/node_modules");
+    },
+    prune: true,
     extraResource: [
       "server/infra/migrations",
       "skills"

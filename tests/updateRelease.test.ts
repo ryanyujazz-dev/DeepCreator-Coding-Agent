@@ -10,6 +10,8 @@ test("publishes the native update assets required by macOS and Windows", () => {
   const main = readFileSync(path.join(root, "desktop/main.ts"), "utf8");
   const packageJson = readFileSync(path.join(root, "package.json"), "utf8");
   const release = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
+  const viteMain = readFileSync(path.join(root, "vite.main.config.ts"), "utf8");
+  const packageVerifier = readFileSync(path.join(root, "scripts/verify-packaged-app.mjs"), "utf8");
 
   assert.match(forge, /new MakerZIP\(\{\}, \["darwin"\]\)/);
   assert.match(forge, /new MakerSquirrel\([\s\S]*name: "deepcreator"[\s\S]*\["win32"\]\)/);
@@ -26,6 +28,14 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(release, /npm run release:validate-version/);
   assert.match(packageJson, /"make:mac:arm64"/);
   assert.match(packageJson, /"make:mac:x64"/);
+  assert.match(packageJson, /"release:verify-package"/);
+  assert.match(packageJson, /make:windows[^\n]+release:verify-package -- --platform=win32 --arch=x64/);
+  assert.match(viteMain, /Object\.keys\(packageJson\.dependencies\)/);
+  assert.match(forge, /ignore: \(filePath\)[\s\S]*filePath\.startsWith\("\/\.vite"\)[\s\S]*filePath\.startsWith\("\/node_modules"\)/);
+  assert.match(forge, /prune: true/);
+  assert.match(packageVerifier, /发现未打包的第三方运行时依赖/);
+  assert.match(packageVerifier, /\.vite\/build\/runtime-worker\.js/);
+  assert.match(packageVerifier, /electron-squirrel-startup/);
   assert.match(release, /macos-15-intel/);
   assert.match(release, /DeepCreator-\$\{\{ matrix\.artifact \}\}/);
   assert.match(release, /SHA256SUMS\.txt/);
