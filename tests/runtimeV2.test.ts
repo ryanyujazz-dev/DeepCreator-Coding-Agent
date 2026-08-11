@@ -294,7 +294,7 @@ test("serves the V2 REST contract and registers the SSE transport", async () => 
     }
   };
   const providerFor = () => ({ model: "mock-agent", provider });
-  const launcher = new RunLauncher(providerFor, registry, async () => undefined, store);
+  const launcher = new RunLauncher(providerFor, registry, async () => undefined, store, { clear() {} });
   const startRun = new StartRun({
     context: defaultContextConfig,
     defaultModel: "mock-agent",
@@ -528,7 +528,8 @@ test("steers an active HTTP Run into model context and the top-level conversatio
     providerFor,
     registry,
     (input) => runAgent({ ...input, tools: toolHost }),
-    store
+    store,
+    { clear() {} }
   );
   const startRun = new StartRun({
     context: defaultContextConfig,
@@ -680,7 +681,7 @@ test("cancel endpoint waits until the interrupted run has closed its context", a
       }, 25);
     }, { once: true });
   });
-  const launcher = new RunLauncher(providerFor, registry, run, store);
+  const launcher = new RunLauncher(providerFor, registry, run, store, { clear() {} });
   const startRun = new StartRun({
     context: defaultContextConfig,
     defaultModel: "mock-agent",
@@ -747,7 +748,7 @@ test("checks out a local branch and rejects unknown branches via the HTTP endpoi
     }
   };
   const providerFor = () => ({ model: "mock-agent", provider });
-  const launcher = new RunLauncher(providerFor, registry, (input) => runAgent({ ...input, tools: toolHost }), store);
+  const launcher = new RunLauncher(providerFor, registry, (input) => runAgent({ ...input, tools: toolHost }), store, { clear() {} });
   const startRun = new StartRun({
     context: defaultContextConfig,
     defaultModel: "mock-agent",

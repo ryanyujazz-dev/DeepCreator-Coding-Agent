@@ -24,7 +24,8 @@ export class RunLauncher implements RunLaunchPort {
     private readonly providerFor: (model: string, protocol: ModelProtocol) => ProviderSelection,
     private readonly registry: RunRegistry,
     private readonly run: (input: Omit<RunInput, "tools">) => Promise<void>,
-    private readonly store: RunnerPorts
+    private readonly store: RunnerPorts,
+    private readonly fileState: { clear(runId: string): void }
   ) {}
 
   launch(input: LaunchRunInput): void {
@@ -63,6 +64,6 @@ export class RunLauncher implements RunLaunchPort {
         store: this.store,
         system: this.registry.system
       });
-    }).finally(() => this.registry.finishRun(input.runId));
+    }).finally(() => { this.registry.finishRun(input.runId); this.fileState.clear(input.runId); });
   }
 }
