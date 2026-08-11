@@ -36,6 +36,9 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run make:windows
+      - name: Smoke test Windows installer
+        shell: pwsh
+        run: npm run release:smoke-windows-installer
       - uses: actions/upload-artifact@v4
         with:
           name: DeepCreator-Windows

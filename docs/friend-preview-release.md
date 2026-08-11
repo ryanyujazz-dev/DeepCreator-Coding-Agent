@@ -74,3 +74,5 @@ Get-FileHash .\DeepCreator-Setup.exe -Algorithm SHA256
 ## 更新说明
 
 Windows 的 Squirrel 更新素材会随 Release 一起发布。macOS 自动更新要求稳定的 Developer ID 签名；朋友预览阶段如果仍是未签名构建，应让用户从新 Release 手动下载安装新版。正式公开发布前再配置 Apple Developer ID、公证和 Windows Authenticode 签名。
+
+Windows Release 同时提供安装版 `DeepCreator-Setup.exe` 与免安装 ZIP。安装版会在发布流水线的干净 Windows 环境中实际执行一次；如果测试用户的旧 Squirrel 安装状态损坏，可下载 ZIP，解压后直接运行其中的 `DeepCreator.exe`，本机 Profile 与项目数据仍保存在正常的用户数据目录中。

@@ -12,10 +12,11 @@ test("publishes the native update assets required by macOS and Windows", () => {
   const release = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
   const viteMain = readFileSync(path.join(root, "vite.main.config.ts"), "utf8");
   const packageVerifier = readFileSync(path.join(root, "scripts/verify-packaged-app.mjs"), "utf8");
+  const windowsInstallerSmoke = readFileSync(path.join(root, "scripts/smoke-windows-installer.ps1"), "utf8");
   const runtimeHost = readFileSync(path.join(root, "desktop/runtime-host.ts"), "utf8");
   const signingValidator = readFileSync(path.join(root, "scripts/validate-release-signing.mjs"), "utf8");
 
-  assert.match(forge, /new MakerZIP\(\{\}, \["darwin"\]\)/);
+  assert.match(forge, /new MakerZIP\(\{\}, \["darwin", "win32"\]\)/);
   assert.match(forge, /new MakerSquirrel\([\s\S]*name: "deepcreator"[\s\S]*\["win32"\]\)/);
   assert.match(forge, /certificateFile: windowsCertificateFile/);
   assert.match(forge, /icon: appIcon/);
@@ -28,9 +29,11 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(release, /apple-actions\/import-codesign-certs@v5/);
   assert.match(release, /WINDOWS_CERTIFICATE_FILE=\$certificatePath/);
   assert.match(release, /npm run release:validate-version/);
+  assert.match(release, /npm run release:smoke-windows-installer/);
   assert.match(packageJson, /"make:mac:arm64"/);
   assert.match(packageJson, /"make:mac:x64"/);
   assert.match(packageJson, /"release:verify-package"/);
+  assert.match(packageJson, /"release:smoke-windows-installer"/);
   assert.match(packageJson, /make:windows[^\n]+release:verify-package -- --platform=win32 --arch=x64/);
   assert.match(viteMain, /Object\.keys\(packageJson\.dependencies\)/);
   assert.match(forge, /ignore: \(filePath\)[\s\S]*filePath\.startsWith\("\/\.vite"\)[\s\S]*filePath\.startsWith\("\/node_modules"\)/);
@@ -42,6 +45,10 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(packageVerifier, /electron-squirrel-startup/);
   assert.match(packageVerifier, /new DatabaseSync\(":memory:"\)/);
   assert.match(packageVerifier, /ELECTRON_RUN_AS_NODE: "1"/);
+  assert.match(windowsInstallerSmoke, /DeepCreator-Setup\.exe/);
+  assert.match(windowsInstallerSmoke, /SquirrelSetup\.log/);
+  assert.match(windowsInstallerSmoke, /WaitForExit/);
+  assert.match(windowsInstallerSmoke, /DeepCreator\.exe/);
   assert.match(runtimeHost, /fork\(path\.join\(__dirname, "runtime-worker\.js"\)/);
   assert.match(runtimeHost, /ELECTRON_RUN_AS_NODE: "1"/);
   assert.doesNotMatch(runtimeHost, /utilityProcess/);
