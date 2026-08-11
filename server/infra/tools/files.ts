@@ -3,6 +3,7 @@ import path from "node:path";
 import { ArtifactEntry } from "../../../shared/contracts/runtime";
 import { ensureInsideRoot, isSensitivePath } from "./security";
 import { splitLines, joinLines, locateLineMatches, nearestLine } from "./textMatch";
+import { generateUnifiedDiff } from "./diff";
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -136,7 +137,8 @@ export async function editFile(
     throw new Error(`oldText 在 ${input.path} 中模糊匹配 ${count} 处（已尝试忽略尾随空白），请提供更多上下文。`);
   }
   await fs.writeFile(filePath, applied.result!, "utf8");
-  return `已编辑 ${input.path}`;
+  const diff = generateUnifiedDiff(input.path, contents, applied.result!);
+  return `已编辑 ${input.path}\n\n${diff}`;
 }
 
 export async function deleteFile(projectRoot: string, input: { path: string }): Promise<string> {
@@ -192,5 +194,6 @@ export async function multiEdit(
   }
   // 全部成功,写盘一次
   await fs.writeFile(filePath, workingCopy, "utf8");
-  return `已原子编辑 ${input.path}(${input.edits.length} 处替换)`;
+  const diff = generateUnifiedDiff(input.path, original, workingCopy);
+  return `已原子编辑 ${input.path}(${input.edits.length} 处替换)\n\n${diff}`;
 }
