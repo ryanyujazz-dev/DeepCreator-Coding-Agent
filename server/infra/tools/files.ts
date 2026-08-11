@@ -99,7 +99,7 @@ type ApplyResult = { result?: string; error?: string };
 
 // 对 contents 应用一处 edit:strict 子串(split/replace,完全向后兼容)→ strict=0 降级 relaxed 行匹配
 // (trimEnd 尾随空白容错)。error 简短码:未找到 / 多处(N) / 模糊(N)。caller 包装 path + 上下文。
-function applyEditStrictRelaxed(contents: string, edit: EditInput): ApplyResult {
+function applyEditStrictRelaxed(contents: string, edit: EditInput, window?: { from: number; to: number }): ApplyResult {
   const occurrences = contents.split(edit.oldText).length - 1;
   if (occurrences > 0) {
     if (occurrences > 1 && !edit.replaceAll) return { error: `多处(${occurrences})` };
@@ -111,7 +111,7 @@ function applyEditStrictRelaxed(contents: string, edit: EditInput): ApplyResult 
   const { lines: sourceLines, trailingNewline } = splitLines(contents);
   const patternLines = splitLines(edit.oldText).lines;
   if (patternLines.length === 0) return { error: "未找到" };
-  const relaxed = locateLineMatches(sourceLines, patternLines).relaxed;
+  const relaxed = locateLineMatches(sourceLines, patternLines, window).relaxed;
   if (relaxed.length > 1 && !edit.replaceAll) return { error: `模糊(${relaxed.length})` };
   if (relaxed.length === 0) return { error: "未找到" };
   const newTextLines = splitLines(edit.newText).lines;
@@ -124,7 +124,7 @@ function applyEditStrictRelaxed(contents: string, edit: EditInput): ApplyResult 
 
 export async function editFile(
   projectRoot: string,
-  input: { path: string; oldText: string; newText: string; replaceAll?: boolean },
+  input: { path: string; oldText: string; newText: string; replaceAll?: boolean; startLine?: number; endLine?: number },
   ctx?: FileToolContext
 ): Promise<string> {
   const filePath = ensureInsideRoot(projectRoot, input.path);
@@ -136,7 +136,10 @@ export async function editFile(
       throw new Error(`文件 ${input.path} 自上次 read_file 后已被修改（内容指纹不一致），编辑已中止以防覆盖外部改动。请重新 read_file 后再编辑。`);
     }
   }
-  const applied = applyEditStrictRelaxed(contents, input);
+  const window = input.startLine !== undefined && input.endLine !== undefined
+    ? { from: Math.max(0, input.startLine - 1), to: input.endLine - 1 }
+    : undefined;
+  const applied = applyEditStrictRelaxed(contents, input, window);
   if (applied.error) {
     if (applied.error === "未找到") {
       const near = nearestLine(splitLines(contents).lines, input.oldText);
@@ -174,7 +177,7 @@ export async function deleteFile(projectRoot: string, input: { path: string }): 
  */
 export async function multiEdit(
   projectRoot: string,
-  input: { path: string; edits: Array<{ oldText: string; newText: string; replaceAll?: boolean }> },
+  input: { path: string; edits: Array<{ oldText: string; newText: string; replaceAll?: boolean; startLine?: number; endLine?: number }> },
   ctx?: FileToolContext
 ): Promise<string> {
   const filePath = ensureInsideRoot(projectRoot, input.path);
@@ -197,7 +200,10 @@ export async function multiEdit(
       failures.push({ index, reason: "oldText 不能为空" });
       continue;
     }
-    const applied = applyEditStrictRelaxed(workingCopy, edit);
+    const editWindow = edit.startLine !== undefined && edit.endLine !== undefined
+      ? { from: Math.max(0, edit.startLine - 1), to: edit.endLine - 1 }
+      : undefined;
+    const applied = applyEditStrictRelaxed(workingCopy, edit, editWindow);
     if (applied.error) {
       const detail = applied.error === "未找到"
         ? "未找到 oldText（精确与忽略尾随空白均不匹配）"

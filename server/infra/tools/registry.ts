@@ -396,7 +396,9 @@ export const toolRegistry: ToolRegistration[] = [
       path: { type: "string", description: "要编辑文件的工作区相对路径" },
       oldText: { type: "string", description: "要查找的精确文本。除非 replaceAll 为 true，否则必须在文件中唯一。请包含足够的周边上下文以确保唯一性。" },
       newText: { type: "string", description: "替换后的文本" },
-      replaceAll: { type: "boolean", description: "设为 true 时替换 oldText 的所有匹配项，默认 false" }
+      replaceAll: { type: "boolean", description: "设为 true 时替换 oldText 的所有匹配项，默认 false" },
+      startLine: { type: "number", description: "可选，1 起始行号。提供后精确匹配失败时（strict=0），在 [startLine, endLine] 行窗口内做 relaxed（trimEnd）匹配，用于 oldText 全文不唯一时精准定位。strict 精确命中时窗口不生效。" },
+      endLine: { type: "number", description: "可选，1 起始结束行号（含）。与 startLine 配合限定 relaxed 匹配窗口。" }
     }, ["path", "oldText", "newText"]),
     presentation: {
       groupMode: "workspace_delta",
@@ -423,7 +425,9 @@ export const toolRegistry: ToolRegistration[] = [
         items: objectSchema({
           oldText: { type: "string", description: "要查找的精确文本。除非 replaceAll 为 true，否则必须在文件中唯一。" },
           newText: { type: "string", description: "替换后的文本" },
-          replaceAll: { type: "boolean", description: "设为 true 时替换 oldText 的所有匹配项，默认 false" }
+          replaceAll: { type: "boolean", description: "设为 true 时替换 oldText 的所有匹配项，默认 false" },
+          startLine: { type: "number", description: "可选，1 起始行号，限定该 edit 应用时 workingCopy 的 relaxed 匹配窗口（非原始文件行号）。" },
+          endLine: { type: "number", description: "可选，1 起始结束行号（含）。与 startLine 配合。" }
         }, ["oldText", "newText"])
       }
     }, ["path", "edits"]),
