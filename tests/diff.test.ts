@@ -17,7 +17,8 @@ test("新增行(空 before)全为 +", () => {
   const diff = generateUnifiedDiff("f.txt", "", "x\ny");
   assert.match(diff, /\+x/);
   assert.match(diff, /\+y/);
-  assert.doesNotMatch(diff, /^-/m);
+  // 无删除内容行(排除 --- header)
+  assert.doesNotMatch(diff, /^-[^-]/m);
 });
 
 test("删除行(空 after)全为 -", () => {
