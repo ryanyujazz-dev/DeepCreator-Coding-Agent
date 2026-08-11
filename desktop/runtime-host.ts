@@ -1,5 +1,5 @@
-import { app, utilityProcess } from "electron";
-import type { UtilityProcess } from "electron";
+import { app } from "electron";
+import { ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -27,11 +27,11 @@ function workerMessageFrom(value: unknown): WorkerMessage | undefined {
 export class RuntimeHost {
   private connectionValue?: RuntimeConnection;
   private listeners = new Set<Listener>();
-  private process?: UtilityProcess;
+  private process?: ChildProcess;
   private restartCount = 0;
   private state: RuntimeState = { phase: "stopped" };
   private startPromise?: Promise<RuntimeConnection>;
-  private stoppingProcesses = new WeakSet<UtilityProcess>();
+  private stoppingProcesses = new WeakSet<ChildProcess>();
 
   constructor(
     private readonly store: DesktopStore,
@@ -73,7 +73,7 @@ export class RuntimeHost {
     }
     this.stoppingProcesses.add(child);
     try {
-      child.postMessage({ type: "shutdown" });
+      child.send({ type: "shutdown" });
     } catch {
       child.kill();
     }
@@ -112,9 +112,10 @@ export class RuntimeHost {
       : path.join(app.getAppPath(), "skills");
     // 每次 spawn 时读取 Electron 当前系统语言，确保模型获得真实的桌面环境 locale。
     const systemLocale = app.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
-    const child = utilityProcess.fork(path.join(__dirname, "runtime-worker.js"), [], {
+    const child = spawn(process.execPath, [path.join(__dirname, "runtime-worker.js")], {
       env: {
         ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
         DEEPCREATOR_APP_VERSION: app.getVersion(),
         DEEPSEEK_API_KEY: this.store.apiKey(),
         ZHIPU_API_KEY: this.store.zhipuApiKey(),
@@ -133,9 +134,8 @@ export class RuntimeHost {
         RUNTIME_WORKSPACE_ROOT: app.getPath("home"),
         DEEPSEEK_LOCALE: systemLocale
       },
-      execArgv: [],
-      serviceName: "DeepCreator Agent Runtime",
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+      windowsHide: true
     });
     this.process = child;
     child.stdout?.on("data", (chunk) => process.stdout.write(`[runtime] ${chunk}`));
@@ -157,10 +157,8 @@ export class RuntimeHost {
         reject(error);
       };
       const timeout = setTimeout(() => fail(new Error("Runtime 启动超时（30 秒）。"), true), 30_000);
-      child.once("spawn", () => console.log(`[runtime] utility process started (pid ${child.pid ?? "unknown"}).`));
-      child.once("error", (type, location) => {
-        fail(new Error(`Runtime Utility Process 异常（${type}，${location}）。`), true);
-      });
+      child.once("spawn", () => console.log(`[runtime] Node worker started (pid ${child.pid ?? "unknown"}).`));
+      child.once("error", (error) => fail(new Error(`Runtime Node Worker 启动失败：${error.message}`), true));
       child.on("message", (value: unknown) => {
         const message = workerMessageFrom(value);
         if (!message) return;
@@ -178,7 +176,7 @@ export class RuntimeHost {
         }
       });
       child.once("exit", (code) => {
-        console.log(`[runtime] utility process exited (code ${code}).`);
+        console.log(`[runtime] Node worker exited (code ${code ?? "unknown"}).`);
         clearTimeout(timeout);
         const wasCurrent = this.process === child;
         if (wasCurrent) {

@@ -55,9 +55,10 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(windowsInstallerSmoke, /runtime\.phase -ne "ready"/);
   assert.match(main, /DEEPCREATOR_STARTUP_PROBE_FILE/);
   assert.match(main, /runtime\.currentState\(\)/);
-  assert.match(runtimeHost, /utilityProcess\.fork\(path\.join\(__dirname, "runtime-worker\.js"\)/);
-  assert.match(runtimeHost, /serviceName: "DeepCreator Agent Runtime"/);
-  assert.doesNotMatch(runtimeHost, /ELECTRON_RUN_AS_NODE/);
+  assert.match(runtimeHost, /spawn\(process\.execPath, \[path\.join\(__dirname, "runtime-worker\.js"\)\]/);
+  assert.match(runtimeHost, /ELECTRON_RUN_AS_NODE: "1"/);
+  assert.match(runtimeHost, /windowsHide: true/);
+  assert.doesNotMatch(runtimeHost, /utilityProcess/);
   assert.match(release, /macos-15-intel/);
   assert.match(release, /DEEPCREATOR_SIGNED_MAC_RELEASES/);
   assert.match(release, /DEEPCREATOR_REQUIRE_MAC_NOTARIZATION: "1"/);
