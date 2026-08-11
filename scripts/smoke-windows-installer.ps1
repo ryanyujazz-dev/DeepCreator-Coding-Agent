@@ -86,9 +86,24 @@ if ($null -eq $installedExecutable) {
 
 $previousElectronRunAsNode = $env:ELECTRON_RUN_AS_NODE
 $env:ELECTRON_RUN_AS_NODE = "1"
+$runtimeProbePath = Join-Path $env:RUNNER_TEMP "deepcreator-installed-runtime-probe.cjs"
+$runtimeStdoutPath = Join-Path $env:RUNNER_TEMP "deepcreator-installed-runtime-stdout.log"
+$runtimeStderrPath = Join-Path $env:RUNNER_TEMP "deepcreator-installed-runtime-stderr.log"
 $runtimeProbe = 'const { DatabaseSync } = require("node:sqlite"); const database = new DatabaseSync(":memory:"); database.exec("SELECT 1"); database.close(); process.stdout.write("DEEPCREATOR_INSTALLED_READY")'
-$runtimeOutput = & $installedExecutable.FullName -e $runtimeProbe
-$runtimeExitCode = $LASTEXITCODE
+[IO.File]::WriteAllText($runtimeProbePath, $runtimeProbe)
+$runtimeProcess = Start-Process `
+  -FilePath $installedExecutable.FullName `
+  -ArgumentList $runtimeProbePath `
+  -RedirectStandardOutput $runtimeStdoutPath `
+  -RedirectStandardError $runtimeStderrPath `
+  -PassThru
+if (-not $runtimeProcess.WaitForExit(30000)) {
+  $runtimeProcess.Kill()
+  throw "安装后的 DeepCreator Runtime 在 30 秒内没有结束。"
+}
+$runtimeExitCode = $runtimeProcess.ExitCode
+$runtimeOutput = Get-Content $runtimeStdoutPath -Raw -ErrorAction SilentlyContinue
+$runtimeError = Get-Content $runtimeStderrPath -Raw -ErrorAction SilentlyContinue
 if ($null -eq $previousElectronRunAsNode) {
   Remove-Item Env:ELECTRON_RUN_AS_NODE
 } else {
@@ -96,7 +111,7 @@ if ($null -eq $previousElectronRunAsNode) {
 }
 if ($runtimeExitCode -ne 0 -or ($runtimeOutput -join "") -notmatch "DEEPCREATOR_INSTALLED_READY") {
   Write-SquirrelLogs
-  throw "安装后的 DeepCreator Runtime 验证失败，退出码：$runtimeExitCode。"
+  throw "安装后的 DeepCreator Runtime 验证失败，退出码：$runtimeExitCode。$runtimeError"
 }
 
 Write-Host "Windows 安装器实装成功：$($installedExecutable.FullName)"
