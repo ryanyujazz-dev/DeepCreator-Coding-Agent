@@ -43,7 +43,7 @@ function packageName(moduleName) {
 
 function verifyAppAsar(filePath) {
   if (!existsSync(filePath)) throw new Error(`没有找到发布包：${filePath}`);
-  const entries = new Set(listPackage(filePath));
+  const entries = new Set(listPackage(filePath).map((entry) => entry.replaceAll("\\", "/")));
   const entryPoints = [
     ".vite/build/main.js",
     ".vite/build/preload.js",
