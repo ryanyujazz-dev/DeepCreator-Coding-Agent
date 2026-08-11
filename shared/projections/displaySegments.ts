@@ -11,7 +11,6 @@ import {
   ToolAggregate
 } from "./types";
 import {
-  activityTitle,
   isSkillActivity,
   skillActivityLabel,
   toolDisplayTarget,
@@ -86,7 +85,7 @@ function createDraft(activity: Activity): SegmentDraft {
 function toolStartLabel(activity: Activity): string {
   const skillLabel = skillActivityLabel(activity);
   if (skillLabel) return skillLabel;
-  const target = toolDisplayTarget(activity.tool) || activityTitle(activity);
+  const target = toolDisplayTarget(activity.tool);
   let action = "正在执行";
   if (activity.tool?.toolName === "apply_patch") return "正在应用补丁";
   if (activity.tool?.toolName === "delegate" || activity.tool?.toolName === "spawn_agent") action = "委派";
@@ -231,24 +230,24 @@ function uniqueObjectCount(activities: Activity[]): number {
 
 function bucketLabel(bucket: string, activities: Activity[], hasFailures: boolean): string {
   const count = uniqueObjectCount(activities);
-  if (bucket === "browse") return `已浏览 ${count} 个目录`;
-  if (bucket === "match") return `已匹配 ${count} 个文件`;
-  if (bucket === "create") return `已创建 ${count} 个文件`;
-  if (bucket === "edit") return `已编辑 ${count} 个文件`;
-  if (bucket === "delete") return `已删除 ${count} 个文件`;
-  if (bucket === "read") return `已读取 ${count} 个文件`;
-  if (bucket === "search_files") return `已搜索 ${count} 个文件`;
-  if (bucket === "search") return `已搜索 ${count} 项内容`;
-  if (bucket === "external_search") return `已检索 ${count} 项外部结果`;
-  if (bucket === "external_read") return `已查阅 ${count} 个页面`;
-  if (bucket === "review") return `已检查 ${count} 次工作区改动`;
-  if (bucket === "delegation") return `已委派 ${activities.length} 个子代理`;
-  if (bucket === "verify") return `已完成 ${count} 项验证`;
+  if (bucket === "browse") return `浏览 ${count} 个目录`;
+  if (bucket === "match") return `匹配 ${count} 个文件`;
+  if (bucket === "create") return `创建 ${count} 个文件`;
+  if (bucket === "edit") return `编辑 ${count} 个文件`;
+  if (bucket === "delete") return `删除 ${count} 个文件`;
+  if (bucket === "read") return `读取 ${count} 个文件`;
+  if (bucket === "search_files") return `搜索 ${count} 个文件`;
+  if (bucket === "search") return `搜索 ${count} 项内容`;
+  if (bucket === "external_search") return `检索 ${count} 项外部结果`;
+  if (bucket === "external_read") return `查阅 ${count} 个页面`;
+  if (bucket === "review") return `检查 ${count} 次工作区改动`;
+  if (bucket === "delegation") return `委派 ${activities.length} 个子代理`;
+  if (bucket === "verify") return `完成 ${count} 项验证`;
   if (bucket === "execute") return hasFailures
     ? `成功运行 ${activities.length} 条命令`
-    : `已运行 ${activities.length} 条命令`;
-  if (bucket === "external") return `已完成 ${activities.length} 项外部调用`;
-  return `已检查 ${count} 项`;
+    : `运行 ${activities.length} 条命令`;
+  if (bucket === "external") return `完成 ${activities.length} 项外部调用`;
+  return `检查 ${count} 项`;
 }
 
 function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {

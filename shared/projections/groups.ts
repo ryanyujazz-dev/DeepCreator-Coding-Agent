@@ -94,12 +94,12 @@ function summarize(group: MutableGroup, changes: Changes): string {
   const countUnit = group.category === "modify" ? "个文件" : group.category === "execute" ? "条" : "项";
   const failureSuffix = group.failureCount > 0 ? ` · ${group.failureCount} ${countUnit}失败` : "";
   const cancelledCount = group.members.filter((activity) => activity.status === "cancelled").length;
-  const cancelledSuffix = cancelledCount > 0 ? ` · ${cancelledCount} ${countUnit}已取消` : "";
+  const cancelledSuffix = cancelledCount > 0 ? ` · ${cancelledCount} ${countUnit}取消` : "";
   if (group.category === "modify") {
     const delta = changesForMembers(group.members, changes);
     group.changes = delta;
     const count = delta.fileCount || group.uniqueTargets.length || group.totalCalls;
-    const prefix = active ? "正在修改" : "已修改";
+    const prefix = active ? "正在修改" : "修改";
     const diff = delta.additions === 0 && delta.deletions === 0
       ? ""
       : ` +${delta.additions} -${delta.deletions}`;
@@ -108,19 +108,19 @@ function summarize(group: MutableGroup, changes: Changes): string {
   }
   if (group.category === "verify") {
     if (!active && group.totalCalls === 1 && group.failureCount === 1) return "验证失败";
-    return `${active ? "正在运行" : "已运行"} ${group.totalCalls} 项验证${failureSuffix}${cancelledSuffix}`;
+    return `${active ? "正在运行" : "运行"} ${group.totalCalls} 项验证${failureSuffix}${cancelledSuffix}`;
   }
   if (group.category === "execute") {
     if (!active && group.totalCalls === 1 && group.failureCount === 1) return "命令运行失败";
-    return `${active ? "正在运行" : "已运行"} ${group.totalCalls} 条命令${failureSuffix}${cancelledSuffix}`;
+    return `${active ? "正在运行" : "运行"} ${group.totalCalls} 条命令${failureSuffix}${cancelledSuffix}`;
   }
   const fileCount = unique(
     group.members
       .filter((activity) => activity.tool?.targetKind === "file")
       .map((activity) => activity.tool?.normalizedTarget ?? "")
   ).length;
-  if (fileCount > 0) return `${active ? "正在检查" : "已检查"} ${fileCount} 个文件${failureSuffix}${cancelledSuffix}`;
-  return `${active ? "正在检查" : "已完成"} ${group.totalCalls} 项检查${failureSuffix}${cancelledSuffix}`;
+  if (fileCount > 0) return `${active ? "正在检查" : "检查"} ${fileCount} 个文件${failureSuffix}${cancelledSuffix}`;
+  return `${active ? "正在检查" : "完成"} ${group.totalCalls} 项检查${failureSuffix}${cancelledSuffix}`;
 }
 
 function rebuildGroup(group: MutableGroup, changes: Changes): void {
@@ -228,9 +228,9 @@ function summarizeMixedLiveTools(members: Activity[]): LiveStep {
       .map((activity) => activity.tool?.normalizedTarget ?? "")
   ).length;
   const scope = fileCount > 0 ? `${fileCount} 个文件` : `${members.length} 项操作`;
-  const prefix = running ? "正在处理" : failedCount > 0 ? "处理失败" : "已完成";
+  const prefix = running ? "正在处理" : failedCount > 0 ? "处理失败" : "完成";
   const failureSuffix = !running && failedCount > 0 ? ` · ${failedCount} 项失败` : "";
-  const cancelledSuffix = !running && failedCount === 0 && cancelledCount > 0 ? ` · ${cancelledCount} 项已取消` : "";
+  const cancelledSuffix = !running && failedCount === 0 && cancelledCount > 0 ? ` · ${cancelledCount} 项取消` : "";
   return {
     category: "mixed",
     currentTarget,
