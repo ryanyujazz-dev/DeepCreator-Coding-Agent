@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { ArtifactEntry } from "../../../shared/contracts/runtime";
 import { ensureInsideRoot, isSensitivePath } from "./security";
+import { splitLines, joinLines, locateLineMatches, nearestLine } from "./textMatch";
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -86,6 +87,34 @@ export async function writeFile(projectRoot: string, input: { path: string; cont
   return `${existed ? "已编辑" : "已创建"} ${input.path}`;
 }
 
+type EditInput = { oldText: string; newText: string; replaceAll?: boolean };
+type ApplyResult = { result?: string; error?: string };
+
+// 对 contents 应用一处 edit:strict 子串(split/replace,完全向后兼容)→ strict=0 降级 relaxed 行匹配
+// (trimEnd 尾随空白容错)。error 简短码:未找到 / 多处(N) / 模糊(N)。caller 包装 path + 上下文。
+function applyEditStrictRelaxed(contents: string, edit: EditInput): ApplyResult {
+  const occurrences = contents.split(edit.oldText).length - 1;
+  if (occurrences > 0) {
+    if (occurrences > 1 && !edit.replaceAll) return { error: `多处(${occurrences})` };
+    const next = edit.replaceAll
+      ? contents.split(edit.oldText).join(edit.newText)
+      : contents.replace(edit.oldText, edit.newText);
+    return { result: next };
+  }
+  const { lines: sourceLines, trailingNewline } = splitLines(contents);
+  const patternLines = splitLines(edit.oldText).lines;
+  if (patternLines.length === 0) return { error: "未找到" };
+  const relaxed = locateLineMatches(sourceLines, patternLines).relaxed;
+  if (relaxed.length > 1 && !edit.replaceAll) return { error: `模糊(${relaxed.length})` };
+  if (relaxed.length === 0) return { error: "未找到" };
+  const newTextLines = splitLines(edit.newText).lines;
+  const targets = edit.replaceAll ? relaxed : [relaxed[0]];
+  for (const start of [...targets].sort((left, right) => right - left)) {
+    sourceLines.splice(start, patternLines.length, ...newTextLines);
+  }
+  return { result: joinLines(sourceLines, trailingNewline) };
+}
+
 export async function editFile(
   projectRoot: string,
   input: { path: string; oldText: string; newText: string; replaceAll?: boolean }
@@ -93,11 +122,20 @@ export async function editFile(
   const filePath = ensureInsideRoot(projectRoot, input.path);
   const contents = await fs.readFile(filePath, "utf8");
   if (!input.oldText) throw new Error("oldText 不能为空。创建文件请使用 write_file。");
-  const occurrences = contents.split(input.oldText).length - 1;
-  if (occurrences === 0) throw new Error(`未在 ${input.path} 中找到 oldText。`);
-  if (occurrences > 1 && !input.replaceAll) throw new Error(`oldText 在 ${input.path} 中出现 ${occurrences} 次，请提供更精确文本。`);
-  const next = input.replaceAll ? contents.split(input.oldText).join(input.newText) : contents.replace(input.oldText, input.newText);
-  await fs.writeFile(filePath, next, "utf8");
+  const applied = applyEditStrictRelaxed(contents, input);
+  if (applied.error) {
+    if (applied.error === "未找到") {
+      const near = nearestLine(splitLines(contents).lines, input.oldText);
+      const hint = near >= 0 ? `，第 ${near + 1} 行附近有相似内容` : "";
+      throw new Error(`未在 ${input.path} 中找到 oldText（精确与忽略尾随空白均不匹配${hint}）。`);
+    }
+    const count = applied.error.match(/\((\d+)\)/)?.[1] ?? "?";
+    if (applied.error.startsWith("多处")) {
+      throw new Error(`oldText 在 ${input.path} 中出现 ${count} 次，请提供更精确文本。`);
+    }
+    throw new Error(`oldText 在 ${input.path} 中模糊匹配 ${count} 处（已尝试忽略尾随空白），请提供更多上下文。`);
+  }
+  await fs.writeFile(filePath, applied.result!, "utf8");
   return `已编辑 ${input.path}`;
 }
 
@@ -136,19 +174,17 @@ export async function multiEdit(
       failures.push({ index, reason: "oldText 不能为空" });
       continue;
     }
-    const occurrences = workingCopy.split(edit.oldText).length - 1;
-    if (occurrences === 0) {
-      failures.push({ index, reason: `未找到 oldText(出现 0 次)` });
+    const applied = applyEditStrictRelaxed(workingCopy, edit);
+    if (applied.error) {
+      const detail = applied.error === "未找到"
+        ? "未找到 oldText（精确与忽略尾随空白均不匹配）"
+        : applied.error.startsWith("多处")
+          ? `oldText 出现 ${applied.error.match(/\((\d+)\)/)?.[1] ?? "?"} 次,需提供更精确文本或设 replaceAll=true`
+          : `oldText 模糊匹配 ${applied.error.match(/\((\d+)\)/)?.[1] ?? "?"} 处（忽略尾随空白）`;
+      failures.push({ index, reason: detail });
       continue;
     }
-    if (occurrences > 1 && !edit.replaceAll) {
-      failures.push({ index, reason: `oldText 出现 ${occurrences} 次,需提供更精确文本或设 replaceAll=true` });
-      continue;
-    }
-    // 校验通过,在 workingCopy 上应用(链式:后续 edit 看到此结果)
-    workingCopy = edit.replaceAll
-      ? workingCopy.split(edit.oldText).join(edit.newText)
-      : workingCopy.replace(edit.oldText, edit.newText);
+    workingCopy = applied.result!;
   }
   if (failures.length > 0) {
     const detail = failures.map((failure) => `  edit[${failure.index}]: ${failure.reason}`).join("\n");
