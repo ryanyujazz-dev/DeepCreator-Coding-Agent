@@ -9,27 +9,10 @@ permissions:
   contents: write
 
 jobs:
-  package:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            command: npm run make:mac:arm64
-            artifact: macOS-Apple-Silicon
-          - os: macos-15-intel
-            command: npm run make:mac:x64
-            artifact: macOS-Intel
-          - os: windows-latest
-            command: npm run make:windows
-            artifact: Windows
-    runs-on: ${{ matrix.os }}
+  package-windows:
+    runs-on: windows-latest
     timeout-minutes: 30
     env:
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       DEEPCREATOR_AUTH_MODE: local
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
@@ -39,14 +22,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Import macOS signing certificate
-        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != ''
-        uses: apple-actions/import-codesign-certs@v5
-        with:
-          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       - name: Prepare Windows signing certificate
-        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE_PASSWORD != ''
+        if: env.WINDOWS_CERTIFICATE_PASSWORD != ''
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
@@ -58,6 +35,52 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run make:windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeepCreator-Windows
+          path: out/make/**/*
+          if-no-files-found: error
+
+  package-mac:
+    if: vars.DEEPCREATOR_SIGNED_MAC_RELEASES == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            command: npm run make:mac:arm64
+            artifact: macOS-Apple-Silicon
+          - os: macos-15-intel
+            command: npm run make:mac:x64
+            artifact: macOS-Intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      DEEPCREATOR_AUTH_MODE: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Import macOS signing certificate
+        uses: apple-actions/import-codesign-certs@v5
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - run: npm run release:validate-version
+      - run: node scripts/validate-release-signing.mjs --platform=darwin
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
       - run: ${{ matrix.command }}
       - uses: actions/upload-artifact@v4
         with:
@@ -66,8 +89,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: package
+    if: startsWith(github.ref, 'refs/tags/v') && always() && needs.package-windows.result == 'success' && (needs.package-mac.result == 'success' || needs.package-mac.result == 'skipped')
+    needs: [package-windows, package-mac]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -87,5 +110,5 @@ jobs:
             artifacts/**/*.nupkg
             artifacts/**/RELEASES
             artifacts/SHA256SUMS.txt
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
           generate_release_notes: true

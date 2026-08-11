@@ -13,6 +13,7 @@ test("publishes the native update assets required by macOS and Windows", () => {
   const viteMain = readFileSync(path.join(root, "vite.main.config.ts"), "utf8");
   const packageVerifier = readFileSync(path.join(root, "scripts/verify-packaged-app.mjs"), "utf8");
   const runtimeHost = readFileSync(path.join(root, "desktop/runtime-host.ts"), "utf8");
+  const signingValidator = readFileSync(path.join(root, "scripts/validate-release-signing.mjs"), "utf8");
 
   assert.match(forge, /new MakerZIP\(\{\}, \["darwin"\]\)/);
   assert.match(forge, /new MakerSquirrel\([\s\S]*name: "deepcreator"[\s\S]*\["win32"\]\)/);
@@ -45,6 +46,10 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(runtimeHost, /ELECTRON_RUN_AS_NODE: "1"/);
   assert.doesNotMatch(runtimeHost, /utilityProcess/);
   assert.match(release, /macos-15-intel/);
+  assert.match(release, /DEEPCREATOR_SIGNED_MAC_RELEASES/);
+  assert.match(release, /needs: \[package-windows, package-mac\]/);
+  assert.match(signingValidator, /Developer ID Application/);
+  assert.match(signingValidator, /APPLE_CERTIFICATE_BASE64/);
   assert.match(release, /DeepCreator-\$\{\{ matrix\.artifact \}\}/);
   assert.match(release, /SHA256SUMS\.txt/);
   assert.match(release, /sha256sum/);
