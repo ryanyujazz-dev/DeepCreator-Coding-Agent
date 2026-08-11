@@ -204,6 +204,9 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     const providerActivitiesByCallId = new Map<string, string>();
     const providerActivitiesByIndex = new Map<number, string>();
     const previousArgumentsByItemId = new Map<string, string>();
+    const applyPatchIndices = new Set<number>();
+    const pendingArgsByKey = new Map<string, { activityId: string; text: string }>();
+    let argsTimer: ReturnType<typeof setTimeout> | undefined;
     let thinkingSummaryPhaseEnded = false;
     const endThinkingSummaryPhase = () => {
       if (thinkingSummaryPhaseEnded) return;
@@ -259,6 +262,30 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       startVisibleStage: () => { visibleStageStarted = true; }
     });
 
+    // argumentsDelta 批处理(48 字/40ms,与 modelStepStream reasoning flush 一致):避免每 token
+    // sessions.save(O(session-size):JSON.stringify 全 session + searchText + UPSERT)。
+    const ARGS_FLUSH_CHARS = 48;
+    const ARGS_FLUSH_DELAY_MS = 40;
+    const flushPendingArgs = () => {
+      if (argsTimer) { clearTimeout(argsTimer); argsTimer = undefined; }
+      for (const [, entry] of pendingArgsByKey) {
+        if (!entry.text) continue;
+        updateActivity({ activityId: entry.activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, { argumentsDelta: entry.text });
+      }
+      pendingArgsByKey.clear();
+    };
+    const bufferArgsDelta = (key: string, activityId: string | undefined, delta: string) => {
+      if (!delta || !activityId) return;
+      const existing = pendingArgsByKey.get(key);
+      if (existing) existing.text += delta;
+      else pendingArgsByKey.set(key, { activityId, text: delta });
+      if ((pendingArgsByKey.get(key)?.text.length ?? 0) >= ARGS_FLUSH_CHARS) {
+        flushPendingArgs();
+        return;
+      }
+      argsTimer ??= setTimeout(flushPendingArgs, ARGS_FLUSH_DELAY_MS);
+    };
+
     const openToolActivityOnName = (params: { callId: string; index: number; itemId?: string; name: string }): string | undefined => {
       if (params.name === "wait_command" || params.name === "stop_command") return undefined;
       if (!input.tools.has(params.name)) return undefined;
@@ -283,6 +310,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       providerActivitiesByCallId.set(params.callId, activityId);
       providerActivitiesByIndex.set(params.index, activityId);
       if (params.itemId) providerActivitiesByItemId.set(params.itemId, activityId);
+      if (params.name === "apply_patch") applyPatchIndices.add(params.index);
       return activityId;
     };
 
@@ -412,7 +440,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
           const prev = previousArgumentsByItemId.get(item.itemId) ?? "";
           const current = item.argumentsText ?? "";
           if (current.length > prev.length) {
-            updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, { argumentsDelta: current.slice(prev.length) });
+            bufferArgsDelta(`item:${item.itemId}`, activityId, current.slice(prev.length));
           }
           previousArgumentsByItemId.set(item.itemId, current);
         }
@@ -437,10 +465,10 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       }
       const activityId = providerActivitiesByIndex.get(index);
       if (!activityId || !fragment.argumentsText) return;
-      // apply_patch(chat)不发 args —— 内容是 JSON-wrapped patch,执行时 toolPipeline 抽 draft,避免重复流
-      const currentActivity = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === activityId);
-      if (currentActivity?.tool?.toolName === "apply_patch") return;
-      updateActivity({ activityId, runId: input.runId, sessionId: input.sessionId, store: input.store }, { argumentsDelta: fragment.argumentsText });
+      // apply_patch(chat)不发 args —— 内容是 JSON-wrapped patch,执行时 toolPipeline 抽 draft,避免重复流。
+      // 用 applyPatchIndices O(1) 判断(预开时记),避免每 fragment getRun 全 session 扫 + structuredClone。
+      if (applyPatchIndices.has(index)) return;
+      bufferArgsDelta(`idx:${index}`, activityId, fragment.argumentsText);
     };
 
     input.store.writeDebugSnapshot(input.sessionId, input.runId, {
@@ -506,6 +534,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       }
       throw error;
     } finally {
+      flushPendingArgs();
       stepStream.finish();
       providerStep.release();
     }
@@ -664,6 +693,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       }, call, modelStepId, knownInstructionKeys, existingActivityId, stepRejection, stepHeadline);
     };
     let toolStep: Awaited<ReturnType<typeof executeToolStep>>;
+    flushPendingArgs();
     try {
       toolStep = await executeToolStep({
         calls: response.toolCalls,
