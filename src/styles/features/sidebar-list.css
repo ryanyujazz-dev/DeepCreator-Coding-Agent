@@ -6,6 +6,8 @@
   --sidebar-list-inline-padding: 10px;
   --sidebar-list-leading-size: 18px;
   --sidebar-list-gap: 8px;
+  --control-row-height: var(--sidebar-list-row-height);
+  --control-icon-size: var(--sidebar-list-leading-size);
   --sidebar-muted-title: var(--color-text-muted);
   --sidebar-list-copy-offset: calc(
     var(--sidebar-list-inline-padding) + var(--sidebar-list-leading-size) + var(--sidebar-list-gap)
