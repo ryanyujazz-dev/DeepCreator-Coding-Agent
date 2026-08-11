@@ -10,6 +10,7 @@ import { useRuntimeObservers } from "./features/runtime/useRuntimeObservers";
 import { useFollowUps } from "./features/runtime/useFollowUps";
 import { useBranchCheckout } from "./features/runtime/useBranchCheckout";
 import { useQuestionInteractions } from "./features/runtime/useQuestionInteractions";
+import { useSessionSidebarActions } from "./features/runtime/useSessionSidebarActions";
 
 export function useWorkspace() {
   const desktop = desktopBridge();
@@ -62,6 +63,19 @@ export function useWorkspace() {
     activeRun,
     config,
     session
+  });
+  const clearCurrentSession = useCallback((target: NonNullable<typeof session>) => {
+    setDraftWorkspace(target.workspaceKind === "scratch" ? { kind: "scratch" } : projectDraftWorkspace(target.projectRoot));
+    setDraftRevision((current) => current + 1);
+    setSession(null);
+    setWorkspace(null);
+  }, [setSession, setWorkspace]);
+  const { archiveProjectSessions, archiveSession, deleteSession, pinSession, renameSession } = useSessionSidebarActions({
+    clearCurrentSession,
+    refreshSessions,
+    session,
+    setError,
+    setSession
   });
 
   useEffect(() => {
@@ -252,47 +266,6 @@ export function useWorkspace() {
     }
   }, []);
 
-  const pinSession = useCallback(async (sessionId: string, pinned: boolean) => {
-    try {
-      await runtimeApi.setSessionSidebar(sessionId, { pinned });
-      await refreshSessions();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    }
-  }, [refreshSessions]);
-
-  const archiveSession = useCallback(async (sessionId: string) => {
-    try {
-      await runtimeApi.setSessionSidebar(sessionId, { archived: true });
-      if (session?.sessionId === sessionId) {
-        setDraftWorkspace(session.workspaceKind === "scratch" ? { kind: "scratch" } : projectDraftWorkspace(session.projectRoot));
-        setDraftRevision((current) => current + 1);
-        setSession(null);
-        setWorkspace(null);
-      }
-      await refreshSessions();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-      throw nextError;
-    }
-  }, [refreshSessions, session, setSession, setWorkspace]);
-
-  const archiveProjectSessions = useCallback(async (root: string) => {
-    try {
-      await runtimeApi.archiveProjectSessions(root);
-      if (session?.projectRoot === root) {
-        setDraftWorkspace(projectDraftWorkspace(root));
-        setDraftRevision((current) => current + 1);
-        setSession(null);
-        setWorkspace(null);
-      }
-      await refreshSessions();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-      throw nextError;
-    }
-  }, [refreshSessions, session?.projectRoot, setSession, setWorkspace]);
-
   const resolveApproval = useCallback(async (decision: ApprovalChoice) => {
     if (!pendingApproval) return;
     try {
@@ -367,6 +340,7 @@ export function useWorkspace() {
     connection,
     contextObserver,
     currentRun: session?.runs.at(-1),
+    deleteSession,
     draftRevision,
     draftWorkspace,
     error,
@@ -382,6 +356,7 @@ export function useWorkspace() {
     resolvePlan,
     revisePlan,
     refreshBalance,
+    renameSession,
     removeFollowUp,
     retryRuntime,
     searchSessions: (query: string) => void refreshSessions(query),

@@ -21,6 +21,7 @@ export interface EventPort {
 export interface SessionPort {
   archiveProjectSessions(projectRoot: string): number;
   createSession(input: Omit<SessionInput, "createdAt">): Session;
+  deleteSession(sessionId: string): boolean;
   getRun(runId: string): Run | undefined;
   getSession(sessionId: string): Session | undefined;
   listSessions(query?: string): SessionSummary[];

@@ -1,47 +1,8 @@
-import { ChevronDown, FileCode2 } from "lucide-react";
-import { useState } from "react";
-import { FileChange, Changes } from "../../shared/contracts/runtime";
+import { ChevronRight } from "lucide-react";
+import { useId, useState } from "react";
+import { Changes } from "../../shared/contracts/runtime";
 import { fileDisplayName } from "../../shared/projections/activityPresentation";
-import { IconButton, PillButton, RowAction } from "../shared-ui/ControlPrimitives";
-
-function diffLineClass(line: string): string {
-  if (line.startsWith("+++") || line.startsWith("---")) return "is-meta";
-  if (line.startsWith("+")) return "is-add";
-  if (line.startsWith("-")) return "is-delete";
-  if (line.startsWith("@@")) return "is-hunk";
-  return "";
-}
-
-function FileChangeRow({ file, onOpenFile }: { file: FileChange; onOpenFile: (path: string) => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const hasPatch = Boolean(file.patch?.trim());
-  return (
-    <div className={`patch-file ${expanded ? "is-expanded" : ""}`}>
-      <div className="patch-row">
-        <button className="file-reference-button" onClick={() => onOpenFile(file.path)} title={file.path} type="button">
-          {fileDisplayName(file.path)}
-        </button>
-        <strong><b>+{file.additions}</b> <i>-{file.deletions}</i></strong>
-        <IconButton
-          aria-expanded={expanded}
-          label={`${expanded ? "收起" : "展开"} ${file.path} diff`}
-          className="patch-toggle"
-          disabled={!hasPatch}
-          onClick={() => hasPatch && setExpanded((value) => !value)}
-        >
-          <ChevronDown size={13} />
-        </IconButton>
-      </div>
-      {expanded && hasPatch && (
-        <pre className="patch-diff" aria-label={`${file.path} diff`}>
-          {file.patch!.split("\n").slice(0, 240).map((line, index) => (
-            <code className={diffLineClass(line)} key={`${index}-${line.slice(0, 16)}`}>{line || " "}</code>
-          ))}
-        </pre>
-      )}
-    </div>
-  );
-}
+import { PillButton, RowAction } from "../shared-ui/ControlPrimitives";
 
 export function ChangePanel({
   delta,
@@ -52,31 +13,37 @@ export function ChangePanel({
   onOpenFile: (path: string) => void;
   onOpenReview: (delta: Changes) => void;
 }) {
-  const [showAll, setShowAll] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
   if (delta.fileCount === 0 || delta.comparisonBase !== "run_start") return null;
-  const visibleFiles = showAll ? delta.files : delta.files.slice(0, 3);
-  const hiddenCount = Math.max(0, delta.files.length - visibleFiles.length);
   return (
-    <section className="patch-card">
-      <header>
-        <RowAction className="patch-card-review-trigger" onClick={() => onOpenReview(delta)}>
-          <FileCode2 size={17} />
-          <strong>已更改 {delta.fileCount} 个文件</strong>
-          <span><b>+{delta.additions}</b> <i>-{delta.deletions}</i></span>
+    <section className={`patch-card ${expanded ? "is-expanded" : ""}`}>
+      <header className="patch-card-header">
+        <RowAction
+          aria-controls={listId}
+          aria-expanded={expanded}
+          className="patch-card-disclosure"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <strong>变更 {delta.fileCount} 个文件</strong>
+          <span className="patch-card-stats"><b>+{delta.additions}</b> <i>-{delta.deletions}</i></span>
+          <ChevronRight aria-hidden="true" className="patch-card-chevron" size={14} />
         </RowAction>
+        <PillButton className="patch-card-review-button" onClick={() => onOpenReview(delta)}>
+          审阅
+        </PillButton>
       </header>
-      <div className="patch-list">
-        {visibleFiles.map((file) => <FileChangeRow file={file} key={file.path} onOpenFile={onOpenFile} />)}
-      </div>
-      {hiddenCount > 0 && (
-        <PillButton className="show-more-files" onClick={() => setShowAll(true)}>
-          展开更多 {hiddenCount} 个文件
-        </PillButton>
-      )}
-      {showAll && delta.files.length > 3 && (
-        <PillButton className="show-more-files" onClick={() => setShowAll(false)}>
-          收起
-        </PillButton>
+      {expanded && (
+        <div aria-label="变更文件" className="patch-list" id={listId}>
+          {delta.files.map((file) => (
+            <div className="patch-file" key={file.path}>
+              <RowAction className="patch-row" onClick={() => onOpenFile(file.path)} title={file.path}>
+                <span className="patch-file-name">{fileDisplayName(file.path)}</span>
+                <strong><b>+{file.additions}</b> <i>-{file.deletions}</i></strong>
+              </RowAction>
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );

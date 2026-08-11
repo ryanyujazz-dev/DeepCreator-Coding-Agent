@@ -150,6 +150,16 @@ export const sidebarInputSchema = {
   }
 } as const;
 
+export const sessionTitleInputSchema = {
+  ...sessionParamsSchema,
+  body: {
+    type: "object",
+    additionalProperties: false,
+    properties: { title: { type: "string", minLength: 1, maxLength: 80 } },
+    required: ["title"]
+  }
+} as const;
+
 export const projectArchiveInputSchema = {
   body: {
     type: "object",

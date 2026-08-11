@@ -4,7 +4,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { updateElectronApp, UpdateSourceType } from "update-electron-app";
 import { AuthDeleteInput, LocalProfileInput } from "../shared/contracts/auth";
-import { DesktopSettingsInput, WindowControlsState } from "../shared/contracts/desktop";
+import { DesktopSettingsInput, ProjectOpenTarget, WindowControlsState } from "../shared/contracts/desktop";
 import { SkillInstallInput, SkillTargetInput } from "../shared/contracts/skill";
 import { ThemeImportInput, ThemePack, ThemePreference, WindowChromeTheme } from "../shared/contracts/theme";
 import { DEFAULT_THEME_ID, isHexColor } from "../shared/themeCatalog";
@@ -16,6 +16,7 @@ import { importThemeFile } from "./themeImport";
 import { ThemeStore } from "./themeStore";
 import { SkillStore } from "./skillStore";
 import { UpdateManager } from "./updateManager";
+import { launchProjectEditor } from "./projectLauncher";
 console.log("[desktop] main started");
 
 let mainWindow: BrowserWindow | null = null;
@@ -149,6 +150,21 @@ function registerIpc(): void {
     if (!store.recentProjects().some((project) => project.path === resolved)) throw new Error("只能打开最近项目列表中的目录。");
     const error = await shell.openPath(resolved);
     if (error) throw new Error(error);
+  });
+  ipcMain.handle("desktop:open-project-with", async (event, projectPath: string, target: ProjectOpenTarget) => {
+    trusted(event);
+    authenticated();
+    if (!new Set<ProjectOpenTarget>(["system", "cursor", "vscode"]).has(target)) {
+      throw new Error("不支持所选的打开方式。");
+    }
+    const resolved = trustedProjectRoot(projectPath);
+    if (!resolved) throw new Error("项目目录无效。");
+    if (target === "system") {
+      const error = await shell.openPath(resolved);
+      if (error) throw new Error(error);
+      return;
+    }
+    await launchProjectEditor(resolved, target);
   });
   ipcMain.handle("desktop:pick-project", async (event) => {
     trusted(event);

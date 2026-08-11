@@ -1,0 +1,9 @@
+Alibaba PuHuiTi 3
+
+Copyright © Alibaba (China) Co., Ltd.
+
+The bundled WOFF2 files were supplied from the Alibaba PuHuiTi 3 distribution.
+Alibaba describes Alibaba PuHuiTi as free for commercial use on its official site:
+https://supplier.alibaba.com/us/news/PX909446.htm
+
+These font files are redistributed only as application UI resources for DeepCreator.

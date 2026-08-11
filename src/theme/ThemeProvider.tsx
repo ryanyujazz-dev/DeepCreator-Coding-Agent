@@ -122,7 +122,10 @@ function mixHexColors(background: string, foreground: string, foregroundWeight: 
 
 export function executionMutedColor(variant: ThemeVariant): string {
   if (colorLuminance(variant.colors.background) >= 0.25) return EXECUTION_MUTED_LIGHT_REFERENCE;
-  const targetContrast = contrastRatio(EXECUTION_MUTED_LIGHT_REFERENCE, EXECUTION_MUTED_LIGHT_CANVAS);
+  const targetContrast = Math.max(
+    5.25,
+    contrastRatio(EXECUTION_MUTED_LIGHT_REFERENCE, EXECUTION_MUTED_LIGHT_CANVAS)
+  );
   let lower = 0;
   let upper = 1;
   let matched = variant.colors.foreground;
@@ -173,7 +176,8 @@ export function shadowCssVariables(variant: ThemeVariant): Record<string, string
 function cssVariables(variant: ThemeVariant, codeVariant: ThemeVariant): Record<string, string> {
   const { colors, contrast, typography } = variant;
   const { code } = codeVariant;
-  const secondaryWeight = Math.round(42 + contrast * 0.38);
+  const dark = colorLuminance(colors.background) < 0.25;
+  const secondaryWeight = Math.round((dark ? 50 : 42) + contrast * 0.38);
   const borderWeight = Math.round(7 + contrast * 0.13);
   return {
     ...shadowCssVariables(variant),

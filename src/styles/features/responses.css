@@ -8,7 +8,7 @@
   background: var(--color-surface-subtle);
   color: var(--color-execution-muted);
   font-size: 10px;
-  font-weight: 650;
+  font-weight: var(--font-weight-medium);
   letter-spacing: 0.02em;
   line-height: 1;
   white-space: nowrap;
@@ -24,7 +24,7 @@
   margin-left: 8px;
   color: var(--color-execution-muted);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .responses-draft-state.is-applied {

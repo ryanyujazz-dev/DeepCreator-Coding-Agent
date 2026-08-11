@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { SessionService } from "../server/app/sessionService";
 import { RuntimeStore } from "../server/infra/runtimeStore";
 
 function register(store: RuntimeStore, sessionId = "session_store") {
@@ -64,6 +65,52 @@ test("persists pinned and archived sidebar state without changing session histor
     const restored = new RuntimeStore(directory);
     assert.equal(restored.listSessions().length, 0);
     assert.equal(restored.getSession("session_sidebar_a")?.title, "持久化测试");
+    restored.close();
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("renames and deletes an inactive session without touching its project directory", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-session-actions-"));
+  try {
+    const store = new RuntimeStore(directory);
+    register(store, "session_actions");
+    const sessions = new SessionService(store);
+    const legacyDirectory = path.join(directory, "signals");
+    const evidenceDirectory = path.join(directory, "evidence", "session_actions");
+    mkdirSync(legacyDirectory, { recursive: true });
+    mkdirSync(evidenceDirectory, { recursive: true });
+    writeFileSync(path.join(legacyDirectory, "session_actions.jsonl"), "legacy", "utf8");
+    writeFileSync(path.join(evidenceDirectory, "record.txt"), "evidence", "utf8");
+
+    assert.equal(sessions.rename("session_actions", "  新任务标题  ").title, "新任务标题");
+    assert.equal(store.listSessions("新任务标题")[0]?.sessionId, "session_actions");
+
+    store.append({
+      data: { model: "deepseek-chat", prompt: "运行中", startedAt: new Date().toISOString() },
+      runId: "run_actions",
+      sessionId: "session_actions",
+      type: "run.started"
+    });
+    assert.throws(() => sessions.delete("session_actions"), /active task cannot be deleted/i);
+    store.append({
+      data: { answer: "完成", finishedAt: new Date().toISOString(), status: "completed" },
+      runId: "run_actions",
+      sessionId: "session_actions",
+      type: "run.finished"
+    });
+
+    sessions.delete("session_actions");
+    assert.equal(store.getSession("session_actions"), undefined);
+    assert.equal(store.listSessions().some((session) => session.sessionId === "session_actions"), false);
+    assert.deepEqual(store.readEvents("session_actions"), []);
+    assert.equal(existsSync(path.join(legacyDirectory, "session_actions.jsonl")), false);
+    assert.equal(existsSync(evidenceDirectory), false);
+    store.close();
+
+    const restored = new RuntimeStore(directory);
+    assert.equal(restored.getSession("session_actions"), undefined);
     restored.close();
   } finally {
     rmSync(directory, { force: true, recursive: true });

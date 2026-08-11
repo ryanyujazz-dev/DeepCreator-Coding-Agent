@@ -96,7 +96,8 @@ function mapData(event: LegacyEvent, type: EventType): unknown {
       accessMode: record.permissionProfile,
       compactSummary: record.compactSummary,
       contextTokens: record.contextTokenEstimate,
-      grants: Array.isArray(record.grants) ? record.grants.map(mapGrant) : undefined
+      grants: Array.isArray(record.grants) ? record.grants.map(mapGrant) : undefined,
+      title: typeof record.title === "string" ? record.title : undefined
     };
   }
   if (type === "tasks.changed") return mapTasks(record);

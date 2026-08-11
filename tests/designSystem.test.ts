@@ -10,25 +10,47 @@ const applicationSurfaces = readFileSync(path.join(root, "src/styles/features/ap
 const authStyles = readFileSync(path.join(root, "src/styles/features/auth.css"), "utf8");
 const composerBarStyles = readFileSync(path.join(root, "src/styles/features/composer-bar.css"), "utf8");
 const agentInteractionStyles = readFileSync(path.join(root, "src/styles/features/agent-interaction-composer.css"), "utf8");
+const sidebarListStyles = readFileSync(path.join(root, "src/styles/features/sidebar-list.css"), "utf8");
 const agentInteractionComposer = readFileSync(path.join(root, "src/components/AgentInteractionComposer.tsx"), "utf8");
 const followUpStyles = readFileSync(path.join(root, "src/styles/features/follow-ups.css"), "utf8");
 const updateStyles = readFileSync(path.join(root, "src/styles/features/updates.css"), "utf8");
 const composer = readFileSync(path.join(root, "src/components/Composer.tsx"), "utf8");
+const changePanel = readFileSync(path.join(root, "src/components/ChangePanel.tsx"), "utf8");
 const projectContextSelector = readFileSync(path.join(root, "src/components/ProjectContextSelector.tsx"), "utf8");
+const sessionSidebar = readFileSync(path.join(root, "src/components/SessionSidebar.tsx"), "utf8");
+const controlPrimitives = readFileSync(path.join(root, "src/shared-ui/ControlPrimitives.tsx"), "utf8");
+const themeCatalog = readFileSync(path.join(root, "shared/themeCatalog.ts"), "utf8");
 
-test("keeps one semantic token source and the licensed HarmonyOS font", () => {
+test("keeps one semantic token source with Alibaba as default and HarmonyOS available", () => {
   assert.equal(styles.match(/^:root\s*\{/gm)?.length, 1);
-  assert.match(styles, /--font-family-ui:\s*"HarmonyOS Sans SC"/);
+  assert.match(styles, /--font-family-ui:\s*"Alibaba PuHuiTi 3", "HarmonyOS Sans SC"/);
   assert.match(styles, /--type-conversation-size:\s*14px/);
+  assert.match(styles, /--font-weight-light:\s*300/);
+  assert.match(styles, /--font-weight-regular:\s*400/);
+  assert.match(styles, /--font-weight-medium:\s*500/);
+  assert.match(styles, /--font-weight-bold:\s*700/);
   assert.match(styles, /--execution-icon-column:\s*16px/);
   assert.match(styles, /--color-execution-muted:\s*#8e969b/);
   assert.match(styles, /--execution-slot-gap:\s*12px/);
 
-  const font = path.join(root, "src/assets/fonts/HarmonyOS_Sans_SC.ttf");
-  const license = path.join(root, "src/assets/fonts/LICENSE-HarmonyOS-Sans.txt");
-  assert.equal(existsSync(font), true);
-  assert.equal(existsSync(license), true);
-  assert.ok(statSync(font).size > 20_000_000);
+  const alibabaFonts = [
+    "AlibabaPuHuiTi-3-35-Thin.woff2",
+    "AlibabaPuHuiTi-3-45-Light.woff2",
+    "AlibabaPuHuiTi-3-55-RegularL3.woff2",
+    "AlibabaPuHuiTi-3-65-Medium.woff2",
+    "AlibabaPuHuiTi-3-85-Bold.woff2"
+  ];
+  for (const filename of alibabaFonts) {
+    const font = path.join(root, "src/assets/fonts", filename);
+    assert.equal(existsSync(font), true);
+    assert.ok(statSync(font).size > 4_000_000);
+  }
+  assert.equal(existsSync(path.join(root, "src/assets/fonts/NOTICE-Alibaba-PuHuiTi.txt")), true);
+  assert.equal(existsSync(path.join(root, "src/assets/fonts/HarmonyOS_Sans_SC.ttf")), true);
+  assert.equal(existsSync(path.join(root, "src/assets/fonts/LICENSE-HarmonyOS-Sans.txt")), true);
+  assert.match(themeCatalog, /id: "alibaba-puhuiti"[\s\S]*?id: "harmony"/);
+  assert.match(styles, /font-weight:\s*var\(--font-weight-light\)/);
+  assert.match(styles, /font-weight:\s*var\(--font-weight-medium\)/);
 });
 
 test("keeps settings development-only and centers the sidebar Profile avatar", () => {
@@ -61,6 +83,18 @@ test("reserves the native traffic-light area only on macOS", () => {
   assert.match(desktopMain, /titleBarStyle: "hiddenInset" as const,\s*trafficLightPosition: MACOS_TRAFFIC_LIGHT_POSITION/s);
   assert.match(desktopMain, /window\.on\("enter-full-screen", publishWindowControlsState\)/);
   assert.match(desktopMain, /window\.on\("leave-full-screen", publishWindowControlsState\)/);
+});
+
+test("opens trusted project folders through allowlisted desktop targets", () => {
+  const contract = readFileSync(path.join(root, "shared/contracts/desktop.ts"), "utf8");
+  const desktopMain = readFileSync(path.join(root, "desktop/main.ts"), "utf8");
+  const preload = readFileSync(path.join(root, "desktop/preload.ts"), "utf8");
+  assert.match(contract, /ProjectOpenTarget = "cursor" \| "system" \| "vscode"/);
+  assert.match(contract, /openWith: \(projectPath: string, target: ProjectOpenTarget\)/);
+  assert.match(preload, /desktop:open-project-with/);
+  assert.match(desktopMain, /new Set<ProjectOpenTarget>\(\["system", "cursor", "vscode"\]\)/);
+  assert.match(desktopMain, /const resolved = trustedProjectRoot\(projectPath\)/);
+  assert.match(desktopMain, /launchProjectEditor\(resolved, target\)/);
 });
 
 test("keeps application updates beside settings and inside the shared design system", () => {
@@ -253,17 +287,57 @@ test("themes sidebar overlays and runtime environment descendants", () => {
   assert.doesNotMatch(styles, /(?<!data-color-scheme="dark"\] )\.sidebar-hover-card header strong,[\s\S]{0,500}color:\s*var\(--color-text\)/);
 });
 
-test("keeps the sidebar project list compact", () => {
+test("keeps every application sidebar row on one shared geometry contract", () => {
   assert.match(styles, /--type-sidebar-size:\s*14px/);
-  assert.match(styles, /\.sidebar-section h2\s*\{[^}]*margin:\s*0 9px 6px/s);
-  assert.match(styles, /\.sidebar-section h2\s*\{[^}]*font-size:\s*var\(--type-sidebar-size\)/s);
+  assert.match(controlPrimitives, /export function SidebarItemRow/);
+  assert.match(controlPrimitives, /sidebar-item-leading[\s\S]*sidebar-item-copy/);
+  assert.match(controlPrimitives, /sidebar-item-actions/);
+  assert.match(controlPrimitives, /export function SidebarStaticRow/);
+  assert.match(sessionSidebar, /className="sidebar app-sidebar-list"/);
+  assert.match(sessionSidebar, /<SidebarItemRow[\s\S]*className="nav-row"/);
+  assert.match(sessionSidebar, /actionsClassName="project-row-actions"/);
+  assert.match(sessionSidebar, /actionsClassName="thread-row-actions"/);
+  assert.match(sessionSidebar, /<SidebarStaticRow className="sidebar-empty"/);
+  assert.match(sessionSidebar, /className="account-strip-row"/);
+  assert.match(sidebarListStyles, /--sidebar-list-row-height:\s*30px/);
+  assert.match(sidebarListStyles, /--sidebar-list-leading-size:\s*18px/);
+  assert.match(sidebarListStyles, /\.app-sidebar-list \.sidebar-item-row\s*\{[^}]*width:\s*100%;[^}]*height:\s*var\(--sidebar-list-row-height\);[^}]*align-items:\s*center/s);
+  assert.match(sidebarListStyles, /\.app-sidebar-list \.sidebar-item-leading\s*\{[^}]*place-items:\s*center/s);
+  assert.match(sidebarListStyles, /\.app-sidebar-list \.sidebar-content\s*\{[^}]*z-index:\s*0;[^}]*isolation:\s*isolate/s);
+  assert.match(sidebarListStyles, /\.app-sidebar-list \.sidebar-section h2\s*\{[^}]*padding-left:\s*var\(--sidebar-list-inline-padding\)/s);
+  assert.match(sessionSidebar, /session-breathing-dot/);
+  assert.match(sessionSidebar, /<MoreVertical size=\{15\}/);
+  assert.match(sessionSidebar, /<span>打开方式<\/span><ChevronRight/);
+  assert.doesNotMatch(sessionSidebar, /DeepCreator 当前窗口/);
+  assert.match(sessionSidebar, /fileManagerLabel/);
+  assert.match(sessionSidebar, /"cursor"/);
+  assert.match(sessionSidebar, /"vscode"/);
+  assert.match(sessionSidebar, /取消置顶" : "置顶/);
+  assert.match(sessionSidebar, /<span>重命名<\/span>/);
+  assert.match(sessionSidebar, /<span>归档<\/span>/);
+  assert.match(sessionSidebar, /<span>删除<\/span>/);
+  assert.match(sidebarListStyles, /\.app-sidebar-list \.account-strip-row\s*\{[^}]*width:\s*100%;[^}]*align-items:\s*center/s);
+  assert.match(sidebarListStyles, /\.session-breathing-dot\s*\{[^}]*border:\s*1px solid[^}]*background:\s*transparent/s);
+  assert.match(sidebarListStyles, /\.session-breathing-dot\.is-active\s*\{[^}]*animation:\s*sidebar-task-breathe/s);
+  assert.match(sidebarListStyles, /\.task-more-button:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent/s);
+  assert.match(sessionSidebar, /className="project-new-task-button"[\s\S]*?<NewTaskIcon size=\{16\}/);
+  assert.doesNotMatch(sessionSidebar, /className="project-more-button"/);
+  assert.doesNotMatch(sessionSidebar, /MoreHorizontal/);
+  assert.match(sessionSidebar, /<span>新建任务<\/span>/);
+  assert.doesNotMatch(sidebarListStyles, /\.sidebar-item-row-shell\.has-actions \.sidebar-item-row/);
+  assert.match(sidebarListStyles, /\.project-title-shell:is\(:hover, :has\(:focus-visible\)\) \.project-title,[\s\S]*?padding-right:\s*38px/s);
+  assert.match(sidebarListStyles, /\.thread-row-shell:is\(:hover, :has\(:focus-visible\), \.has-open-menu\) \.thread-row\s*\{[^}]*padding-right:\s*38px/s);
+  assert.match(sidebarListStyles, /\.sidebar-item-actions\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none/s);
+  assert.doesNotMatch(sidebarListStyles, /\.thread-row-actions\s*\{[^}]*opacity:\s*1/s);
+  assert.match(sidebarListStyles, /\.sidebar-context-menu\s*\{[^}]*width:\s*170px/s);
+  assert.match(sidebarListStyles, /\.sidebar-context-submenu-item::after\s*\{[^}]*width:\s*7px/s);
+  assert.match(sidebarListStyles, /--sidebar-muted-title:\s*var\(--color-text-muted\)/);
+  assert.doesNotMatch(sidebarListStyles, /--sidebar-muted-title:\s*color-mix/);
+  assert.match(sidebarListStyles, /\.animated-folder-icon svg :is\(path, rect\)\s*\{[^}]*fill:\s*currentColor !important/s);
+  assert.match(sidebarListStyles, /\.sidebar-context-submenu-item\.is-open > \.sidebar-context-submenu/);
   assert.match(styles, /\.project-group\s*\{[^}]*margin-bottom:\s*10px;[^}]*gap:\s*1px/s);
   assert.match(styles, /\.project-group\.is-collapsed\s*\{[^}]*margin-bottom:\s*8px/s);
-  assert.match(styles, /\.project-title span\s*\{[^}]*font-size:\s*var\(--type-sidebar-size\)/s);
-  assert.match(styles, /\.thread-row > span:first-child\s*\{[^}]*font-size:\s*var\(--type-sidebar-size\)/s);
   assert.match(styles, /\.account-strip strong\s*\{[^}]*font-size:\s*var\(--type-sidebar-size\)/s);
-  assert.match(styles, /\.sidebar \.project-title\s*\{[^}]*min-height:\s*29px;[^}]*padding:\s*0 9px/s);
-  assert.match(styles, /\.sidebar \.thread-row\s*\{[^}]*min-height:\s*29px;[^}]*padding:\s*0 9px 0 24px/s);
 });
 
 test("keeps conversation workflow interaction feedback color-only", () => {
@@ -271,6 +345,19 @@ test("keeps conversation workflow interaction feedback color-only", () => {
   assert.match(styles, /\.run-stream button:hover:not\(:disabled\)[\s\S]*?background:\s*transparent/);
   assert.match(styles, /\.run-stream \.ui-pill-button\[aria-expanded="true"\][\s\S]*?background:\s*transparent/);
   assert.match(styles, /\.run-stream \.patch-row:hover[\s\S]*?background:\s*transparent/);
+});
+
+test("keeps the conversation change summary compact and reviewable", () => {
+  assert.match(changePanel, /const \[expanded, setExpanded\] = useState\(false\)/);
+  assert.match(changePanel, /变更 \{delta\.fileCount\} 个文件/);
+  assert.match(changePanel, /className="patch-card-review-button"[\s\S]*?审阅/);
+  assert.match(changePanel, /aria-expanded=\{expanded\}[\s\S]*?setExpanded/);
+  assert.doesNotMatch(changePanel, /FileCode2|showAll|show-more-files|patch-diff/);
+  assert.match(styles, /\.patch-card\s*\{[^}]*--patch-row-height:\s*48px;[^}]*border-radius:\s*8px/s);
+  assert.match(styles, /\.patch-card-header\s*\{[^}]*height:\s*var\(--patch-row-height\)/s);
+  assert.match(styles, /\.patch-list\s*\{[^}]*overflow-y:\s*auto;[^}]*max-height:\s*240px/s);
+  assert.match(styles, /\.patch-file::before\s*\{[^}]*right:\s*16px;[^}]*left:\s*16px/s);
+  assert.match(styles, /\.patch-row\s*\{[^}]*height:\s*var\(--patch-row-height\)/s);
 });
 
 test("keeps primary conversation controls visible and aligned", () => {

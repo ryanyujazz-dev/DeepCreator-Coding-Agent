@@ -23,6 +23,7 @@ import {
   runParamsSchema,
   sessionListQuerySchema,
   sessionParamsSchema,
+  sessionTitleInputSchema,
   sidebarInputSchema
 } from "../../shared/schemas/http";
 import { ContextConfig, getCompactThresholdTokens, getContextWindowTokens, getEffectiveInputBudgetTokens, getRequestedMaxOutputTokens } from "../app/contextBuilder";
@@ -240,6 +241,22 @@ app.put<{
   sessions.updateSidebar(request.params.sessionId, request.body);
   return { ok: true };
 });
+
+app.put<{
+  Params: { sessionId: string };
+  Body: { title: string };
+}>("/api/sessions/:sessionId/title", { schema: sessionTitleInputSchema }, async (request) => ({
+  session: sessions.rename(request.params.sessionId, request.body.title)
+}));
+
+app.delete<{ Params: { sessionId: string } }>(
+  "/api/sessions/:sessionId",
+  { schema: sessionParamsSchema },
+  async (request) => {
+    sessions.delete(request.params.sessionId);
+    return { ok: true };
+  }
+);
 
 app.post<{
   Body: { projectRoot?: string };

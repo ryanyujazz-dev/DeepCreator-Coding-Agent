@@ -19,6 +19,8 @@ export type RuntimePhase = "starting" | "ready" | "restarting" | "stopped" | "fa
 
 export type DesktopPlatform = "darwin" | "linux" | "win32";
 
+export type ProjectOpenTarget = "cursor" | "system" | "vscode";
+
 export type WindowControlsState = {
   trafficLightsVisible: boolean;
 };
@@ -85,6 +87,7 @@ export type DesktopBridge = {
   projects: {
     activate: (projectPath: string) => Promise<ProjectRef[]>;
     open: (projectPath: string) => Promise<void>;
+    openWith: (projectPath: string, target: ProjectOpenTarget) => Promise<void>;
     pick: () => Promise<ProjectRef | null>;
     pin: (projectPath: string, pinned: boolean) => Promise<ProjectRef[]>;
     recent: () => Promise<ProjectRef[]>;

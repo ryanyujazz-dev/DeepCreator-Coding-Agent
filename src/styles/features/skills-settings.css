@@ -23,7 +23,7 @@
 .skills-page-heading h1 {
   color: var(--color-text);
   font-size: var(--type-display-size);
-  font-weight: 520;
+  font-weight: var(--font-weight-regular);
   line-height: var(--type-display-line-height);
 }
 
@@ -55,7 +55,7 @@
   cursor: pointer;
   font: inherit;
   font-size: var(--type-control-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
   gap: 6px;
 }
 
@@ -246,13 +246,13 @@
 .skill-source-tabs button.is-active {
   background: var(--color-surface-subtle);
   color: var(--color-text);
-  font-weight: 620;
+  font-weight: var(--font-weight-medium);
 }
 
 .skill-source-tabs button span {
   color: var(--color-text-subtle);
   font-size: var(--type-meta-size);
-  font-weight: 500;
+  font-weight: var(--font-weight-regular);
 }
 
 .skill-search {
@@ -351,7 +351,7 @@
   overflow: hidden;
   color: var(--color-text);
   font-size: var(--type-control-size);
-  font-weight: 620;
+  font-weight: var(--font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -362,7 +362,7 @@
   color: var(--color-text-subtle);
   font-family: var(--font-family-code);
   font-size: var(--type-meta-size);
-  font-weight: 400;
+  font-weight: var(--font-weight-light);
 }
 
 .skill-row-description {
@@ -566,7 +566,7 @@
 .skill-install-preview > header span {
   color: var(--theme-blue-dark);
   font-size: var(--type-meta-size);
-  font-weight: 620;
+  font-weight: var(--font-weight-medium);
 }
 
 .skill-install-preview h2,

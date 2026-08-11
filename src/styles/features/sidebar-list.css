@@ -1,0 +1,396 @@
+/* Application sidebar rows share one geometry contract. */
+.app-sidebar-list {
+  --sidebar-list-inset: 10px;
+  --sidebar-list-row-height: 30px;
+  --sidebar-list-row-radius: var(--radius-row);
+  --sidebar-list-inline-padding: 10px;
+  --sidebar-list-leading-size: 18px;
+  --sidebar-list-gap: 8px;
+  --sidebar-muted-title: var(--color-text-muted);
+  --sidebar-list-copy-offset: calc(
+    var(--sidebar-list-inline-padding) + var(--sidebar-list-leading-size) + var(--sidebar-list-gap)
+  );
+}
+
+.app-sidebar-list .primary-nav {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  padding: 5px var(--sidebar-list-inset) 18px;
+}
+
+.app-sidebar-list .sidebar-content {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  padding: 0 var(--sidebar-list-inset) 24px;
+}
+
+.app-sidebar-list .sidebar-item-row-shell {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border-radius: var(--sidebar-list-row-radius);
+}
+
+.app-sidebar-list .sidebar-item-row {
+  display: flex;
+  width: 100%;
+  height: var(--sidebar-list-row-height);
+  min-height: var(--sidebar-list-row-height);
+  margin: 0;
+  padding: 0 var(--sidebar-list-inline-padding);
+  align-items: center;
+  border-radius: inherit;
+  background: transparent;
+  gap: var(--sidebar-list-gap);
+}
+
+.app-sidebar-list .sidebar-item-leading {
+  display: grid;
+  width: var(--sidebar-list-leading-size);
+  height: var(--sidebar-list-leading-size);
+  min-width: var(--sidebar-list-leading-size);
+  place-items: center;
+  flex: 0 0 var(--sidebar-list-leading-size);
+}
+
+.app-sidebar-list .sidebar-item-leading > :is(svg, span) {
+  margin: 0;
+}
+
+.app-sidebar-list .sidebar-item-leading .animated-folder-icon {
+  width: var(--sidebar-list-leading-size);
+  min-width: var(--sidebar-list-leading-size);
+}
+
+.app-sidebar-list .sidebar-item-leading .session-running {
+  position: static;
+}
+
+.app-sidebar-list .sidebar-item-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex: 1 1 auto;
+  color: inherit;
+  font-size: var(--type-sidebar-size);
+  line-height: var(--type-control-line-height);
+}
+
+.app-sidebar-list .sidebar-item-copy > .sidebar-item-label,
+.app-sidebar-list .sidebar-item-copy > span {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.app-sidebar-list .sidebar-item-actions {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease;
+  gap: 0;
+}
+
+.app-sidebar-list .sidebar-item-row-shell:is(:hover, :has(:focus-visible)) .sidebar-item-actions,
+.app-sidebar-list :is(.project-title-shell, .thread-row-shell).has-open-menu .sidebar-item-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.app-sidebar-list .sidebar-item-actions .ui-icon-button {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-circle);
+  background: var(--sidebar-item-surface, var(--app-sidebar));
+}
+
+.app-sidebar-list .sidebar-item-row-shell:is(:hover, :has(:focus-visible)) .sidebar-item-row {
+  background: var(--app-sidebar-hover);
+  color: var(--color-text);
+}
+
+.app-sidebar-list .thread-row-shell.active-thread .sidebar-item-row,
+.app-sidebar-list .thread-row-shell.active-thread:is(:hover, :has(:focus-visible)) .sidebar-item-row {
+  background: var(--theme-blue-light);
+  color: var(--theme-blue-dark);
+}
+
+.app-sidebar-list .nav-row,
+.app-sidebar-list .project-title,
+.app-sidebar-list .thread-row {
+  min-height: var(--sidebar-list-row-height);
+  padding: 0 var(--sidebar-list-inline-padding);
+  border-radius: inherit;
+  gap: var(--sidebar-list-gap);
+}
+
+.app-sidebar-list .thread-row {
+  justify-content: flex-start;
+}
+
+.app-sidebar-list .thread-row > .sidebar-item-leading {
+  min-width: var(--sidebar-list-leading-size);
+  flex: 0 0 var(--sidebar-list-leading-size);
+}
+
+.app-sidebar-list .thread-row > .sidebar-item-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.app-sidebar-list .thread-row-shell.is-top-level .thread-row {
+  padding-left: var(--sidebar-list-inline-padding);
+}
+
+.app-sidebar-list .nav-row,
+.app-sidebar-list .project-title {
+  font-weight: var(--font-weight-medium);
+}
+
+.app-sidebar-list .project-title {
+  color: var(--sidebar-muted-title);
+  font-size: var(--type-sidebar-size);
+  font-weight: var(--font-weight-regular);
+}
+
+.app-sidebar-list .thread-row,
+.app-sidebar-list .sidebar-static-row {
+  font-weight: var(--font-weight-regular);
+}
+
+.app-sidebar-list .project-title-shell,
+.app-sidebar-list .thread-row-shell {
+  width: 100%;
+  margin-inline: 0;
+  border-radius: var(--sidebar-list-row-radius);
+}
+
+.app-sidebar-list .project-title-shell:is(:hover, :has(:focus-visible)) {
+  background: transparent;
+}
+
+.app-sidebar-list .project-title-shell:is(:hover, :has(:focus-visible)) .project-title,
+.app-sidebar-list .project-title-shell.has-open-menu .project-title {
+  padding-right: 38px;
+}
+
+.app-sidebar-list .thread-row-shell:is(:hover, :has(:focus-visible), .has-open-menu) .thread-row {
+  padding-right: 38px;
+}
+
+.app-sidebar-list .thread-row-actions {
+  background: transparent;
+}
+
+.app-sidebar-list .project-row-actions {
+  background: transparent;
+}
+
+.app-sidebar-list .project-row-actions .project-new-task-button,
+.app-sidebar-list .project-title-shell:is(:hover, :has(:focus-visible), .has-open-menu) .project-new-task-button {
+  background: transparent;
+  color: var(--sidebar-muted-title);
+}
+
+.app-sidebar-list .project-new-task-button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--theme-blue-dark);
+}
+
+.app-sidebar-list .thread-row-actions .task-more-button {
+  background: transparent;
+  color: var(--sidebar-muted-title);
+}
+
+.app-sidebar-list .thread-row-shell:is(:hover, :has(:focus-visible), .has-open-menu) .task-more-button {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.app-sidebar-list .task-more-button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--theme-blue-dark);
+}
+
+html[data-color-scheme="dark"] .app-sidebar-list .thread-row-shell:is(
+  :hover,
+  :has(:focus-visible),
+  .has-open-menu
+) .thread-row-actions .task-more-button {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+html[data-color-scheme="dark"] .app-sidebar-list .thread-row-shell .thread-row-actions .task-more-button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--theme-blue);
+}
+
+.app-sidebar-list .session-breathing-dot {
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in srgb, var(--sidebar-muted-title) 54%, transparent);
+  border-radius: var(--radius-circle);
+  background: transparent;
+  transform-origin: center;
+}
+
+.app-sidebar-list .session-breathing-dot.is-active {
+  border-color: transparent;
+  background: var(--theme-blue);
+  animation: sidebar-task-breathe 1.55s ease-in-out infinite;
+}
+
+html[data-color-scheme="dark"] .app-sidebar-list .thread-row-shell .thread-row .session-breathing-dot {
+  background: transparent;
+}
+
+html[data-color-scheme="dark"] .app-sidebar-list .thread-row-shell .thread-row .session-breathing-dot.is-active {
+  background: var(--theme-blue);
+}
+
+@keyframes sidebar-task-breathe {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar-list .session-breathing-dot {
+    animation: none;
+    opacity: 0.72;
+  }
+}
+
+.app-sidebar-list .sidebar-section h2 {
+  min-height: var(--type-control-line-height);
+  margin: 0 0 6px;
+  padding-left: var(--sidebar-list-inline-padding);
+  color: var(--sidebar-muted-title);
+  font-size: var(--type-sidebar-size);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--type-control-line-height);
+}
+
+.app-sidebar-list .animated-folder-icon {
+  color: var(--sidebar-muted-title);
+}
+
+.app-sidebar-list .project-title .animated-folder-icon svg {
+  color: var(--sidebar-muted-title);
+}
+
+.app-sidebar-list .animated-folder-icon svg :is(path, rect) {
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+html[data-color-scheme="dark"] .app-sidebar-list .project-title .animated-folder-icon svg {
+  color: var(--sidebar-muted-title);
+}
+
+html[data-color-scheme="dark"] .app-sidebar-list .thread-row-shell:not(.active-thread) .thread-row {
+  color: var(--sidebar-muted-title);
+}
+
+.sidebar-context-submenu-item {
+  position: relative;
+}
+
+.sidebar-context-menu {
+  width: 170px;
+}
+
+.sidebar-context-submenu-item > button .sidebar-submenu-chevron {
+  margin-left: auto;
+}
+
+.sidebar-context-submenu {
+  position: absolute;
+  top: -7px;
+  left: calc(100% + 6px);
+  display: none;
+}
+
+.sidebar-context-submenu-item::after {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  width: 7px;
+  height: 100%;
+  content: "";
+}
+
+.sidebar-context-submenu-item.is-open > .sidebar-context-submenu,
+.sidebar-context-submenu-item:focus-within > .sidebar-context-submenu {
+  display: grid;
+}
+
+.app-sidebar-list .project-group {
+  width: 100%;
+}
+
+.app-sidebar-list .sidebar-empty {
+  padding: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--type-sidebar-size);
+}
+
+.app-sidebar-list .account-strip {
+  min-height: 58px;
+  padding: 0 var(--sidebar-list-inset);
+  gap: 0;
+}
+
+.app-sidebar-list .account-strip-row {
+  display: flex;
+  width: 100%;
+  height: var(--control-row-height);
+  min-width: 0;
+  padding: 0 var(--sidebar-list-inline-padding);
+  align-items: center;
+  border-radius: var(--sidebar-list-row-radius);
+  gap: var(--sidebar-list-gap);
+}
+
+.app-sidebar-list .account-strip-leading {
+  display: grid;
+  width: var(--sidebar-list-leading-size);
+  height: var(--sidebar-list-leading-size);
+  min-width: var(--sidebar-list-leading-size);
+  place-items: center;
+  flex: 0 0 var(--sidebar-list-leading-size);
+}
+
+.app-sidebar-list .account-strip-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.app-sidebar-list .account-strip-copy > :is(strong, span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-sidebar-list .account-strip-row > .ui-icon-button {
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
+  border-radius: var(--radius-circle);
+}

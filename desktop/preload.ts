@@ -36,6 +36,7 @@ const bridge: DesktopBridge = {
   projects: {
     activate: (projectPath) => ipcRenderer.invoke("desktop:activate-project", projectPath),
     open: (projectPath) => ipcRenderer.invoke("desktop:open-project", projectPath),
+    openWith: (projectPath, target) => ipcRenderer.invoke("desktop:open-project-with", projectPath, target),
     pick: () => ipcRenderer.invoke("desktop:pick-project"),
     pin: (projectPath, pinned) => ipcRenderer.invoke("desktop:pin-project", projectPath, pinned),
     recent: () => ipcRenderer.invoke("desktop:recent-projects"),
