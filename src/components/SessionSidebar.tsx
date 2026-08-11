@@ -1,14 +1,17 @@
 import {
   Archive,
+  ChevronRight,
+  Code2,
   Folder,
   FolderOpen,
   MessageCircle,
-  MoreHorizontal,
+  MoreVertical,
   PanelLeft,
   Pencil,
   Pin,
   Search,
   Settings,
+  Trash2,
   X
 } from "lucide-react";
 import { FormEvent, memo, useEffect, useMemo, useRef, useState } from "react";
@@ -22,8 +25,14 @@ import { PanelResizeHandle } from "./PanelResizeHandle";
 import { SidebarConfirmationDialog } from "./SidebarConfirmationDialog";
 import { AuthState } from "../../shared/contracts/auth";
 import { ProfileAvatar } from "../features/auth/ProfileAvatar";
-import { FloatingSurface, IconButton, RowAction } from "../shared-ui/ControlPrimitives";
+import {
+  FloatingSurface,
+  IconButton,
+  SidebarItemRow,
+  SidebarStaticRow
+} from "../shared-ui/ControlPrimitives";
 import { browserPlatform } from "../platform/browser";
+import { desktopBridge } from "../platform/desktop";
 import { AppUpdateControl } from "../features/updates/AppUpdateControl";
 
 type AnchorRect = { bottom: number; left: number; right: number; top: number; width: number };
@@ -35,6 +44,8 @@ type SidebarConfirmation = {
   description: string;
   title: string;
 };
+
+const SIDEBAR_CONTEXT_MENU_WIDTH = 170;
 
 function anchorRect(element: HTMLElement): AnchorRect {
   const rect = element.getBoundingClientRect();
@@ -67,15 +78,21 @@ function storedCollapsedProjects(): Set<string> {
 }
 
 export function partitionSidebarItems(projectRoots: string[], projects: ProjectRef[], sessions: SessionSummary[]) {
+  const occupiedProjectRoots = new Set(
+    sessions
+      .filter((session) => session.workspaceKind === "project")
+      .map((session) => session.projectRoot)
+  );
+  const visibleProjectRoots = projectRoots.filter((projectRoot) => occupiedProjectRoots.has(projectRoot));
   const pinnedProjectPaths = new Set(projects.filter((project) => project.pinned).map((project) => project.path));
-  const pinnedProjectRoots = projectRoots.filter((projectRoot) => pinnedProjectPaths.has(projectRoot));
+  const pinnedProjectRoots = visibleProjectRoots.filter((projectRoot) => pinnedProjectPaths.has(projectRoot));
   const pinnedSessions = sessions.filter((session) => session.pinned);
   const regularScratchSessions = sessions.filter((session) => session.workspaceKind === "scratch" && !session.pinned);
   return {
     hasPinnedItems: pinnedProjectRoots.length > 0 || pinnedSessions.length > 0,
     pinnedProjectRoots,
     pinnedSessions,
-    regularProjectRoots: projectRoots.filter((projectRoot) => !pinnedProjectPaths.has(projectRoot)),
+    regularProjectRoots: visibleProjectRoots.filter((projectRoot) => !pinnedProjectPaths.has(projectRoot)),
     regularScratchSessions
   };
 }
@@ -88,12 +105,14 @@ export const SessionSidebar = memo(function SessionSidebar({
   desktopProjectsManaged = false,
   onArchiveProject,
   onArchiveSession,
+  onDeleteSession,
   onNewSession,
   onOpenProject,
   onPinProject,
   onPinSession,
   onRemoveProject,
   onRenameProject,
+  onRenameSession,
   onSearch,
   onSettings,
   onSelectSession,
@@ -109,12 +128,14 @@ export const SessionSidebar = memo(function SessionSidebar({
   desktopProjectsManaged?: boolean;
   onArchiveProject?: (projectRoot: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string) => Promise<void> | void;
+  onDeleteSession?: (sessionId: string) => Promise<void> | void;
   onNewSession: (projectRoot?: string) => void;
   onOpenProject?: (projectRoot: string) => Promise<void> | void;
   onPinProject?: (projectRoot: string, pinned: boolean) => Promise<void> | void;
   onPinSession?: (sessionId: string, pinned: boolean) => Promise<void> | void;
   onRemoveProject?: (projectRoot: string) => Promise<void> | void;
   onRenameProject?: (projectRoot: string, name: string) => Promise<void> | void;
+  onRenameSession?: (sessionId: string, title: string) => Promise<void> | void;
   onSearch: (query: string) => void;
   onSettings?: () => void;
   onSelectSession: (sessionId: string) => void;
@@ -134,11 +155,22 @@ export const SessionSidebar = memo(function SessionSidebar({
   const [hoveredProject, setHoveredProject] = useState<ProjectOverlay | null>(null);
   const [hoveredSession, setHoveredSession] = useState<SessionOverlay | null>(null);
   const [projectMenu, setProjectMenu] = useState<ProjectOverlay | null>(null);
+  const [sessionMenu, setSessionMenu] = useState<SessionOverlay | null>(null);
   const [query, setQuery] = useState("");
   const [renamingProject, setRenamingProject] = useState<ProjectRef | null>(null);
+  const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [sessionOpenWithMenu, setSessionOpenWithMenu] = useState(false);
   const projectMenuRef = useRef<HTMLDivElement>(null);
+  const sessionMenuRef = useRef<HTMLDivElement>(null);
+  const sessionOpenWithCloseTimer = useRef<number | null>(null);
+  const desktop = desktopBridge();
+  const fileManagerLabel = desktop?.platform === "darwin"
+    ? "Finder"
+    : desktop?.platform === "win32"
+      ? "资源管理器"
+      : "文件管理器";
 
   const projectByPath = useMemo(() => new Map(projects.map((project) => [project.path, project])), [projects]);
   const projectRoots = useMemo(() => desktopProjectsManaged
@@ -159,24 +191,49 @@ export const SessionSidebar = memo(function SessionSidebar({
   }, [collapsedProjects]);
 
   useEffect(() => {
-    if (!projectMenu) return;
+    if (!projectMenu && !sessionMenu) return;
     const close = (event: PointerEvent) => {
       if (!projectMenuRef.current?.contains(event.target as Node)) setProjectMenu(null);
+      if (!sessionMenuRef.current?.contains(event.target as Node)) setSessionMenu(null);
     };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setProjectMenu(null); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setProjectMenu(null);
+      setSessionMenu(null);
+    };
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", escape);
     return () => {
       document.removeEventListener("pointerdown", close);
       document.removeEventListener("keydown", escape);
     };
-  }, [projectMenu]);
+  }, [projectMenu, sessionMenu]);
+
+  useEffect(() => () => {
+    if (sessionOpenWithCloseTimer.current !== null) window.clearTimeout(sessionOpenWithCloseTimer.current);
+  }, []);
+
+  const openSessionOpenWithMenu = () => {
+    if (sessionOpenWithCloseTimer.current !== null) window.clearTimeout(sessionOpenWithCloseTimer.current);
+    sessionOpenWithCloseTimer.current = null;
+    setSessionOpenWithMenu(true);
+  };
+
+  const scheduleSessionOpenWithMenuClose = () => {
+    if (sessionOpenWithCloseTimer.current !== null) window.clearTimeout(sessionOpenWithCloseTimer.current);
+    sessionOpenWithCloseTimer.current = window.setTimeout(() => {
+      sessionOpenWithCloseTimer.current = null;
+      setSessionOpenWithMenu(false);
+    }, 220);
+  };
 
   const runAction = async (action: () => Promise<void> | void) => {
     setActionError(null);
     try {
       await action();
       setProjectMenu(null);
+      setSessionMenu(null);
+      setSessionOpenWithMenu(false);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
     }
@@ -188,6 +245,7 @@ export const SessionSidebar = memo(function SessionSidebar({
     setHoveredProject(null);
     setHoveredSession(null);
     setProjectMenu(null);
+    setSessionMenu(null);
     setConfirmation(request);
   };
 
@@ -229,6 +287,15 @@ export const SessionSidebar = memo(function SessionSidebar({
     });
   };
 
+  const submitSessionRename = (event: FormEvent) => {
+    event.preventDefault();
+    if (!renamingSession || !renameValue.trim() || !onRenameSession) return;
+    void runAction(async () => {
+      await onRenameSession(renamingSession.sessionId, renameValue.trim());
+      setRenamingSession(null);
+    });
+  };
+
   const resolveProject = (projectRoot: string): ProjectRef => projectByPath.get(projectRoot) ?? {
     lastOpenedAt: "",
     name: projectRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? projectRoot,
@@ -238,43 +305,37 @@ export const SessionSidebar = memo(function SessionSidebar({
   const renderSessionRow = (session: SessionSummary, project?: ProjectRef, topLevel = false) => {
     const projectName = session.workspaceKind === "scratch" ? "临时工作区" : project?.name ?? "项目";
     return (
-    <div
-      className={`thread-row-shell ${topLevel ? "is-top-level" : ""} ${selectedSessionKey === session.sessionId ? "active-thread" : ""}`}
+    <SidebarItemRow
+      actions={(
+        <IconButton
+          className="task-more-button"
+          label={`${session.title} 更多操作`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setHoveredSession(null);
+            setProjectMenu(null);
+            setSessionOpenWithMenu(false);
+            setSessionMenu({ projectName, rect: anchorRect(event.currentTarget), session });
+          }}
+        ><MoreVertical size={15} /></IconButton>
+      )}
+      actionsClassName="thread-row-actions"
+      className="thread-row"
       key={`session:${session.sessionId}`}
-      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredSession(null); }}
-      onFocus={(event) => {
-        if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredSession({ projectName, rect: anchorRect(event.currentTarget), session });
+      leading={<span className={`session-breathing-dot${session.active ? " is-active" : ""}`} />}
+      onClick={() => onSelectSession(session.sessionId)}
+      shellClassName={`thread-row-shell ${topLevel ? "is-top-level" : ""} ${selectedSessionKey === session.sessionId ? "active-thread" : ""} ${sessionMenu?.session.sessionId === session.sessionId ? "has-open-menu" : ""}`}
+      shellProps={{
+        onBlur: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredSession(null); },
+        onFocus: (event) => {
+          if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredSession({ projectName, rect: anchorRect(event.currentTarget), session });
+        },
+        onMouseEnter: (event) => setHoveredSession({ projectName, rect: anchorRect(event.currentTarget), session }),
+        onMouseLeave: () => setHoveredSession(null)
       }}
-      onMouseEnter={(event) => setHoveredSession({ projectName, rect: anchorRect(event.currentTarget), session })}
-      onMouseLeave={() => setHoveredSession(null)}
     >
-      {session.active && <span className="session-running" />}
-      <RowAction className="thread-row" onClick={() => onSelectSession(session.sessionId)}>
-        <OverflowFadeText>{session.title}</OverflowFadeText>
-      </RowAction>
-      <div className="thread-row-actions">
-        {onPinSession && (
-          <IconButton
-            label={session.pinned ? "取消置顶任务" : "置顶任务"}
-            className={session.pinned ? "is-active" : ""}
-            onClick={() => void runAction(() => onPinSession(session.sessionId, !session.pinned))}
-          ><Pin fill={session.pinned ? "currentColor" : "none"} size={13} /></IconButton>
-        )}
-        {onArchiveSession && (
-          <IconButton
-            label="归档任务"
-            disabled={session.active}
-            onClick={() => requestConfirmation({
-              action: () => onArchiveSession(session.sessionId),
-              confirmLabel: "归档任务",
-              description: `这会将该任务从 ${projectName} 中归档。你稍后可以在已归档任务中找到它。`,
-              title: `归档“${session.title}”？`
-            })}
-            title={session.active ? "请先中止正在运行的任务" : "归档任务"}
-          ><Archive size={14} /></IconButton>
-        )}
-      </div>
-    </div>
+      <OverflowFadeText>{session.title}</OverflowFadeText>
+    </SidebarItemRow>
     );
   };
 
@@ -284,45 +345,48 @@ export const SessionSidebar = memo(function SessionSidebar({
     const collapsed = collapsedProjects.has(projectRoot);
     return (
       <div className={`project-group ${pinnedSection ? "is-pinned-project" : ""} ${collapsed ? "is-collapsed" : ""}`} key={`project:${projectRoot}`}>
-        <div
-          className={`project-title-shell ${projectMenu?.project.path === projectRoot ? "has-open-menu" : ""}`}
-          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredProject(null); }}
-          onFocus={(event) => {
-            if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredProject({ project, rect: anchorRect(event.currentTarget) });
+        <SidebarItemRow
+          actions={(
+            <IconButton
+              className="project-new-task-button"
+              label={`在 ${project.name} 中新建任务`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onNewSession(projectRoot);
+              }}
+            ><NewTaskIcon size={16} /></IconButton>
+          )}
+          actionsClassName="project-row-actions"
+          aria-expanded={!collapsed}
+          className="project-title"
+          leading={<AnimatedFolderIcon expanded={!collapsed} />}
+          onClick={() => toggleProject(projectRoot)}
+          shellClassName={`project-title-shell ${projectMenu?.project.path === projectRoot ? "has-open-menu" : ""}`}
+          shellProps={{
+            onBlur: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredProject(null); },
+            onContextMenu: (event) => {
+              if (!desktopProjectsManaged) return;
+              event.preventDefault();
+              setHoveredProject(null);
+              setProjectMenu({ project, rect: anchorRect(event.currentTarget) });
+            },
+            onFocus: (event) => {
+              if ((event.target as HTMLElement).matches(":focus-visible")) setHoveredProject({ project, rect: anchorRect(event.currentTarget) });
+            },
+            onMouseEnter: (event) => setHoveredProject({ project, rect: anchorRect(event.currentTarget) }),
+            onMouseLeave: () => setHoveredProject(null)
           }}
-          onMouseEnter={(event) => setHoveredProject({ project, rect: anchorRect(event.currentTarget) })}
-          onMouseLeave={() => setHoveredProject(null)}
+          title={collapsed ? "展开项目任务" : "收起项目任务"}
         >
-          <RowAction
-            aria-expanded={!collapsed}
-            className="project-title"
-            onClick={() => toggleProject(projectRoot)}
-            title={collapsed ? "展开项目任务" : "收起项目任务"}
-          >
-            <AnimatedFolderIcon expanded={!collapsed} />
-            <OverflowFadeText>{project.name}</OverflowFadeText>
-          </RowAction>
-          <div className="project-row-actions">
-            {desktopProjectsManaged && (
-              <IconButton
-                label={`${project.name} 更多操作`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setHoveredProject(null);
-                  setProjectMenu({ project, rect: anchorRect(event.currentTarget) });
-                }}
-              ><MoreHorizontal size={15} /></IconButton>
-            )}
-            <IconButton label={`在 ${project.name} 中新建任务`} onClick={() => onNewSession(projectRoot)}><NewTaskIcon size={16} /></IconButton>
-          </div>
-        </div>
+          <OverflowFadeText>{project.name}</OverflowFadeText>
+        </SidebarItemRow>
         {!collapsed && projectSessions.map((session) => renderSessionRow(session, project))}
       </div>
     );
   };
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar app-sidebar-list">
       <div className="sidebar-brand-row">
         <div className="sidebar-brand-lockup"><strong className="sidebar-brand">DeepCreator</strong></div>
         <div className="sidebar-brand-actions">
@@ -346,7 +410,7 @@ export const SessionSidebar = memo(function SessionSidebar({
         </div>
       )}
       <nav className="primary-nav">
-        <RowAction className="nav-row" onClick={() => onNewSession()}><NewTaskIcon size={17} /><span>新建任务</span></RowAction>
+        <SidebarItemRow className="nav-row" leading={<NewTaskIcon size={17} />} onClick={() => onNewSession()}>新建任务</SidebarItemRow>
       </nav>
       <div className="sidebar-content">
         {sidebarSections.hasPinnedItems && (
@@ -360,7 +424,7 @@ export const SessionSidebar = memo(function SessionSidebar({
         )}
         <section className="sidebar-section">
           <h2>项目</h2>
-          {projectRoots.length === 0 && <div className="sidebar-empty">暂无项目</div>}
+          {sidebarSections.regularProjectRoots.length === 0 && sidebarSections.pinnedProjectRoots.length === 0 && <SidebarStaticRow className="sidebar-empty">暂无项目</SidebarStaticRow>}
           {sidebarSections.regularProjectRoots.map((projectRoot) => renderProjectGroup(projectRoot))}
         </section>
         {sidebarSections.regularScratchSessions.length > 0 && (
@@ -371,17 +435,21 @@ export const SessionSidebar = memo(function SessionSidebar({
         )}
       </div>
       <div className="account-strip">
-        {authState?.user?.avatarUrl
-          ? <img alt="" className="avatar account-avatar-image" referrerPolicy="no-referrer" src={authState.user.avatarUrl} />
-          : authState?.mode === "local"
-            ? <ProfileAvatar avatar={authState.user?.avatar} className="avatar" displayName={authState.user?.displayName || "本地 Profile"} />
-            : <div className="avatar">{authState?.user?.displayName.slice(0, 1).toLocaleUpperCase() || "DS"}</div>}
-        <div>
-          <strong>{authState?.user?.displayName || "本地 Profile"}</strong>
-          <span>{authState?.mode === "local" ? "仅此设备" : authState?.phase === "offline" ? "离线登录" : authState?.user ? `@${authState.user.githubLogin}` : ""}</span>
+        <div className="account-strip-row">
+          <span className="account-strip-leading">
+            {authState?.user?.avatarUrl
+              ? <img alt="" className="avatar account-avatar-image" referrerPolicy="no-referrer" src={authState.user.avatarUrl} />
+              : authState?.mode === "local"
+                ? <ProfileAvatar avatar={authState.user?.avatar} className="avatar" displayName={authState.user?.displayName || "本地 Profile"} />
+                : <span className="avatar">{authState?.user?.displayName.slice(0, 1).toLocaleUpperCase() || "DS"}</span>}
+          </span>
+          <div className="account-strip-copy">
+            <strong>{authState?.user?.displayName || "本地 Profile"}</strong>
+            <span>{authState?.mode === "local" ? "仅此设备" : authState?.phase === "offline" ? "离线登录" : authState?.user ? `@${authState.user.githubLogin}` : ""}</span>
+          </div>
+          <AppUpdateControl />
+          {onSettings && <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton>}
         </div>
-        <AppUpdateControl />
-        {onSettings && <IconButton label="打开设置" onClick={onSettings}><Settings size={15} /></IconButton>}
       </div>
       <PanelResizeHandle ariaLabel="调整左侧栏宽度" edge="right" max={360} min={220} onChange={onWidthChange} onReset={onWidthReset} value={sidebarWidth} />
 
@@ -393,10 +461,43 @@ export const SessionSidebar = memo(function SessionSidebar({
         </FloatingSurface>,
         document.body
       )}
-      {hoveredSession && createPortal(
+      {hoveredSession && !sessionMenu && createPortal(
         <FloatingSurface className="sidebar-hover-card session-hover-card" role="tooltip" style={overlayPosition(hoveredSession.rect, 338, 96)}>
           <header><strong>{hoveredSession.session.title}</strong><time>{hoveredSession.session.active ? "运行中" : ageLabel(hoveredSession.session.updatedAt)}</time></header>
           <div><Folder size={16} /><span>{hoveredSession.projectName}</span></div>
+        </FloatingSurface>,
+        document.body
+      )}
+      {sessionMenu && createPortal(
+        <FloatingSurface
+          className="sidebar-context-menu session-context-menu"
+          ref={sessionMenuRef}
+          role="menu"
+          style={{ left: Math.max(8, Math.min(sessionMenu.rect.left - 12, window.innerWidth - SIDEBAR_CONTEXT_MENU_WIDTH - 8)), top: sessionMenu.rect.bottom + 6 }}
+        >
+          {desktop && <div
+            className={`sidebar-context-submenu-item${sessionOpenWithMenu ? " is-open" : ""}`}
+            onMouseEnter={openSessionOpenWithMenu}
+            onMouseLeave={scheduleSessionOpenWithMenuClose}
+          >
+            <button
+              aria-expanded={sessionOpenWithMenu}
+              aria-haspopup="menu"
+              onClick={openSessionOpenWithMenu}
+              onFocus={openSessionOpenWithMenu}
+              role="menuitem"
+              type="button"
+            ><FolderOpen size={16} /><span>打开方式</span><ChevronRight className="sidebar-submenu-chevron" size={14} /></button>
+            <FloatingSurface className="sidebar-context-menu sidebar-context-submenu" onFocusCapture={openSessionOpenWithMenu} onMouseEnter={openSessionOpenWithMenu} role="menu">
+              <button onClick={() => void runAction(() => desktop.projects.openWith(sessionMenu.session.projectRoot, "system"))} role="menuitem" type="button"><Folder size={16} /><span>{fileManagerLabel}</span></button>
+              <button onClick={() => void runAction(() => desktop.projects.openWith(sessionMenu.session.projectRoot, "cursor"))} role="menuitem" type="button"><Code2 size={16} /><span>Cursor</span></button>
+              <button onClick={() => void runAction(() => desktop.projects.openWith(sessionMenu.session.projectRoot, "vscode"))} role="menuitem" type="button"><Code2 size={16} /><span>Visual Studio Code</span></button>
+            </FloatingSurface>
+          </div>}
+          {onPinSession && <button onClick={() => void runAction(() => onPinSession(sessionMenu.session.sessionId, !sessionMenu.session.pinned))} role="menuitem" type="button"><Pin fill={sessionMenu.session.pinned ? "currentColor" : "none"} size={16} /><span>{sessionMenu.session.pinned ? "取消置顶" : "置顶"}</span></button>}
+          {onRenameSession && <button onClick={() => { setRenameValue(sessionMenu.session.title); setRenamingSession(sessionMenu.session); setSessionMenu(null); }} role="menuitem" type="button"><Pencil size={16} /><span>重命名</span></button>}
+          {onArchiveSession && <button disabled={sessionMenu.session.active} onClick={() => requestConfirmation({ action: () => onArchiveSession(sessionMenu.session.sessionId), confirmLabel: "归档任务", description: `这会将该任务从 ${sessionMenu.projectName} 中归档。你稍后可以在已归档任务中找到它。`, title: `归档“${sessionMenu.session.title}”？` })} role="menuitem" title={sessionMenu.session.active ? "请先中止正在运行的任务" : "归档任务"} type="button"><Archive size={16} /><span>归档</span></button>}
+          {onDeleteSession && <button className="is-danger" disabled={sessionMenu.session.active} onClick={() => requestConfirmation({ action: () => onDeleteSession(sessionMenu.session.sessionId), confirmLabel: "删除任务", description: "这会永久删除该任务及其对话记录，但不会删除项目目录中的任何文件。", title: `删除“${sessionMenu.session.title}”？` })} role="menuitem" title={sessionMenu.session.active ? "请先中止正在运行的任务" : "删除任务"} type="button"><Trash2 size={16} /><span>删除</span></button>}
         </FloatingSurface>,
         document.body
       )}
@@ -405,10 +506,11 @@ export const SessionSidebar = memo(function SessionSidebar({
           className="sidebar-context-menu"
           ref={projectMenuRef}
           role="menu"
-          style={{ left: Math.min(projectMenu.rect.left - 12, window.innerWidth - 252), top: projectMenu.rect.bottom + 6 }}
+          style={{ left: Math.max(8, Math.min(projectMenu.rect.left - 12, window.innerWidth - SIDEBAR_CONTEXT_MENU_WIDTH - 8)), top: projectMenu.rect.bottom + 6 }}
         >
+          <button onClick={() => void runAction(() => onNewSession(projectMenu.project.path))} role="menuitem" type="button"><NewTaskIcon size={16} /><span>新建任务</span></button>
           {onPinProject && <button onClick={() => void runAction(() => onPinProject(projectMenu.project.path, !projectMenu.project.pinned))} role="menuitem" type="button"><Pin fill={projectMenu.project.pinned ? "currentColor" : "none"} size={16} /><span>{projectMenu.project.pinned ? "取消置顶项目" : "置顶项目"}</span></button>}
-          {onOpenProject && <button onClick={() => void runAction(() => onOpenProject(projectMenu.project.path))} role="menuitem" type="button"><FolderOpen size={16} /><span>在资源管理器中打开</span></button>}
+          {onOpenProject && <button onClick={() => void runAction(() => onOpenProject(projectMenu.project.path))} role="menuitem" type="button"><FolderOpen size={16} /><span>在 {fileManagerLabel} 中打开</span></button>}
           {onRenameProject && <button onClick={() => { setRenameValue(projectMenu.project.name); setRenamingProject(projectMenu.project); setProjectMenu(null); }} role="menuitem" type="button"><Pencil size={16} /><span>重命名项目</span></button>}
           {onArchiveProject && (
             <button
@@ -448,6 +550,16 @@ export const SessionSidebar = memo(function SessionSidebar({
             <header><div><span>重命名项目</span><strong>{renamingProject.path}</strong></div><IconButton label="关闭" onClick={() => setRenamingProject(null)}><X size={16} /></IconButton></header>
             <input autoFocus maxLength={80} onChange={(event) => setRenameValue(event.target.value)} value={renameValue} />
             <footer><button onClick={() => setRenamingProject(null)} type="button">取消</button><button className="is-primary" disabled={!renameValue.trim()} type="submit">保存</button></footer>
+          </form>
+        </div>,
+        document.body
+      )}
+      {renamingSession && createPortal(
+        <div className="sidebar-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setRenamingSession(null); }}>
+          <form className="sidebar-rename-dialog" onSubmit={submitSessionRename}>
+            <header><div><span>重命名任务</span><strong>{renamingSession.workspaceKind === "scratch" ? "任务" : renamingSession.projectRoot}</strong></div><IconButton label="关闭" onClick={() => setRenamingSession(null)}><X size={16} /></IconButton></header>
+            <input aria-label="任务标题" autoFocus maxLength={80} onChange={(event) => setRenameValue(event.target.value)} value={renameValue} />
+            <footer><button onClick={() => setRenamingSession(null)} type="button">取消</button><button className="is-primary" disabled={!renameValue.trim()} type="submit">保存</button></footer>
           </form>
         </div>,
         document.body

@@ -65,7 +65,7 @@
   box-shadow: var(--shadow-floating);
   color: var(--color-danger);
   font-size: var(--type-meta-size);
-  font-weight: 650;
+  font-weight: var(--font-weight-medium);
   line-height: 1.45;
   overflow-wrap: anywhere;
   text-align: center;
@@ -100,7 +100,7 @@
 .queued-follow-up > span {
   overflow: hidden;
   font-size: var(--type-meta-size);
-  font-weight: 540;
+  font-weight: var(--font-weight-regular);
   line-height: var(--type-meta-line-height);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -121,7 +121,7 @@
   color: var(--color-text-muted);
   cursor: pointer;
   font-size: var(--type-meta-size);
-  font-weight: 620;
+  font-weight: var(--font-weight-medium);
   gap: 4px;
 }
 
@@ -148,7 +148,7 @@
 .conversation-turn > .steer-user-turn p {
   font-family: var(--font-family-ui);
   font-size: var(--type-conversation-size);
-  font-weight: 560;
+  font-weight: var(--font-weight-regular);
   line-height: var(--type-conversation-line-height);
 }
 

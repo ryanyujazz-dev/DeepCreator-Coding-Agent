@@ -39,6 +39,66 @@ export function RowAction({
   return <button {...props} className={classes("ui-row-action", className)} type={type} />;
 }
 
+type SidebarRowSharedProps = {
+  actions?: ReactNode;
+  actionsClassName?: string;
+  leading?: ReactNode;
+  shellClassName?: string;
+  shellProps?: Omit<HTMLAttributes<HTMLDivElement>, "children" | "className">;
+};
+
+function SidebarRowContent({ children, leading }: { children: ReactNode; leading?: ReactNode }) {
+  return (
+    <>
+      <span aria-hidden="true" className="sidebar-item-leading">{leading}</span>
+      <span className="sidebar-item-copy">{children}</span>
+    </>
+  );
+}
+
+export function SidebarItemRow({
+  actions,
+  actionsClassName,
+  children,
+  className,
+  leading,
+  shellClassName,
+  shellProps,
+  type = "button",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & SidebarRowSharedProps) {
+  return (
+    <div
+      {...shellProps}
+      className={classes("sidebar-item-row-shell", Boolean(actions) && "has-actions", shellClassName)}
+    >
+      <button
+        {...props}
+        className={classes("ui-row-action", "sidebar-item-row", className)}
+        type={type}
+      >
+        <SidebarRowContent leading={leading}>{children}</SidebarRowContent>
+      </button>
+      {actions && <div className={classes("sidebar-item-actions", actionsClassName)}>{actions}</div>}
+    </div>
+  );
+}
+
+export function SidebarStaticRow({
+  children,
+  className,
+  leading,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & Pick<SidebarRowSharedProps, "leading">) {
+  return (
+    <div {...props} className={classes("sidebar-item-row-shell", "sidebar-static-row-shell", className)}>
+      <div className="sidebar-item-row sidebar-static-row">
+        <SidebarRowContent leading={leading}>{children}</SidebarRowContent>
+      </div>
+    </div>
+  );
+}
+
 export const FloatingSurface = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   function FloatingSurface({ className, ...props }, ref) {
     return <div {...props} className={classes("ui-floating-surface", className)} ref={ref} />;

@@ -248,7 +248,8 @@ const payloadSchemas = {
     && optional(value.compactSummary, string)
     && optional(value.contextTokens, number)
     && optional(value.grants, Array.isArray)
-    && optional(value.planEntry, (item) => oneOf(item, ["manual", "suggest", "auto"] as const)),
+    && optional(value.planEntry, (item) => oneOf(item, ["manual", "suggest", "auto"] as const))
+    && optional(value.title, string),
   "mode.changed": (value) => record(value)
     && oneOf(value.mode, ["work", "plan"] as const)
     && optional(value.previousMode, (item) => oneOf(item, ["work", "plan"] as const))

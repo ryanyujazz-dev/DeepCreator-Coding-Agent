@@ -126,6 +126,10 @@ export class RuntimeClient {
   setSessionSidebar = (sessionId: string, input: { archived?: boolean; pinned?: boolean }) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/sidebar`, decodeOkResponse, {
     body: JSON.stringify(input), method: "PUT"
   });
+  renameSession = (sessionId: string, title: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}/title`, decodeSessionResponse, {
+    body: JSON.stringify({ title }), method: "PUT"
+  });
+  deleteSession = (sessionId: string) => this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, decodeOkResponse, { method: "DELETE" });
   archiveProjectSessions = (projectRoot: string) => this.request("/api/projects/archive-sessions", decodeArchiveSessionsResponse, {
     body: JSON.stringify({ projectRoot }), method: "POST"
   });

@@ -81,6 +81,24 @@ export class SessionStore {
       .map((row) => decodeStoredSession(JSON.parse(row.session_json)));
   }
 
+  delete(sessionId: string): string[] {
+    const rows = this.database.raw.prepare(`WITH RECURSIVE session_tree(session_id) AS (
+      SELECT session_id FROM sessions WHERE session_id = ?
+      UNION ALL
+      SELECT sessions.session_id FROM sessions JOIN session_tree ON sessions.parent_session_id = session_tree.session_id
+    ) SELECT session_id FROM session_tree`).all(sessionId) as Array<{ session_id: string }>;
+    const sessionIds = rows.map((row) => row.session_id);
+    if (sessionIds.length === 0) return [];
+    const placeholders = sessionIds.map(() => "?").join(", ");
+    this.database.transaction(() => {
+      for (const table of ["plan_revisions", "questions", "session_sidebar_state", "context_entries", "metrics", "evidence", "events", "runs"]) {
+        this.database.raw.prepare(`DELETE FROM ${table} WHERE session_id IN (${placeholders})`).run(...sessionIds);
+      }
+      this.database.raw.prepare(`DELETE FROM sessions WHERE session_id IN (${placeholders})`).run(...sessionIds);
+    });
+    return sessionIds;
+  }
+
   list(query = ""): SessionSummary[] {
     const normalized = query.trim().toLowerCase();
     const rows = normalized

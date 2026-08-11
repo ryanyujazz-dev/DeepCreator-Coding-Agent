@@ -27,7 +27,7 @@ test("separates pinned projects and tasks from the regular project area", () => 
   const sections = partitionSidebarItems(
     ["alpha", "beta"],
     [project("alpha", true), project("beta")],
-    [session("pinned-task", "beta", true), session("regular-task", "beta")]
+    [session("alpha-task", "alpha"), session("pinned-task", "beta", true), session("regular-task", "beta")]
   );
 
   assert.equal(sections.hasPinnedItems, true);
@@ -46,7 +46,17 @@ test("keeps scratch tasks in their own section and removes pinned duplicates", (
 
   assert.deepEqual(sections.regularScratchSessions.map((item) => item.sessionId), ["scratch"]);
   assert.deepEqual(sections.pinnedSessions.map((item) => item.sessionId), ["pinned-scratch"]);
-  assert.deepEqual(sections.regularProjectRoots, ["alpha"]);
+  assert.deepEqual(sections.regularProjectRoots, []);
+});
+
+test("removes a project group after its final project task is deleted", () => {
+  const sections = partitionSidebarItems(
+    ["empty", "occupied"],
+    [project("empty"), project("occupied")],
+    [session("remaining-task", "occupied")]
+  );
+
+  assert.deepEqual(sections.regularProjectRoots, ["occupied"]);
 });
 
 test("omits the pinned area when no project or task is pinned", () => {

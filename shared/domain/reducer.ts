@@ -51,6 +51,7 @@ export function reduceEvent(current: Session, event: Event): Session {
     if (data.contextTokens !== undefined) next.contextTokens = data.contextTokens;
     if (data.grants !== undefined) next.grants = clone(data.grants);
     if (data.planEntry !== undefined) next.planEntry = data.planEntry;
+    if (data.title !== undefined) next.title = data.title;
     return next;
   }
 

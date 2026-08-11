@@ -18,7 +18,7 @@
 
 .auth-window-bar strong {
   color: var(--color-text);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .auth-window-bar span {
@@ -59,14 +59,14 @@
   gap: var(--space-2);
   color: var(--theme-blue);
   font-size: var(--type-control-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .auth-panel h1 {
   margin: var(--space-2) 0 0;
   font-size: var(--type-display-size);
   line-height: var(--type-display-line-height);
-  font-weight: 650;
+  font-weight: var(--font-weight-medium);
 }
 
 .auth-introduction {
@@ -153,7 +153,7 @@
   flex: 0 0 auto;
   border-radius: 50%;
   font-size: var(--type-control-size);
-  font-weight: 650;
+  font-weight: var(--font-weight-medium);
 }
 
 .account-strip .profile-avatar {
@@ -192,7 +192,7 @@
 .profile-avatar-fieldset legend {
   color: var(--color-text);
   font-size: var(--type-control-size);
-  font-weight: 620;
+  font-weight: var(--font-weight-medium);
 }
 
 .profile-setup-field input {
@@ -331,7 +331,7 @@
   background: var(--theme-blue-light);
   color: var(--theme-blue-dark);
   font-size: var(--type-section-size);
-  font-weight: 650;
+  font-weight: var(--font-weight-medium);
 }
 
 .settings-account-identity > div:nth-child(2) {
@@ -489,7 +489,7 @@
   display: grid;
   color: var(--color-text-secondary);
   font-size: var(--type-control-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
   gap: var(--space-2);
 }
 
@@ -529,7 +529,7 @@
   padding: 0;
   color: var(--color-text-secondary);
   font-size: var(--type-control-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .compact-settings-dialog .settings-error {

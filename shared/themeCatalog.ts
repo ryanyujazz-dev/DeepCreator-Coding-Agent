@@ -17,6 +17,11 @@ export const DEFAULT_THEME_PREFERENCE: ThemePreference = {
 
 export const UI_FONT_STACKS = [
   {
+    id: "alibaba-puhuiti",
+    label: "Alibaba PuHuiTi 3",
+    value: '"Alibaba PuHuiTi 3", "HarmonyOS Sans SC", "Microsoft YaHei UI", "PingFang SC", sans-serif'
+  },
+  {
     id: "harmony",
     label: "HarmonyOS Sans",
     value: '"HarmonyOS Sans SC", "Microsoft YaHei UI", "PingFang SC", sans-serif'
@@ -101,10 +106,10 @@ const deepcreatorDarkColors: ThemeColors = {
   dangerSurface: "#3b2223",
   foreground: "#e7ecef",
   hover: "#263137",
-  muted: "#6b7980",
+  muted: "#929fa6",
   selected: "#203a54",
   sidebar: "#18272e",
-  subtle: "#526067",
+  subtle: "#829097",
   success: "#56d182",
   surface: "#151b1f",
   surfaceElevated: "#1b2328",
@@ -143,10 +148,10 @@ const githubDarkColors: ThemeColors = {
   dangerSurface: "#3d1f24",
   foreground: "#e6edf3",
   hover: "#21262d",
-  muted: "#818b96",
+  muted: "#9aa5af",
   selected: "#1f3b57",
   sidebar: "#161b22",
-  subtle: "#5e6872",
+  subtle: "#87949f",
   success: "#3fb950",
   surface: "#0d1117",
   surfaceElevated: "#161b22",

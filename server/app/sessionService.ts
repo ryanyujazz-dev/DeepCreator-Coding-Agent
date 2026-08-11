@@ -41,6 +41,26 @@ export class SessionService {
     this.store.updateSessionSidebar(sessionId, input);
   }
 
+  rename(sessionId: string, title: string): Session {
+    const session = this.get(sessionId);
+    const nextTitle = title.trim();
+    if (!nextTitle || nextTitle.length > 80) {
+      throw new SessionServiceError("title must contain between 1 and 80 characters", "invalid_input");
+    }
+    this.store.append({ data: { title: nextTitle }, sessionId: session.sessionId, type: "session.updated" });
+    return this.get(session.sessionId);
+  }
+
+  delete(sessionId: string): void {
+    const session = this.get(sessionId);
+    if (hasActiveRun(session)) {
+      throw new SessionServiceError("An active task cannot be deleted.", "conflict");
+    }
+    if (!this.store.deleteSession(sessionId)) {
+      throw new SessionServiceError("session not found", "not_found");
+    }
+  }
+
   archiveProject(projectRoot: string): number {
     const target = projectRoot.trim();
     if (!target) throw new SessionServiceError("projectRoot is required", "invalid_input");

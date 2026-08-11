@@ -163,7 +163,7 @@
   padding: 4px 8px;
   color: var(--color-text-subtle);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 .composer-foot .branch-menu button {
   display: flex;
@@ -222,7 +222,7 @@
   padding: 5px 10px 3px;
   color: var(--color-text-subtle);
   font-size: var(--type-label-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
   letter-spacing: 0;
   line-height: var(--type-label-line-height);
   text-transform: none;
@@ -259,7 +259,7 @@
 .composer-stack .model-option-label {
   color: var(--color-text);
   font-size: var(--type-control-size);
-  font-weight: 640;
+  font-weight: var(--font-weight-medium);
   line-height: var(--type-control-line-height);
 }
 
@@ -267,7 +267,7 @@
 .composer-stack .model-option-desc {
   color: var(--color-text-subtle);
   font-size: var(--type-label-size);
-  font-weight: 520;
+  font-weight: var(--font-weight-regular);
   line-height: var(--type-label-line-height);
 }
 

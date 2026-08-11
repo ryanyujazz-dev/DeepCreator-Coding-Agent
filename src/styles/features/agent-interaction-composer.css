@@ -58,7 +58,7 @@
 .agent-interaction-header strong {
   overflow-wrap: anywhere;
   font-size: var(--type-body-size);
-  font-weight: 660;
+  font-weight: var(--font-weight-medium);
   line-height: 1.4;
 }
 
@@ -66,7 +66,7 @@
 .agent-interaction-heading-icon {
   color: var(--color-text-subtle);
   font-size: var(--type-meta-size);
-  font-weight: 500;
+  font-weight: var(--font-weight-regular);
   line-height: var(--type-meta-line-height);
 }
 
@@ -154,7 +154,7 @@
   cursor: pointer;
   font: inherit;
   font-size: var(--type-meta-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .agent-interaction-actions button.is-primary {
@@ -215,7 +215,7 @@
 
 .agent-plan-choice span {
   font-size: var(--type-body-size);
-  font-weight: 620;
+  font-weight: var(--font-weight-medium);
 }
 
 .agent-plan-choice small {
@@ -247,7 +247,7 @@
   flex: 0 0 auto;
   color: var(--theme-blue);
   font-size: var(--type-meta-size);
-  font-weight: 650;
+  font-weight: var(--font-weight-medium);
 }
 
 .question-progress {
@@ -282,7 +282,7 @@
 
 .question-option-copy strong {
   font-size: var(--type-body-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .question-option-copy em {
@@ -331,7 +331,7 @@
 
 .question-other > span:first-child {
   font-size: var(--type-body-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .question-other input,
@@ -394,7 +394,7 @@ textarea.question-text-answer {
 .ask-user-history-question {
   color: var(--color-text);
   font-size: var(--type-meta-size);
-  font-weight: 620;
+  font-weight: var(--font-weight-medium);
   line-height: var(--type-meta-line-height);
   overflow-wrap: anywhere;
 }

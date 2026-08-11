@@ -228,9 +228,8 @@ html[data-color-scheme="dark"] :is(
   .account-strip > button,
   .surface-tab-close,
   .surface-window-actions button,
-  .patch-card-review-trigger,
+  .patch-card-review-button,
   .patch-actions button,
-  .show-more-files,
   .markdown-code-block > header button
 ):is(:hover, :focus-visible) {
   color: var(--color-text);
@@ -543,14 +542,14 @@ html[data-color-scheme="dark"] :is(
   white-space: nowrap;
   color: var(--color-text);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .surface-file-name em {
   flex-shrink: 0;
   font-style: normal;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: var(--font-weight-regular);
   color: var(--color-text-muted);
 }
 
@@ -581,7 +580,7 @@ html[data-color-scheme="dark"] :is(
   color: var(--color-text-muted);
   cursor: pointer;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
@@ -724,7 +723,7 @@ html[data-color-scheme="dark"] :is(
   white-space: nowrap;
   color: var(--color-text);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .surface-review-filepath {
@@ -742,7 +741,7 @@ html[data-color-scheme="dark"] :is(
   flex-shrink: 0;
   font-family: var(--font-family-code);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .surface-review-adds {

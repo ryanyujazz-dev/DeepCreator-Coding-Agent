@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import {
   EVENT_VERSION,
@@ -273,6 +273,19 @@ export class RuntimeStore implements AtomicWritePort, EventPort, SessionPort, De
 
   listSessions(query = ""): SessionSummary[] {
     return this.sessionStore.list(query);
+  }
+
+  deleteSession(sessionId: string): boolean {
+    const deletedIds = this.sessionStore.delete(sessionId);
+    for (const deletedId of deletedIds) {
+      this.sessions.delete(deletedId);
+      this.subscribers.delete(deletedId);
+      if (!/^[a-zA-Z0-9_-]+$/.test(deletedId)) continue;
+      rmSync(path.join(this.dataDirectory, "signals", `${deletedId}.jsonl`), { force: true });
+      rmSync(path.join(this.dataDirectory, "evidence", deletedId), { force: true, recursive: true });
+      rmSync(path.join(this.dataDirectory, "debug", deletedId), { force: true, recursive: true });
+    }
+    return deletedIds.length > 0;
   }
 
   archiveProjectSessions(projectRoot: string): number {

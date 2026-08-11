@@ -12,7 +12,7 @@
 
 ## 字体与资源
 
-界面正文统一使用 `HarmonyOS Sans SC`，回退到 `Microsoft YaHei UI`、`PingFang SC` 和 `sans-serif`。代码、终端输出、路径对齐场景使用 `--font-family-code`。不得在业务组件声明独立字体栈。
+界面正文默认使用 `Alibaba PuHuiTi 3`，回退到 `HarmonyOS Sans SC`、`Microsoft YaHei UI`、`PingFang SC` 和 `sans-serif`。HarmonyOS Sans 继续作为内置可选字体保留。代码、终端输出、路径对齐场景使用 `--font-family-code`。不得在业务组件声明独立字体栈。
 
 项目当前使用资源包中的 `HarmonyOS_Sans_SC.ttf`，其内部家族名为 `HarmonyOS Sans SC` / `鸿蒙黑体`，是字重轴 `40–900` 的可变字体。不要与仅拉丁字符的 `HarmonyOS_Sans.ttf`、窄体 `HarmonyOS_Sans_Condensed.ttf` 或繁体 `HarmonyOS_Sans_TC.ttf` 混用。
 
@@ -74,7 +74,7 @@
 
 | 形态 | 尺寸 | 视觉 | 适用场景 |
 | --- | --- | --- | --- |
-| 长行圆角矩形 | 高 `36px`，横向 `12px`，圆角 `10px` | hover 中性灰，selected 淡主题蓝 | 项目、任务、菜单长行 |
+| 长行圆角矩形 | 侧栏紧凑行高 `30px`，横向 `10px`，圆角 `10px` | hover 中性灰，selected 淡主题蓝 | 项目、任务、菜单长行 |
 | 胶囊按钮 | 最小高 `28px`，横向 `10px`，圆角 `999px` | 紧贴内容，不拉伸 | 完全访问、模型选择、短筛选 |
 | 圆形图标按钮 | `28 x 28px`，圆角 `50%`，图标 `14-16px` | 无文字，必须有 `aria-label`/tooltip | 发送、关闭、更多、设置 |
 
@@ -84,6 +84,8 @@
 
 - 顶部应用栏高 `42px`，只承载窗口级导航和视图动作。
 - 左侧栏默认宽 `272px`，可调范围 `220-360px`；侧栏项目两侧必须保留行级间距。
+- 侧栏中的新任务、项目、任务、置顶项和空状态统一使用 `SidebarItemRow` / `SidebarStaticRow`：可用宽度一致，紧凑行高 `30px`，leading 图标槽固定为 `18px`，图标与行垂直中心重合。分区标题与 leading 图标左缘对齐，行内正文使用固定 copy 起始线；侧栏文字字号一致，只通过语义色和字重表达层级。分区标题与任务集的项目标题使用弱化文字色；项目标题与任务标题共用字号、行高、单个尾部操作槽和溢出消隐终点。任务集标题仅在悬浮或键盘聚焦时显示新建任务按钮；没有任务的任务集不渲染。任务行固定由状态圆点、任务标题和竖向更多按钮组成：空闲状态为静止的淡色空心圆，运行状态才使用主题色呼吸动画；更多按钮同样只在悬浮、键盘聚焦或菜单打开时显示，悬浮只改变图标颜色，不绘制嵌套矩形。无操作按钮时标题使用完整右侧宽度，操作显现后才动态退让一个操作槽并重新计算溢出消隐。任务更多菜单统一提供打开方式、置顶、重命名、归档和删除，其中打开方式通过可跨越指针间隙的悬浮二级菜单提供系统文件管理器、Cursor 和 Visual Studio Code，不重复提供当前窗口。
+- 暗色主题中的 `secondary`、`muted`、`subtle` 与执行流弱化文字必须统一由主题令牌提供；灰色文字与所在暗色背景的对比度不得低于 `5.25:1`，组件不得通过局部深灰覆盖重新降低可读性。
 - 侧栏的置顶任务和置顶项目统一进入顶部“置顶”区，并从普通“项目”区移除以避免重复；没有任何置顶项时不得渲染该区标题或占位间距。
 - 侧栏采用紧凑列表节奏：分区标题到首行使用小间距，项目标题与所属任务紧邻，相邻项目组只保留可辨识的单级间距；不得叠加行尾 `padding` 和组级 `margin` 扩大空白。
 - 对话列最大宽 `860px`，大屏水平留白 `38px`，中屏 `24px`，紧凑屏 `16px`。
@@ -136,13 +138,14 @@
 - `ThinkingLoader`、`AnimatedFolderIcon`：具有明确语义的状态动效。
 - `ConfirmationDialog`：普通与危险确认，统一标题、说明、Portal、焦点锁定和异步 busy 状态；`SidebarConfirmationDialog` 只保留业务适配。
 
-公共视觉原语位于 `src/components/ui/ControlPrimitives.tsx`：
+公共视觉原语位于 `src/shared-ui/ControlPrimitives.tsx`：
 
 - `RowAction`：长行圆角矩形，统一 hover、selected、尾部操作区和溢出淡出。
 - `PillButton`：短文字/图标按钮，统一高度、胶囊轮廓和菜单展开态。
 - `IconButton`：圆形单图标按钮，统一尺寸、tooltip、焦点和禁用态。
 - `FloatingSurface`：菜单、popover、hover card 的边框、阴影和表面色。
 - `DisclosureRow`：聚合头、文件行和命令行的展开状态与键盘行为。
+- `SidebarItemRow` / `SidebarStaticRow`：侧边栏交互行与静态行，共用固定的图标、文字和尾部操作槽。
 
 公共组件负责外观与交互契约，业务组件只提供语义、图标、文案和事件。不要通过父级选择器覆盖公共组件内部结构。
 

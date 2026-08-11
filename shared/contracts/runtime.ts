@@ -414,6 +414,7 @@ export type EventPayloadMap = {
     contextTokens?: number;
     grants?: Grant[];
     planEntry?: PlanEntry;
+    title?: string;
   };
   "mode.changed": {
     mode: Mode;

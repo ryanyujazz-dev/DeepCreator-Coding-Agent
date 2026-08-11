@@ -42,18 +42,25 @@ test("keeps built-in themes on one shared elevation baseline", () => {
   assert.equal(github.variants.dark.contrast, deepcreator.variants.dark.contrast);
 });
 
-test("keeps dark semantic grays perceptually paired with the light baseline", () => {
+test("keeps every dark semantic gray readable and brighter than its light counterpart", () => {
   for (const theme of BUILTIN_THEMES) {
     const light = theme.variants.light;
     const dark = theme.variants.dark;
     for (const role of ["muted", "subtle"] as const) {
       const lightContrast = contrastRatio(light.colors[role], light.colors.background);
       const darkContrast = contrastRatio(dark.colors[role], dark.colors.background);
-      assert.ok(Math.abs(lightContrast - darkContrast) < 0.5, `${theme.id}.${role} contrast drifted across modes`);
+      assert.ok(darkContrast >= 5.25, `${theme.id}.${role} is too dim in dark mode`);
+      assert.ok(darkContrast > lightContrast, `${theme.id}.${role} did not brighten in dark mode`);
     }
     const lightExecutionContrast = contrastRatio(executionMutedColor(light), light.colors.background);
     const darkExecutionContrast = contrastRatio(executionMutedColor(dark), dark.colors.background);
-    assert.ok(Math.abs(lightExecutionContrast - darkExecutionContrast) < 0.15, `${theme.id}.execution contrast drifted across modes`);
+    assert.ok(darkExecutionContrast >= 5.25, `${theme.id}.execution is too dim in dark mode`);
+    assert.ok(darkExecutionContrast > lightExecutionContrast, `${theme.id}.execution did not brighten in dark mode`);
+    assert.ok(
+      contrastRatio(dark.colors.muted, dark.colors.background)
+        > contrastRatio(dark.colors.subtle, dark.colors.background),
+      `${theme.id} dark gray hierarchy is reversed`
+    );
   }
 });
 
@@ -109,7 +116,7 @@ test("normalizes preferences and migrates legacy theme packs", () => {
   assert.equal(migrated.schemaVersion, 1);
   assert.equal(migrated.variants.light.contrast, 50);
   assert.equal(migrated.variants.light.translucentSidebar, false);
-  assert.match(migrated.variants.light.typography.uiFont, /HarmonyOS Sans/);
+  assert.match(migrated.variants.light.typography.uiFont, /Alibaba PuHuiTi 3/);
 });
 
 test("imports DeepCreator themes as non-destructive custom previews", () => {

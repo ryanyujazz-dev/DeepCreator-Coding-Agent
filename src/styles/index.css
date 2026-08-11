@@ -4,6 +4,7 @@
  */
 @import "../styles.css";
 @import "./features/application-surfaces.css";
+@import "./features/sidebar-list.css";
 @import "./features/skills-settings.css";
 @import "./features/follow-ups.css";
 @import "./features/responses.css";
