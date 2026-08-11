@@ -114,4 +114,28 @@ if ($runtimeExitCode -ne 0 -or ($runtimeOutput -join "") -notmatch "DEEPCREATOR_
   throw "安装后的 DeepCreator Runtime 验证失败，退出码：$runtimeExitCode。$runtimeError"
 }
 
-Write-Host "Windows 安装器实装成功：$($installedExecutable.FullName)"
+$startupProbePath = Join-Path $env:RUNNER_TEMP "deepcreator-startup-probe.json"
+$startupStdoutPath = Join-Path $env:RUNNER_TEMP "deepcreator-startup-stdout.log"
+$startupStderrPath = Join-Path $env:RUNNER_TEMP "deepcreator-startup-stderr.log"
+$env:DEEPCREATOR_STARTUP_PROBE_FILE = $startupProbePath
+$applicationProcess = Start-Process `
+  -FilePath $installedExecutable.FullName `
+  -RedirectStandardOutput $startupStdoutPath `
+  -RedirectStandardError $startupStderrPath `
+  -PassThru
+if (-not $applicationProcess.WaitForExit(60000)) {
+  $applicationProcess.Kill()
+  throw "安装后的 DeepCreator 在 60 秒内没有完成真实启动验证。"
+}
+Remove-Item Env:DEEPCREATOR_STARTUP_PROBE_FILE
+$startupOutput = Get-Content $startupStdoutPath -Raw -ErrorAction SilentlyContinue
+$startupError = Get-Content $startupStderrPath -Raw -ErrorAction SilentlyContinue
+if (-not (Test-Path $startupProbePath)) {
+  throw "DeepCreator 没有写入真实启动结果。`n$startupOutput`n$startupError"
+}
+$startupResult = Get-Content $startupProbePath -Raw | ConvertFrom-Json
+if ($applicationProcess.ExitCode -ne 0 -or $startupResult.runtime.phase -ne "ready" -or $startupResult.auth.phase -ne "signed_in") {
+  throw "DeepCreator 真实启动失败：$($startupResult | ConvertTo-Json -Depth 8 -Compress)`n$startupOutput`n$startupError"
+}
+
+Write-Host "Windows 安装器、应用主进程与 Agent Runtime 实装成功：$($installedExecutable.FullName)"

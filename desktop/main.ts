@@ -449,7 +449,26 @@ else {
     runtime.onState((state) => mainWindow?.webContents.send("runtime:state", state));
     updates.onState((state) => mainWindow?.webContents.send("updates:state", state));
     updates.initialize();
-    await auth.initialize().catch((error) => console.error("[desktop] auth initialization failed", error));
+    const authState = await auth.initialize().catch((error) => {
+      console.error("[desktop] auth initialization failed", error);
+      return auth.getState();
+    });
+    const startupProbeFile = app.isPackaged && process.env.CI === "true"
+      ? process.env.DEEPCREATOR_STARTUP_PROBE_FILE?.trim()
+      : undefined;
+    if (startupProbeFile) {
+      const runtimeState = runtime.currentState();
+      const ready = runtimeState.phase === "ready" && (authState.phase === "signed_in" || authState.phase === "offline");
+      writeFileSync(startupProbeFile, `${JSON.stringify({
+        appVersion: app.getVersion(),
+        auth: { detail: authState.detail, phase: authState.phase },
+        runtime: { detail: runtimeState.detail, phase: runtimeState.phase }
+      })}\n`, "utf8");
+      gracefulQuit = true;
+      await runtime.stop();
+      app.exit(ready ? 0 : 1);
+      return;
+    }
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow(); });
   });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
