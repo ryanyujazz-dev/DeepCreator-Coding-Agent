@@ -1,6 +1,7 @@
 import path from "node:path";
 import { homedir } from "node:os";
 import { RunRegistry } from "../app/runRegistry";
+import { FileStateStore } from "../app/fileStateStore";
 import { RunLauncher, RunLaunchPort } from "../app/runLauncher";
 import { Runner } from "../app/runner";
 import { CancelRun } from "../app/cancelRun";
@@ -162,7 +163,8 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     trash: async () => { throw new Error("Runtime 安装服务不提供卸载操作。"); }
   });
   const capabilities = createCapabilitySource(skillCatalog);
-  const tools = createToolHost(skillCatalog, skillStore);
+  const fileState = new FileStateStore();
+  const tools = createToolHost(skillCatalog, skillStore, fileState);
   const system = nodeSystem;
   const store = new RuntimeStore(dataDirectory, options.migrationDirectory, system);
   const registry = new RunRegistry(system);
@@ -190,7 +192,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     }
     return { model: "mock-agent", protocol: "chat" as const, provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };
   };
-  const launcher = new RunLauncher(providerFor, registry, (input) => runner.run(input), store);
+  const launcher = new RunLauncher(providerFor, registry, (input) => runner.run(input), store, fileState);
   const delegations = new DelegationCoordinator(launcher, registry, store, system);
   runner.setDelegationCoordinator(delegations);
   delegations.recover();

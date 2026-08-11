@@ -43,6 +43,11 @@ export function summarizeToolResult(name: string, args: Record<string, unknown>,
   if (name === "stop_command") return `已停止命令 ${String(args.commandId ?? "")}`;
   if (name === "web_search") return `搜索 ${String(args.query ?? "")}`;
   if (name === "fetch_url") return `已抓取 ${String(args.url ?? "URL")}`;
+  if (name === "edit_file") return `已编辑 ${String(args.path ?? "文件")}`;
+  if (name === "multi_edit") {
+    const count = Array.isArray(args.edits) ? args.edits.length : 0;
+    return `已原子编辑 ${String(args.path ?? "文件")}(${count} 处替换)`;
+  }
   if (name === "apply_patch") return output;
   return redactSensitiveText(output).slice(0, 2_000);
 }

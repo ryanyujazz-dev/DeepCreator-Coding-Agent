@@ -6,12 +6,13 @@ import {
 } from "../../shared/contracts/runtime";
 import { ToolProgress, ToolResult } from "../../shared/contracts/tool";
 import { PreparedToolState, ToolHost } from "../app/toolHost";
+import type { FileStateStore } from "../app/fileStateStore";
 import { invokeCapability, searchCapabilities } from "./capabilities";
 import { defaultSkillCatalog, SkillCatalog } from "./skillCatalog";
 import { commandManager } from "./commandManager";
 import { summarizeToolArguments, summarizeToolResult } from "./tools/summaries";
 import { runShell } from "./tools/shellExecution";
-import { deleteFile, editFile, listFiles, multiEdit, readFile, writeFile } from "./tools/files";
+import { deleteFile, editFile, listFiles, multiEdit, readFile, writeFile, type FileToolContext } from "./tools/files";
 import { applyPatch } from "./tools/applyPatch";
 import { globFiles, grepFiles } from "./tools/search";
 import { fetchUrl, webSearch } from "./tools/web";
@@ -46,11 +47,13 @@ export async function executeTool(input: {
   sessionId?: string;
   skillCatalog?: SkillCatalog;
   skillStore?: SkillStore;
+  fileState?: FileStateStore;
 }): Promise<ToolResult> {
   const { projectRoot, name, args, signal, commandCheckpointMs } = input;
   const skillCatalog = input.skillCatalog ?? defaultSkillCatalog;
+  const fileCtx: FileToolContext | undefined = input.runId && input.fileState ? { runId: input.runId, fileState: input.fileState } : undefined;
   if (name === "list_files") return { mutatedWorkspace: false, output: await listFiles(projectRoot, args) };
-  if (name === "read_file") return { mutatedWorkspace: false, output: await readFile(projectRoot, args as never) };
+  if (name === "read_file") return { mutatedWorkspace: false, output: await readFile(projectRoot, args as never, fileCtx) };
   if (name === "grep") return { mutatedWorkspace: false, output: await grepFiles(projectRoot, args as never, signal) };
   if (name === "glob") return { mutatedWorkspace: false, output: await globFiles(projectRoot, args as never, signal) };
   if (name === "git_status") {
@@ -98,11 +101,11 @@ export async function executeTool(input: {
     if (!input.skillStore) throw new Error("当前 Runtime 未配置 Skill 安装服务。");
     return installSkill({ args, projectRoot, store: input.skillStore });
   }
-  if (name === "write_file") return { mutatedWorkspace: true, output: await writeFile(projectRoot, args as never) };
-  if (name === "edit_file") return { mutatedWorkspace: true, output: await editFile(projectRoot, args as never) };
-  if (name === "multi_edit") return { mutatedWorkspace: true, output: await multiEdit(projectRoot, args as never) };
+  if (name === "write_file") return { mutatedWorkspace: true, output: await writeFile(projectRoot, args as never, fileCtx) };
+  if (name === "edit_file") return { mutatedWorkspace: true, output: await editFile(projectRoot, args as never, fileCtx) };
+  if (name === "multi_edit") return { mutatedWorkspace: true, output: await multiEdit(projectRoot, args as never, fileCtx) };
   if (name === "delete_file") return { mutatedWorkspace: true, output: await deleteFile(projectRoot, args as never) };
-  if (name === "apply_patch") return { mutatedWorkspace: true, output: await applyPatch(projectRoot, args as never) };
+  if (name === "apply_patch") return { mutatedWorkspace: true, output: await applyPatch(projectRoot, args as never, fileCtx) };
   if (name === "fetch_url") return { mutatedWorkspace: false, output: await fetchUrl(args as never, signal) };
   if (name === "web_search") return { mutatedWorkspace: false, output: await webSearch(args as never, signal) };
   if (name === "run_command") {
@@ -273,13 +276,13 @@ export function toolTitle(name: string): string {
   } as Record<string, string>)[name] ?? name;
 }
 
-export function createToolHost(skillCatalog = defaultSkillCatalog, skillStore?: SkillStore): ToolHost {
+export function createToolHost(skillCatalog = defaultSkillCatalog, skillStore?: SkillStore, fileState?: FileStateStore): ToolHost {
   return {
     capture: captureBaseline,
     changes: collectChanges,
     checkpoint: checkpointTarget,
     close: releaseBaseline,
-    execute: (input) => executeTool({ ...input, skillCatalog, skillStore }),
+    execute: (input) => executeTool({ ...input, skillCatalog, skillStore, fileState }),
     has: hasTool,
     kind: activityKindForTool,
     names: toolNames,

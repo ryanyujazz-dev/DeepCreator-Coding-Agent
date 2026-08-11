@@ -1,7 +1,13 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { ArtifactEntry } from "../../../shared/contracts/runtime";
+import { stableDigest } from "../../../shared/domain/digest";
+import type { FileStateStore } from "../../app/fileStateStore";
 import { ensureInsideRoot, isSensitivePath } from "./security";
+import { splitLines, joinLines, locateLineMatches, nearestLine } from "./textMatch";
+import { generateUnifiedDiff } from "./diff";
+
+export type FileToolContext = { runId?: string; fileState?: FileStateStore };
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -71,34 +77,85 @@ export async function listArtifacts(projectRoot: string): Promise<ArtifactEntry[
   return entries;
 }
 
-export async function readFile(projectRoot: string, input: { path: string; maxChars?: number }): Promise<string> {
+export async function readFile(projectRoot: string, input: { path: string; maxChars?: number }, ctx?: FileToolContext): Promise<string> {
   if (isSensitivePath(input.path)) throw new Error("出于安全原因，Runtime 不允许读取密钥或凭据文件。");
   const contents = await fs.readFile(ensureInsideRoot(projectRoot, input.path), "utf8");
+  if (ctx?.fileState && ctx.runId) ctx.fileState.recordRead(ctx.runId, projectRoot, input.path, contents);
   const maxChars = Math.min(200_000, Math.max(1, input.maxChars ?? 40_000));
   return contents.slice(0, maxChars);
 }
 
-export async function writeFile(projectRoot: string, input: { path: string; content: string }): Promise<string> {
+export async function writeFile(projectRoot: string, input: { path: string; content: string }, ctx?: FileToolContext): Promise<string> {
   const filePath = ensureInsideRoot(projectRoot, input.path);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const existed = await fs.access(filePath).then(() => true).catch(() => false);
   await fs.writeFile(filePath, input.content, "utf8");
+  if (ctx?.fileState && ctx.runId) ctx.fileState.recordWrite(ctx.runId, projectRoot, input.path, input.content);
   return `${existed ? "已编辑" : "已创建"} ${input.path}`;
+}
+
+type EditInput = { oldText: string; newText: string; replaceAll?: boolean };
+type ApplyResult = { result?: string; error?: string };
+
+// 对 contents 应用一处 edit:strict 子串(split/replace,完全向后兼容)→ strict=0 降级 relaxed 行匹配
+// (trimEnd 尾随空白容错)。error 简短码:未找到 / 多处(N) / 模糊(N)。caller 包装 path + 上下文。
+function applyEditStrictRelaxed(contents: string, edit: EditInput, window?: { from: number; to: number }): ApplyResult {
+  const occurrences = contents.split(edit.oldText).length - 1;
+  if (occurrences > 0) {
+    if (occurrences > 1 && !edit.replaceAll) return { error: `多处(${occurrences})` };
+    const next = edit.replaceAll
+      ? contents.split(edit.oldText).join(edit.newText)
+      : contents.replace(edit.oldText, edit.newText);
+    return { result: next };
+  }
+  const { lines: sourceLines, trailingNewline } = splitLines(contents);
+  const patternLines = splitLines(edit.oldText).lines;
+  if (patternLines.length === 0) return { error: "未找到" };
+  const relaxed = locateLineMatches(sourceLines, patternLines, window).relaxed;
+  if (relaxed.length > 1 && !edit.replaceAll) return { error: `模糊(${relaxed.length})` };
+  if (relaxed.length === 0) return { error: "未找到" };
+  const newTextLines = splitLines(edit.newText).lines;
+  const targets = edit.replaceAll ? relaxed : [relaxed[0]];
+  for (const start of [...targets].sort((left, right) => right - left)) {
+    sourceLines.splice(start, patternLines.length, ...newTextLines);
+  }
+  return { result: joinLines(sourceLines, trailingNewline) };
 }
 
 export async function editFile(
   projectRoot: string,
-  input: { path: string; oldText: string; newText: string; replaceAll?: boolean }
+  input: { path: string; oldText: string; newText: string; replaceAll?: boolean; startLine?: number; endLine?: number },
+  ctx?: FileToolContext
 ): Promise<string> {
   const filePath = ensureInsideRoot(projectRoot, input.path);
   const contents = await fs.readFile(filePath, "utf8");
   if (!input.oldText) throw new Error("oldText 不能为空。创建文件请使用 write_file。");
-  const occurrences = contents.split(input.oldText).length - 1;
-  if (occurrences === 0) throw new Error(`未在 ${input.path} 中找到 oldText。`);
-  if (occurrences > 1 && !input.replaceAll) throw new Error(`oldText 在 ${input.path} 中出现 ${occurrences} 次，请提供更精确文本。`);
-  const next = input.replaceAll ? contents.split(input.oldText).join(input.newText) : contents.replace(input.oldText, input.newText);
-  await fs.writeFile(filePath, next, "utf8");
-  return `已编辑 ${input.path}`;
+  if (ctx?.fileState && ctx.runId) {
+    const expected = ctx.fileState.hashFor(ctx.runId, projectRoot, input.path);
+    if (expected !== undefined && stableDigest(contents) !== expected) {
+      throw new Error(`文件 ${input.path} 自上次 read_file 后已被修改（内容指纹不一致），编辑已中止以防覆盖外部改动。请重新 read_file 后再编辑。`);
+    }
+  }
+  const window = input.startLine !== undefined && input.endLine !== undefined
+    ? { from: Math.max(0, input.startLine - 1), to: input.endLine - 1 }
+    : undefined;
+  const applied = applyEditStrictRelaxed(contents, input, window);
+  if (applied.error) {
+    if (applied.error === "未找到") {
+      const near = nearestLine(splitLines(contents).lines, input.oldText);
+      const hint = near >= 0 ? `，第 ${near + 1} 行附近有相似内容` : "";
+      throw new Error(`未在 ${input.path} 中找到 oldText（精确与忽略尾随空白均不匹配${hint}）。`);
+    }
+    const count = applied.error.match(/\((\d+)\)/)?.[1] ?? "?";
+    if (applied.error.startsWith("多处")) {
+      throw new Error(`oldText 在 ${input.path} 中出现 ${count} 次，请提供更精确文本。`);
+    }
+    throw new Error(`oldText 在 ${input.path} 中模糊匹配 ${count} 处（已尝试忽略尾随空白），请提供更多上下文。`);
+  }
+  await fs.writeFile(filePath, applied.result!, "utf8");
+  if (ctx?.fileState && ctx.runId) ctx.fileState.recordWrite(ctx.runId, projectRoot, input.path, applied.result!);
+  const diff = generateUnifiedDiff(input.path, contents, applied.result!);
+  return `已编辑 ${input.path}\n\n${diff}`;
 }
 
 export async function deleteFile(projectRoot: string, input: { path: string }): Promise<string> {
@@ -120,12 +177,19 @@ export async function deleteFile(projectRoot: string, input: { path: string }): 
  */
 export async function multiEdit(
   projectRoot: string,
-  input: { path: string; edits: Array<{ oldText: string; newText: string; replaceAll?: boolean }> }
+  input: { path: string; edits: Array<{ oldText: string; newText: string; replaceAll?: boolean; startLine?: number; endLine?: number }> },
+  ctx?: FileToolContext
 ): Promise<string> {
   const filePath = ensureInsideRoot(projectRoot, input.path);
   const original = await fs.readFile(filePath, "utf8");
   if (!Array.isArray(input.edits) || input.edits.length === 0) {
     throw new Error("edits 不能为空。单处编辑请使用 edit_file。");
+  }
+  if (ctx?.fileState && ctx.runId) {
+    const expected = ctx.fileState.hashFor(ctx.runId, projectRoot, input.path);
+    if (expected !== undefined && stableDigest(original) !== expected) {
+      throw new Error(`文件 ${input.path} 自上次 read_file 后已被修改（内容指纹不一致），编辑已中止以防覆盖外部改动。请重新 read_file 后再编辑。`);
+    }
   }
   // 链式校验+应用:在内存中逐步应用,任一 edit 在其当前内容上校验失败则记录。
   let workingCopy = original;
@@ -136,19 +200,20 @@ export async function multiEdit(
       failures.push({ index, reason: "oldText 不能为空" });
       continue;
     }
-    const occurrences = workingCopy.split(edit.oldText).length - 1;
-    if (occurrences === 0) {
-      failures.push({ index, reason: `未找到 oldText(出现 0 次)` });
+    const editWindow = edit.startLine !== undefined && edit.endLine !== undefined
+      ? { from: Math.max(0, edit.startLine - 1), to: edit.endLine - 1 }
+      : undefined;
+    const applied = applyEditStrictRelaxed(workingCopy, edit, editWindow);
+    if (applied.error) {
+      const detail = applied.error === "未找到"
+        ? "未找到 oldText（精确与忽略尾随空白均不匹配）"
+        : applied.error.startsWith("多处")
+          ? `oldText 出现 ${applied.error.match(/\((\d+)\)/)?.[1] ?? "?"} 次,需提供更精确文本或设 replaceAll=true`
+          : `oldText 模糊匹配 ${applied.error.match(/\((\d+)\)/)?.[1] ?? "?"} 处（忽略尾随空白）`;
+      failures.push({ index, reason: detail });
       continue;
     }
-    if (occurrences > 1 && !edit.replaceAll) {
-      failures.push({ index, reason: `oldText 出现 ${occurrences} 次,需提供更精确文本或设 replaceAll=true` });
-      continue;
-    }
-    // 校验通过,在 workingCopy 上应用(链式:后续 edit 看到此结果)
-    workingCopy = edit.replaceAll
-      ? workingCopy.split(edit.oldText).join(edit.newText)
-      : workingCopy.replace(edit.oldText, edit.newText);
+    workingCopy = applied.result!;
   }
   if (failures.length > 0) {
     const detail = failures.map((failure) => `  edit[${failure.index}]: ${failure.reason}`).join("\n");
@@ -156,5 +221,7 @@ export async function multiEdit(
   }
   // 全部成功,写盘一次
   await fs.writeFile(filePath, workingCopy, "utf8");
-  return `已原子编辑 ${input.path}(${input.edits.length} 处替换)`;
+  if (ctx?.fileState && ctx.runId) ctx.fileState.recordWrite(ctx.runId, projectRoot, input.path, workingCopy);
+  const diff = generateUnifiedDiff(input.path, original, workingCopy);
+  return `已原子编辑 ${input.path}(${input.edits.length} 处替换)\n\n${diff}`;
 }
