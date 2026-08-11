@@ -49,6 +49,7 @@ test("publishes the native update assets required by macOS and Windows", () => {
   assert.match(windowsInstallerSmoke, /SquirrelSetup\.log/);
   assert.match(windowsInstallerSmoke, /WaitForExit/);
   assert.match(windowsInstallerSmoke, /DeepCreator\.exe/);
+  assert.match(windowsInstallerSmoke, /DEEPCREATOR_INSTALLED_READY/);
   assert.match(runtimeHost, /fork\(path\.join\(__dirname, "runtime-worker\.js"\)/);
   assert.match(runtimeHost, /ELECTRON_RUN_AS_NODE: "1"/);
   assert.doesNotMatch(runtimeHost, /utilityProcess/);

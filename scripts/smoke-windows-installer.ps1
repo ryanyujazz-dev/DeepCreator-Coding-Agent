@@ -66,13 +66,37 @@ if ($installer.ExitCode -ne 0) {
   throw "Windows 安装器失败，退出码：$($installer.ExitCode)。"
 }
 
-$installedExecutable = Get-ChildItem -Path $installRoot -Filter "DeepCreator.exe" -File -Recurse |
-  Where-Object { $_.Directory.Name -like "app-*" } |
-  Sort-Object FullName -Descending |
-  Select-Object -First 1
+$installedExecutable = $null
+$installDeadline = (Get-Date).AddSeconds(120)
+while ($null -eq $installedExecutable -and (Get-Date) -lt $installDeadline) {
+  if (Test-Path $installRoot) {
+    $installedExecutable = Get-ChildItem -Path $installRoot -Filter "DeepCreator.exe" -File -Recurse |
+      Where-Object { $_.Directory.Name -like "app-*" } |
+      Sort-Object FullName -Descending |
+      Select-Object -First 1
+  }
+  if ($null -eq $installedExecutable) {
+    Start-Sleep -Milliseconds 500
+  }
+}
 if ($null -eq $installedExecutable) {
   Write-SquirrelLogs
   throw "安装器返回成功，但没有在 $installRoot 找到 DeepCreator.exe。"
+}
+
+$previousElectronRunAsNode = $env:ELECTRON_RUN_AS_NODE
+$env:ELECTRON_RUN_AS_NODE = "1"
+$runtimeProbe = 'const { DatabaseSync } = require("node:sqlite"); const database = new DatabaseSync(":memory:"); database.exec("SELECT 1"); database.close(); process.stdout.write("DEEPCREATOR_INSTALLED_READY")'
+$runtimeOutput = & $installedExecutable.FullName -e $runtimeProbe
+$runtimeExitCode = $LASTEXITCODE
+if ($null -eq $previousElectronRunAsNode) {
+  Remove-Item Env:ELECTRON_RUN_AS_NODE
+} else {
+  $env:ELECTRON_RUN_AS_NODE = $previousElectronRunAsNode
+}
+if ($runtimeExitCode -ne 0 -or ($runtimeOutput -join "") -notmatch "DEEPCREATOR_INSTALLED_READY") {
+  Write-SquirrelLogs
+  throw "安装后的 DeepCreator Runtime 验证失败，退出码：$runtimeExitCode。"
 }
 
 Write-Host "Windows 安装器实装成功：$($installedExecutable.FullName)"
