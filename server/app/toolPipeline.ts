@@ -178,7 +178,7 @@ export class ToolPipeline {
       if (existingActivityId) {
         input.store.append({
           activityId,
-          data: { kind: this.host.kind(prepared), tool: durableToolState(prepared) },
+          data: { kind: this.host.kind(prepared), phase: "executing", tool: durableToolState(prepared) },
           runId: input.runId,
           sessionId: input.sessionId,
           type: "activity.updated"

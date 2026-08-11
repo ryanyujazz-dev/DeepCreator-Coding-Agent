@@ -24,6 +24,9 @@ export interface ToolHost {
   has(name: string): boolean;
   kind(tool: ToolState): ActivityKind;
   names(): string[];
+  /** 预开占位元数据:模型流式输出 tool_call name 时(还无合法 args,不能 prepare),用它给 activity
+   *  填一个粗略 ToolState(action/targetKind/effect),执行时 toolPipeline 复用分支 durableToolState(prepared) 覆盖为精确值。 */
+  outline(name: string): { action: ToolState["action"]; effect: ToolState["effect"]; targetKind: ToolState["targetKind"] };
   parallel(name: string): boolean;
   prepare(input: {
     args: Record<string, unknown>;

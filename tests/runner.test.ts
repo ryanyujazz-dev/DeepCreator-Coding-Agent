@@ -741,7 +741,8 @@ test("persists semantic tool facts while provider schemas stay presentation-free
             kind: "tool_call",
             name: "read_file"
           });
-          assert.equal(store.getRun("run_tool")?.activities.some((activity) => activity.tool?.callId === "call_read"), false);
+          // 新设计:tool_call name 识别即预开 activity(phase generating_args),fragment 后该 activity 已存在。
+          assert.equal(store.getRun("run_tool")?.activities.some((activity) => activity.tool?.callId === "call_read"), true);
           return {
             answer: "",
             continuationMessage: {
@@ -780,7 +781,9 @@ test("persists semantic tool facts while provider schemas stay presentation-free
     assert.equal(readUnit?.tool?.stepHeadline, "read");
     assert.ok(readUnit?.tool?.modelStepId.startsWith("model_step_"));
     const events = store.readEvents("session_tool");
-    assert.equal(events.some((event) => event.type === "activity.updated"), false);
+    // 新设计:工具 name 识别预开 + arguments delta + phase 翻转都会发 activity.updated(read_file 此用例
+    // 的 fragment 带全量 argumentsText → arguments delta updated;pipeline.run 复用分支 → phase=executing updated)。
+    // 不再断言"无 updated";下面遍历仍保证 started/updated/finished 都不含 title、tool 不含 legacy 字段。
     for (const event of events) {
       if (event.type !== "activity.started" && event.type !== "activity.updated" && event.type !== "activity.finished") continue;
       assert.equal("title" in event.data, false, "new Activity Events persist facts, not rendered labels");
