@@ -28,8 +28,7 @@ const CONTROL_TOOLS = new Set([
   "invoke_capability",
   "stop_command",
   "submit_plan",
-  "update_tasks",
-  "wait_command"
+  "update_tasks"
 ]);
 
 export function headlinePriority(kind: AggregateHeadlineKind): number {

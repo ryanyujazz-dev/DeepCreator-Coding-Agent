@@ -23,7 +23,6 @@ const TOOL_LABELS: Record<string, string> = {
   stop_command: "停止命令",
   submit_plan: "提交实施方案",
   update_tasks: "更新执行任务",
-  wait_command: "等待命令",
   write_file: "写入文件"
 };
 

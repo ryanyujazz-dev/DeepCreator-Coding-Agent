@@ -17,7 +17,7 @@ import { applyPatch } from "./tools/applyPatch";
 import { globFiles, grepFiles } from "./tools/search";
 import { fetchUrl, webSearch } from "./tools/web";
 import { materializeSkillAsset, readSkillResource } from "./tools/skills";
-import { runCommandTool, runSkillScriptTool, stopCommandTool, waitCommandTool } from "./tools/managedCommands";
+import { runCommandTool, runSkillScriptTool, stopCommandTool } from "./tools/managedCommands";
 import { installSkill, previewSkillInstall } from "./tools/skillInstall";
 import { toolRegistry, toolSpecs, ToolRegistration } from "./tools/registry";
 import { SkillStore } from "./skillStore";
@@ -110,17 +110,19 @@ export async function executeTool(input: {
   if (name === "web_search") return { mutatedWorkspace: false, output: await webSearch(args as never, signal) };
   if (name === "run_command") {
     const command = String(args.command ?? "").trim();
+    // timeout_ms:模型可调前台等待上限(clamp 1..600000);run_in_background=true 时
+    // checkpointMs=1 → start() 的 wait 立即到点 → backgrounded,返回 running snapshot。
+    const requestedTimeout = Number(args.timeout_ms ?? 120_000);
+    const timeoutMs = args.run_in_background === true
+      ? 1
+      : Math.min(600_000, Math.max(1, Number.isFinite(requestedTimeout) ? requestedTimeout : 120_000));
     return runCommandTool({
       ...input,
-      checkpointMs: commandCheckpointMs
+      checkpointMs: timeoutMs
     }, command);
   }
   if (name === "run_skill_script") {
     return runSkillScriptTool({ ...input, checkpointMs: commandCheckpointMs }, skillCatalog, args);
-  }
-  if (name === "wait_command") {
-    const commandId = String(args.commandId ?? "").trim();
-    return waitCommandTool({ ...input, checkpointMs: commandCheckpointMs }, commandId);
   }
   if (name === "stop_command") {
     const commandId = String(args.commandId ?? "").trim();
@@ -263,7 +265,6 @@ export function toolTitle(name: string): string {
     search_memory: "检索记忆",
     save_memory: "保存记忆",
     run_command: "运行命令",
-    wait_command: "等待命令",
     stop_command: "停止命令",
     submit_plan: "提交实施方案",
     update_tasks: "更新执行任务",

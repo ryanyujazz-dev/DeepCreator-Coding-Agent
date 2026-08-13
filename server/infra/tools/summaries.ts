@@ -39,7 +39,6 @@ export function summarizeToolResult(name: string, args: Record<string, unknown>,
     const count = output.split("\n").filter((line) => !line.startsWith("(") && line.trim()).length;
     return `匹配 ${String(args.pattern ?? "")}，找到 ${count} 个文件`;
   }
-  if (name === "wait_command") return `已检查命令 ${String(args.commandId ?? "")}`;
   if (name === "stop_command") return `已停止命令 ${String(args.commandId ?? "")}`;
   if (name === "web_search") return `搜索 ${String(args.query ?? "")}`;
   if (name === "fetch_url") return `已抓取 ${String(args.url ?? "URL")}`;

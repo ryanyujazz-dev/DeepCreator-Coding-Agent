@@ -232,9 +232,9 @@
         "userConfirmation": "required_before_mutation"
       },
       "tools": {
-        "allowed": ["grep", "glob", "read_file", "enter_plan", "submit_plan", "edit_file", "run_command", "wait_command", "stop_command", "update_tasks"],
-        "forbidden": ["delete_file", "web_search"],
-        "expected": ["grep", "read_file", "run_command", "wait_command", "stop_command"]
+        "allowed": ["grep", "glob", "read_file", "enter_plan", "submit_plan", "edit_file", "run_command", "stop_command", "update_tasks"],
+        "forbidden": ["delete_file", "web_search", "wait_command"],
+        "expected": ["grep", "read_file", "run_command", "stop_command"]
       },
       "idealTrajectory": [
         { "intent": "定位命令与 Run 完成门", "observableOutcome": "确认 running command 没有阻断 final content。" },

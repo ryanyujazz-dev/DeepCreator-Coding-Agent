@@ -1142,6 +1142,7 @@ test("awaits a running managed command via harness callback and injects its sett
     },
     waitForSettled: async () => {
       settleWaits += 1;
+      return [];
     }
   };
   const provider: Provider = {
@@ -1218,23 +1219,24 @@ test("command control calls update the original activity without creating a slot
   let turns = 0;
   const controlToolHost = {
     ...toolHost,
-    execute: async (input: Parameters<typeof toolHost.execute>[0]) => input.name === "wait_command"
+    execute: async (input: Parameters<typeof toolHost.execute>[0]) => input.name === "stop_command"
       ? {
           command: "node long.cjs",
           commandActivityId: "activity_original_command",
           commandId: "command_original",
           commandRunId: "run_command_control",
           commandSessionId: "session_command_control",
-          commandState: "completed" as const,
+          commandState: "cancelled" as const,
           elapsedMs: 61_000,
-          exitCode: 0,
+          exitCode: 1,
           mutatedWorkspace: false,
-          output: "finished",
+          output: "stopped",
           outputTruncated: false
         }
       : toolHost.execute(input),
     runningCommands: () => [],
-    stopCommands: async () => undefined
+    stopCommands: async () => undefined,
+    waitForSettled: async () => []
   };
   const provider: Provider = {
     capabilities: {
@@ -1250,27 +1252,27 @@ test("command control calls update the original activity without creating a slot
         const argumentsText = JSON.stringify({ commandId: "command_original" });
         request.onFragment?.({
           argumentsText,
-          callId: "call_wait",
+          callId: "call_stop",
           index: 0,
           kind: "tool_call",
-          name: "wait_command"
+          name: "stop_command"
         });
         return {
           answer: "",
           continuationMessage: {
             role: "assistant",
             text: null,
-            toolCalls: [{ argumentsText, callId: "call_wait", index: 0, name: "wait_command" }]
+            toolCalls: [{ argumentsText, callId: "call_stop", index: 0, name: "stop_command" }]
           },
           finishCause: "tool_calls",
           thinking: "",
-          toolCalls: [{ argumentsText, callId: "call_wait", index: 0, name: "wait_command" }]
+          toolCalls: [{ argumentsText, callId: "call_stop", index: 0, name: "stop_command" }]
         };
       }
-      request.onFragment?.({ kind: "answer", text: "命令已完成。" });
+      request.onFragment?.({ kind: "answer", text: "命令已停止。" });
       return {
-        answer: "命令已完成。",
-        continuationMessage: { role: "assistant", text: "命令已完成。" },
+        answer: "命令已停止。",
+        continuationMessage: { role: "assistant", text: "命令已停止。" },
         finishCause: "complete",
         thinking: "",
         toolCalls: []
@@ -1289,7 +1291,7 @@ test("command control calls update the original activity without creating a slot
       title: "命令控制"
     });
     store.append({
-      data: { model: "test", prompt: "等待命令完成", startedAt: new Date().toISOString() },
+      data: { model: "test", prompt: "停止命令", startedAt: new Date().toISOString() },
       runId: "run_command_control",
       sessionId: "session_command_control",
       type: "run.started"
@@ -1312,7 +1314,7 @@ test("command control calls update the original activity without creating a slot
     await runAgent({
       model: "test",
       projectRoot: directory,
-      prompt: "等待命令完成",
+      prompt: "停止命令",
       provider,
       registry,
       runId: "run_command_control",
@@ -1323,8 +1325,8 @@ test("command control calls update the original activity without creating a slot
     });
 
     const run = store.getRun("run_command_control")!;
-    assert.equal(run.activities.find((activity) => activity.activityId === "activity_original_command")?.status, "completed");
-    assert.equal(run.activities.some((activity) => activity.tool?.callId === "call_wait"), false);
+    assert.equal(run.activities.find((activity) => activity.activityId === "activity_original_command")?.status, "cancelled");
+    assert.equal(run.activities.some((activity) => activity.tool?.callId === "call_stop"), false);
   } finally {
     store.close();
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });

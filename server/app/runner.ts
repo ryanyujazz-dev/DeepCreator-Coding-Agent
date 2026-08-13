@@ -299,7 +299,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     };
 
     const openToolActivityOnName = (params: { callId: string; index: number; itemId?: string; name: string }): string | undefined => {
-      if (params.name === "wait_command" || params.name === "stop_command") return undefined;
+      if (params.name === "stop_command") return undefined;
       if (!input.tools.has(params.name)) return undefined;
       const outline = input.tools.outline(params.name);
       const activityId = openActivity(input, {

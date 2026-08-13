@@ -21,7 +21,7 @@ function limitFor(toolName: string): number {
   // maxChars 的编号结果只发生在尾部裁剪,保住"读代码看头"的分布。
   if (toolName === "read_file") return 30_000;
   if (toolName === "edit_file" || toolName === "multi_edit") return 18_000;
-  if (toolName === "run_command" || toolName === "wait_command" || toolName === "stop_command") return 14_000;
+  if (toolName === "run_command" || toolName === "stop_command") return 14_000;
   if (toolName === "grep") return 14_000;
   if (toolName === "list_files" || toolName === "search_files" || toolName === "glob") return 12_000;
   return 8_000;

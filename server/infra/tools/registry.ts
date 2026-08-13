@@ -488,9 +488,11 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 执行 shell 命令(托管对象)
     name: "run_command",
-    description: "在项目根目录执行 shell 命令，例如构建、测试、Git 操作和启动进程。这是一个受托管对象：命令会在前台等待 60 秒；如果仍在运行，将返回 commandId，此时必须使用 wait_command 继续等待，或使用 stop_command 停止。\n\n适用场景：仅用于真实 shell 执行，包括构建（npm run build）、测试（npm test）、Git 操作（git commit）、启动开发服务器和运行脚本。\n\n不适用场景：搜索代码或文件，应分别使用 grep、glob、list_files 或 read_file。\n\n重要：绝不能通过 run_command 执行 rg、grep、findstr、find、cat、head、tail 或 ls。这些 shell 命令在 Windows 与 Git Bash 组合下经常因方言差异失败，也会绕过专用工具的依赖过滤和敏感文件保护。\n\nShell 语义（重要）：每次 run_command 都会 spawn 一个全新的隔离 shell——工作目录固定为项目根、不跨调用持久；环境变量也无法通过工具传入（本工具无 env 字段，只能继承进程环境）。需要在单条命令内传环境变量时，写成 VAR=val command 的前缀形式（仅对该条命令生效，不持久）。命令会在前台等待 60 秒，这 60 秒是前台等待检查点而非杀死超时——超时后进程转入后台并返回 commandId，进程继续运行直到自然结束或被 stop_command 终止。\n\n托管命令规则：\n- 命令运行超过 60 秒时会返回 commandId。使用 wait_command 继续等待，或使用 stop_command 终止。\n- 不要重复运行同一个长命令来轮询，这会创建重复进程。应对现有 commandId 使用 wait_command。\n- 仍有托管命令运行时，Run 不能结束。结束前必须调用 wait_command 或 stop_command。\n\n非安全命令，包括修改和网络访问，需要用户审批。对于非简单或潜在高风险命令，例如删除、强制推送或安装，请在调用前用 content 简短说明命令的作用和原因，帮助用户在审批前理解操作。\n\n示例：\n  run_command(command=\"npm run build\")\n  run_command(command=\"npm test\")\n  run_command(command=\"git add -A && git commit -m 'feat: add login page'\")",
+    description: "用途：在项目根目录执行一条真实 shell 命令（构建、测试、git、启服务、脚本）。\n\n适用场景：需要真正运行进程、产生副作用或产出运行时输出的操作。\n\n不适用场景：读文件内容（read_file）、按模式找文件（glob）、按内容搜（grep）、查 git 改动（git_diff）。能用专用工具就别用本工具；绝不能通过 run_command 执行 rg、grep、findstr、find、cat、head、tail 或 ls——这些命令在 Windows 与 Git Bash 组合下经常因方言差异失败，也会绕过专用工具的依赖过滤和敏感文件保护。\n\n重要：\n  - 每次调用 spawn 一个全新隔离 shell，cwd 固定为项目根目录，环境变量不跨调用持久（在同一条命令内用 VAR=val 前缀传递）。\n  - timeout_ms 是前台等待上限（默认 120000 / 上限 600000），不是杀死超时——到点未退出则命令转入后台继续运行，返回 running 态与 commandId。\n  - run_in_background=true 时立即转后台（不等），返回 commandId；命令自然结束后，Runtime 自动把最终输出作为续写消息送回（无需轮询、无需等待工具）。\n  - 返回正文始终含 commandId（供后续 stop_command 引用）。\n\n非安全命令，包括修改和网络访问，需要用户审批。对于非简单或潜在高风险命令，例如删除、强制推送或安装，请在调用前用 content 简短说明命令的作用和原因，帮助用户在审批前理解操作。\n\n示例：\n  run_command(command=\"npm test\", timeout_ms=300000)\n  run_command(command=\"npm run dev\", run_in_background=true)",
     inputSchema: objectSchema({
-      command: { type: "string", description: "要执行的 shell 命令，例如 'npm run build'、'git status' 或 'npx tsc --noEmit'" }
+      command: { type: "string", description: "要执行的 shell 命令，例如 'npm run build'、'git status' 或 'npx tsc --noEmit'" },
+      timeout_ms: { type: "number", description: "前台等待上限（毫秒），默认 120000、上限 600000；到点命令转后台继续运行而非被杀。" },
+      run_in_background: { type: "boolean", description: "true 时立即转后台并返回 commandId；命令自然结束后 Runtime 自动把最终输出作为续写消息送回。适合 dev server、watcher 等长驻进程。" }
     }, ["command"]),
     presentation: {
       groupMode: "standalone",
@@ -526,7 +528,7 @@ export const toolRegistry: ToolRegistration[] = [
   },
   {
     name: "run_skill_script",
-    description: "运行已受信任 Skill 在 skill.json 中声明的 .mjs 脚本。脚本工作目录固定为项目根目录，并复用 run_command 的 commandId、等待、停止、取消、输出裁剪和变更采集生命周期。\n\n适用场景：已加载的 Skill 明确要求执行其声明脚本。\n\n不适用场景：legacy Skill、未受信任 Skill、manifest 未声明的文件，或普通项目命令。\n\n重要：脚本以当前系统用户权限运行，但不会继承模型 API Key、Runtime Token 或 GitHub Token。仍在运行时必须使用 wait_command 或 stop_command 管理原 commandId。",
+    description: "运行已受信任 Skill 在 skill.json 中声明的 .mjs 脚本。脚本工作目录固定为项目根目录，并复用 run_command 的 commandId、停止、取消、输出裁剪和变更采集生命周期。\n\n适用场景：已加载的 Skill 明确要求执行其声明脚本。\n\n不适用场景：legacy Skill、未受信任 Skill、manifest 未声明的文件，或普通项目命令。\n\n重要：脚本以当前系统用户权限运行，但不会继承模型 API Key、Runtime Token 或 GitHub Token。脚本转后台后自然结束时，Runtime 会自动把最终输出作为续写消息送回；需要中途终止时对返回的 commandId 使用 stop_command。",
     inputSchema: objectSchema({
       capabilityId: { type: "string", description: "Skill 能力标识 capabilityId" },
       scriptId: { type: "string", description: "skill.json scripts 中声明的脚本标识" },
@@ -543,28 +545,11 @@ export const toolRegistry: ToolRegistration[] = [
     }
   },
   {
-    // 等待托管命令
-    name: "wait_command",
-    description: "等待仍在运行的托管命令。返回自上次轮询以来的 stdout、stderr 增量输出，并最多阻塞 60 秒；命令退出时会提前返回。\n\n适用场景：run_command 因命令运行超过 60 秒而返回 commandId；需要收集更多输出或确认命令是否完成。\n\n不适用场景：命令已经退出，结果已经直接返回；希望停止命令而不是等待，应使用 stop_command。\n\n重要：不要重新运行原命令来轮询，这会创建重复的托管对象。始终对现有 commandId 使用 wait_command。\n\n示例：\n  wait_command(commandId=\"cmd_a1b2c3\")",
-    inputSchema: objectSchema({
-      commandId: { type: "string", description: "run_command 在命令仍运行时返回的 commandId" }
-    }, ["commandId"]),
-    presentation: {
-      groupMode: "standalone",
-      detail: COLLAPSED_RAW_DETAIL,
-      effect: "control_only",
-      importance: "routine",
-      action: "execute",
-      targetKind: "process",
-      resolveTarget: (args) => String(args.commandId ?? "")
-    }
-  },
-  {
     // 停止托管命令
     name: "stop_command",
-    description: "停止托管命令及其完整进程树。对已经停止或退出的命令调用也是安全的，操作具有幂等性。\n\n适用场景：不再需要某个长时间运行的命令，例如开发服务器，需要终止它；Run 因命令仍在运行而无法结束，并且不希望继续等待。\n\n不适用场景：希望继续等待命令，应使用 wait_command。\n\n示例：\n  stop_command(commandId=\"cmd_a1b2c3\")",
+    description: "停止托管命令及其完整进程树。对已经停止或退出的命令调用也是安全的，操作具有幂等性。\n\n适用场景：不再需要某个长时间运行的命令（例如开发服务器、watcher），需要终止它；后台命令行为异常，需要中途放弃。\n\n不适用场景：希望拿到命令的最终结果——后台命令自然结束后，Runtime 会自动把最终输出作为续写消息送回，无需任何等待或停止。\n\n重要：commandId 来自 run_command 返回正文中的「命令标识：」行。\n\n示例：\n  stop_command(commandId=\"cmd_a1b2c3d4\")",
     inputSchema: objectSchema({
-      commandId: { type: "string", description: "要停止的托管命令 commandId" }
+      commandId: { type: "string", description: "要停止的托管命令 commandId（run_command 返回正文中的命令标识）" }
     }, ["commandId"]),
     presentation: {
       groupMode: "standalone",

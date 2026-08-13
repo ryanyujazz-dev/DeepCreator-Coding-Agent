@@ -139,10 +139,10 @@ test("yields long commands for follow-up control and preserves nonzero exits", a
     ? "exit /b 7"
     : family === "powershell" ? "exit 7" : "sh -c 'exit 7' | tail -1";
   try {
+    // timeout_ms=25:1 秒的命令必然超过前台等待上限 → 转后台返回 running(旧行为等价验证)
     const running = await executeTool({
       activityId: "activity_long",
-      args: { command: timeoutCommand },
-      commandCheckpointMs: 25,
+      args: { command: timeoutCommand, timeout_ms: 25 },
       name: "run_command",
       projectRoot,
       runId: "run_long",
@@ -150,6 +150,19 @@ test("yields long commands for follow-up control and preserves nonzero exits", a
     });
     assert.equal(running.commandState, "running");
     assert.ok(running.commandId);
+    // run_in_background=true:立即转后台返回 commandId,不等前台
+    const immediate = await executeTool({
+      activityId: "activity_bg",
+      args: { command: timeoutCommand, run_in_background: true },
+      name: "run_command",
+      projectRoot,
+      runId: "run_long",
+      sessionId: "session_long"
+    });
+    assert.equal(immediate.commandState, "running");
+    assert.ok(immediate.commandId);
+    await executeTool({ args: { commandId: immediate.commandId }, name: "stop_command", projectRoot });
+
     const stopped = await executeTool({
       args: { commandId: running.commandId },
       name: "stop_command",

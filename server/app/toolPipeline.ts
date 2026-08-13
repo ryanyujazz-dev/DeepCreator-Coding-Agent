@@ -166,7 +166,7 @@ export class ToolPipeline {
         callIndex: call.index,
         stepHeadline
       };
-      if (call.name === "wait_command" || call.name === "stop_command") {
+      if (call.name === "stop_command") {
         return await this.controlManagedCommand(input, call, modelStepId, args, prepared);
       }
       activityId ??= openActivity(input, {

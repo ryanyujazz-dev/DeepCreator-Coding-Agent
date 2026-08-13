@@ -38,7 +38,6 @@ const WORKER_TOOLS = new Set([
   "install_skill",
   "run_skill_script",
   "run_command",
-  "wait_command",
   "stop_command"
 ]);
 

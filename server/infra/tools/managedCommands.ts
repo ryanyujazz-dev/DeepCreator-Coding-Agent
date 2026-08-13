@@ -80,16 +80,6 @@ export async function runSkillScriptTool(
   return result(snapshot, prepared.mutatesWorkspace);
 }
 
-export async function waitCommandTool(input: ManagedToolInput, commandId: string): Promise<ToolResult> {
-  if (!commandId) throw new Error("commandId 不能为空。");
-  const existing = commandManager.get(commandId);
-  if (!existing) throw new Error(`未找到命令：${commandId}`);
-  const snapshot = await commandManager.wait(commandId, input.checkpointMs, input.signal);
-  const output = result(snapshot, skillCommandMutations.get(commandId) ?? !analyzeCommand(existing.command).readOnly);
-  if (snapshot.state !== "running") skillCommandMutations.delete(commandId);
-  return output;
-}
-
 export async function stopCommandTool(commandId: string): Promise<ToolResult> {
   if (!commandId) throw new Error("commandId 不能为空。");
   const existing = commandManager.get(commandId);

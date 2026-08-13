@@ -9,7 +9,7 @@ import {
   HardFailure
 } from "./types";
 
-const CONTROL_TOOLS = new Set(["ask_user", "enter_plan", "submit_plan", "update_tasks", "wait_command", "stop_command"]);
+const CONTROL_TOOLS = new Set(["ask_user", "enter_plan", "submit_plan", "update_tasks", "stop_command"]);
 const VERIFY_COMMAND = /(?:^|\s|\/)(?:npm|pnpm|yarn|bun|npx|node|tsx|pytest|python|cargo|go|dotnet|gradle|mvn).{0,80}(?:test|build|lint|check|typecheck|verify)|(?:test|build|lint|typecheck|verify)(?:\s|$)/i;
 const SUCCESS_CLAIM = /(?:已经|已|均已|全部).{0,12}(?:完成|修复|解决|通过|成功)|(?:测试|构建|验证).{0,8}(?:通过|成功)/;
 const SECRET = /(?:sk-[a-zA-Z0-9_-]{12,}|(?:api[_-]?key|token|secret)\s*[:=]\s*["']?[a-zA-Z0-9_./+-]{16,})/i;
