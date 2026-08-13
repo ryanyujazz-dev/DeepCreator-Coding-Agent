@@ -294,6 +294,8 @@ export function createToolHost(skillCatalog = defaultSkillCatalog, skillStore?: 
     runningCommands: (runId) => commandManager.running(runId),
     specs: toolSpecs,
     stopCommands: (runId) => commandManager.stopRun(runId),
+    takeSettledCommands: (runId) => commandManager.takeSettled(runId),
+    waitForSettled: (runId, signal) => commandManager.waitForSettled(runId, signal),
     summarizeArgs: summarizeToolArguments,
     summarizeResult: summarizeToolResult,
     title: toolTitle

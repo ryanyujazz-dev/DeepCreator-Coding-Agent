@@ -107,6 +107,8 @@ export function createAgentToolHost(delegate: ToolHost, definition: AgentDefinit
     runningCommands: delegate.runningCommands.bind(delegate),
     specs: delegate.specs.filter((spec) => allowed.has(spec.name)),
     stopCommands: delegate.stopCommands.bind(delegate),
+    takeSettledCommands: delegate.takeSettledCommands.bind(delegate),
+    waitForSettled: delegate.waitForSettled.bind(delegate),
     summarizeArgs: delegate.summarizeArgs.bind(delegate),
     summarizeResult: delegate.summarizeResult.bind(delegate),
     title: delegate.title.bind(delegate)

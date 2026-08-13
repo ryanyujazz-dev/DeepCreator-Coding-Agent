@@ -1118,11 +1118,13 @@ test("publishes a Chat apply_patch draft before requesting approval", async () =
   }
 });
 
-test("does not accept final content while a managed command is running", async () => {
+test("awaits a running managed command via harness callback and injects its settled output", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-gate-"));
   const store = new RuntimeStore(directory);
   let commandChecks = 0;
-  let correctionSeen = false;
+  let settleWaits = 0;
+  let delivered = false; // takeSettledCommands 消费一次即空(镜像 commandManager.takeSettled)
+  let injectionSeen = false;
   let stopCalls = 0;
   let turns = 0;
   const guardedToolHost = {
@@ -1130,7 +1132,17 @@ test("does not accept final content while a managed command is running", async (
     runningCommands: () => commandChecks++ === 0
       ? [{ commandId: "command_live", elapsedMs: 60_000 }]
       : [],
-    stopCommands: async () => { stopCalls += 1; }
+    stopCommands: async () => { stopCalls += 1; },
+    takeSettledCommands: () => {
+      if (settleWaits >= 1 && !delivered) {
+        delivered = true;
+        return [{ command: "npm run dev", commandId: "command_live", exitCode: 0, output: "ready", state: "completed" }];
+      }
+      return [];
+    },
+    waitForSettled: async () => {
+      settleWaits += 1;
+    }
   };
   const provider: Provider = {
     capabilities: {
@@ -1142,10 +1154,10 @@ test("does not accept final content while a managed command is running", async (
     },
     async stream(request) {
       turns += 1;
-      correctionSeen ||= request.messages.some((message) =>
-        message.role === "user" && message.text?.includes("当前文本不能作为最终回答")
+      injectionSeen ||= request.messages.some((message) =>
+        message.role === "user" && message.text?.includes("命令 command_live 已结束。状态：completed，退出码：0")
       );
-      const answer = turns === 1 ? "命令已经可以了。" : "命令结束，检查完成。";
+      const answer = turns === 1 ? "命令还在跑。" : "命令结束，检查完成。";
       request.onFragment?.({ kind: "answer", text: answer });
       return {
         answer,
@@ -1187,8 +1199,11 @@ test("does not accept final content while a managed command is running", async (
       tools: guardedToolHost
     });
 
+    // 第一轮模型给出"最终文本"但命令仍在运行 → runner 挂起 waitForSettled,
+    // 注入 settle 续写消息,第二轮才接受最终回答。不再出现"请调用 wait_command"重试文案。
     assert.equal(turns, 2);
-    assert.equal(correctionSeen, true);
+    assert.equal(settleWaits, 1);
+    assert.equal(injectionSeen, true);
     assert.equal(stopCalls, 1);
     assert.equal(store.getRun("run_command_gate")?.answer, "命令结束，检查完成。");
   } finally {

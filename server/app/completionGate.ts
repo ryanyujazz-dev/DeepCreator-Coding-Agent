@@ -3,7 +3,6 @@ import { Run } from "../../shared/contracts/runtime";
 const TASK_MAINTENANCE_NEUTRAL_TOOLS = new Set(["ask_user", "enter_plan", "submit_plan", "update_tasks"]);
 
 export type CompletionBlock =
-  | { kind: "running_commands"; retryMessage: string }
   | { issue: string; kind: "task_maintenance"; retryMessage: string };
 
 export function finalTaskMaintenanceIssue(run: Run): string | undefined {
@@ -24,13 +23,9 @@ export function finalTaskMaintenanceIssue(run: Run): string | undefined {
   return undefined;
 }
 
-export function evaluateCompletion(input: { run?: Run; runningCommandCount: number }): CompletionBlock | undefined {
-  if (input.runningCommandCount > 0) {
-    return {
-      kind: "running_commands",
-      retryMessage: `当前文本不能作为最终回答，因为仍有 ${input.runningCommandCount} 个托管命令正在运行。请调用 wait_command 等待，或调用 stop_command 结束命令；所有命令进入终态后才能给出最终回答。`
-    };
-  }
+export function evaluateCompletion(input: { run?: Run }): CompletionBlock | undefined {
+  // 后台命令不再走重试门:runner 在 no-tool_calls 路径会先挂起等待命令 settle
+  // 并把结果作为续写消息注入(harness 回调),门在这里只会看到已终态的命令。
   const issue = input.run ? finalTaskMaintenanceIssue(input.run) : undefined;
   if (!issue) return undefined;
   return {

@@ -181,6 +181,18 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     messages.push(...results);
     return results.length > 0;
   };
+  // harness 回调(批次 3.1b):后台命令自然结束后把最终输出作为续写消息注入,
+  // 文案与 toolPipeline.settleManagedCommand 持久化的 context_update 逐字一致——
+  // 崩溃续跑时 runtimeContext 以同形文本重放,模型在两条路径看到一致的消息形态。
+  const settledCommandMessage = (settled: { command: string; commandId: string; exitCode?: number; output: string; state: string }) =>
+    `命令 ${settled.commandId} 已结束。状态：${settled.state}，退出码：${settled.exitCode ?? "未知"}。\n${settled.output}`;
+  const applySettledCommandResults = () => {
+    const settled = input.tools.takeSettledCommands?.(input.runId) ?? [];
+    for (const snapshot of settled) {
+      messages.push({ role: "user", text: settledCommandMessage(snapshot) });
+    }
+    return settled.length > 0;
+  };
 
   while (true) {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
@@ -574,14 +586,12 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       throw new ModelProtocolError(response.protocolIssue.message);
     }
 
-    const runningCommandsAtFinal = response.toolCalls.length === 0
-      ? input.tools.runningCommands(input.runId)
-      : [];
+    // completionGate 只剩任务维护门;后台命令由下方 harness 回调(harness 回调注入)接管。
     const currentRun = response.toolCalls.length === 0
       ? input.store.getRun(input.runId)
       : undefined;
     const completionBlock = response.toolCalls.length === 0
-      ? evaluateCompletion({ run: currentRun, runningCommandCount: runningCommandsAtFinal.length })
+      ? evaluateCompletion({ run: currentRun })
       : undefined;
     if (thinkingActivity) {
       const currentThinking = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === thinkingActivity);
@@ -611,13 +621,21 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         applyDelegationResults();
         continue;
       }
-      if (completionBlock?.kind === "task_maintenance") {
+      // harness 回调:有未终态后台命令 → 挂起等 settle,把结果作为续写送回,
+      // 不再逼模型调 wait_command/stop_command 轮询。
+      if (applySettledCommandResults()) {
+        continue;
+      }
+      if (input.tools.runningCommands(input.runId).length > 0) {
+        await input.tools.waitForSettled(input.runId, input.signal);
+        applySettledCommandResults();
+        continue;
+      }
+      if (completionBlock) {
         taskMaintenanceCorrectionCount += 1;
         if (taskMaintenanceCorrectionCount > 2) {
           throw new ModelProtocolError(`模型未能在最终回答前维护任务计划：${completionBlock.issue}。`);
         }
-      }
-      if (completionBlock) {
         messages.push({ role: "user", text: completionBlock.retryMessage });
         continue;
       }
@@ -642,6 +660,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       if ((input.delegations?.activeCount(input.runId) ?? 0) > 0) {
         await input.delegations!.waitForResult(input.runId, input.signal);
         applyDelegationResults();
+        continue;
+      }
+      // finishRun 前兜底:命令在模型流式输出期间 settle(未走 no-tool_calls 分支)
+      // 或 stopCommands 的取消 settle 落入 newlySettled → 先注入再收尾判断。
+      if (applySettledCommandResults()) {
         continue;
       }
       finishRun({

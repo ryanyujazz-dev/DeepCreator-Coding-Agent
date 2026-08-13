@@ -22,10 +22,11 @@ function run(overrides: Partial<Run> = {}): Run {
   };
 }
 
-test("blocks final content while a managed command remains active", () => {
-  const block = evaluateCompletion({ run: run(), runningCommandCount: 2 });
-  assert.equal(block?.kind, "running_commands");
-  assert.match(block?.retryMessage ?? "", /2 个托管命令/);
+test("running commands no longer gate completion: the runner awaits them via harness callback", () => {
+  // running_commands 门已删除:后台命令由 runner 的 waitForSettled 挂起等待,
+  // 命令 settle 后结果作为续写消息注入,不依赖模型调用 wait/stop。
+  // 无任务清单时 evaluateCompletion 对纯 running 命令场景返回 undefined(不拦截)。
+  assert.equal(evaluateCompletion({ run: run() }), undefined);
 });
 
 test("requires a final task update after the last work tool", () => {
@@ -52,7 +53,7 @@ test("requires a final task update after the last work tool", () => {
     tasks: [{ label: "检查入口", status: "completed", taskId: "task_read" }]
   });
   assert.equal(finalTaskMaintenanceIssue(current), "最后一次 update_tasks 早于最后一次工作工具调用");
-  assert.equal(evaluateCompletion({ run: current, runningCommandCount: 0 })?.kind, "task_maintenance");
+  assert.equal(evaluateCompletion({ run: current })?.kind, "task_maintenance");
 });
 
 test("accepts completion only after all Runtime-owned facts are terminal", () => {
@@ -78,5 +79,5 @@ test("accepts completion only after all Runtime-owned facts are terminal", () =>
     }],
     tasks: [{ label: "检查入口", status: "completed", taskId: "task_read" }]
   });
-  assert.equal(evaluateCompletion({ run: current, runningCommandCount: 0 }), undefined);
+  assert.equal(evaluateCompletion({ run: current }), undefined);
 });

@@ -79,7 +79,7 @@ test("cancelling a wait does not stop the managed command", async () => {
       projectRoot: directory,
       runId: "run_original",
       sessionId: "session_wait_abort"
-    }, 30);
+    }, 200);
     const controller = new AbortController();
     const waiting = manager.wait(running.commandId, 5_000, controller.signal);
     controller.abort();
@@ -137,6 +137,49 @@ test("concurrent waiters all receive the settled snapshot instead of one rejecti
     assert.equal(first.state, "completed");
     assert.equal(second.state, "completed");
     assert.equal(first.commandId, second.commandId);
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("waitForSettled resolves with each settled background snapshot exactly once", async () => {
+  const directory = fixture();
+  const manager = new CommandManager();
+  // 一条 150ms 后自然退出(后台化)+ 一条常驻(永不退出,验证只有全部终态才唤醒)。
+  writeFileSync(path.join(directory, "exits.cjs"), "setTimeout(() => process.exit(0), 150);\n");
+  writeFileSync(path.join(directory, "stays.cjs"), "setInterval(() => undefined, 20);\n");
+  try {
+    const exits = await manager.start({
+      activityId: "activity_exits",
+      command: "node exits.cjs",
+      projectRoot: directory,
+      runId: "run_settled",
+      sessionId: "session_settled"
+    }, 30);
+    const stays = await manager.start({
+      activityId: "activity_stays",
+      command: "node stays.cjs",
+      projectRoot: directory,
+      runId: "run_settled",
+      sessionId: "session_settled"
+    }, 30);
+    assert.equal(exits.state, "running");
+    assert.equal(stays.state, "running");
+
+    const waiting = manager.waitForSettled("run_settled");
+    // 命令尚未全部 settle → promise 不得提前 resolve
+    const early = await Promise.race([waiting.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50))]);
+    assert.equal(early, false);
+
+    await manager.stop(stays.commandId);
+    const settled = await waiting;
+    assert.equal(settled.length, 2); // exits 自然结束 + stays 被 stop → 都进 newlySettled
+    assert.ok(settled.every((snapshot) => ["completed", "cancelled", "failed"].includes(snapshot.state)));
+    // 消费一次即清空:再次取为空,不会重复注入
+    assert.equal(manager.takeSettled("run_settled").length, 0);
+    // 全部终态后新调用立即空 resolve
+    assert.equal((await manager.waitForSettled("run_settled")).length, 0);
   } finally {
     await manager.stopAll();
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
