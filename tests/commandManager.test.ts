@@ -27,7 +27,7 @@ test("yields a live command and settles it exactly once when stopped", async () 
       sessionId: "session_long"
     }, 30);
     assert.equal(running.state, "running");
-    assert.match(running.commandId, /^command_/);
+    assert.match(running.commandId, /^cmd_[a-z0-9_-]{8}$/);
 
     const waiting = await manager.wait(running.commandId, 30);
     assert.equal(waiting.state, "running");
@@ -109,6 +109,34 @@ test("bounds retained command output and reports truncation", async () => {
     assert.equal(completed.outputTruncated, true);
     assert.match(completed.output, /Runtime 省略了/);
     assert.ok(Buffer.byteLength(completed.output) < COMMAND_OUTPUT_MAX_BYTES + 1_000);
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("concurrent waiters all receive the settled snapshot instead of one rejecting", async () => {
+  const directory = fixture();
+  const manager = new CommandManager();
+  writeFileSync(path.join(directory, "long.cjs"), "setTimeout(() => process.exit(0), 150);\n");
+  try {
+    const running = await manager.start({
+      activityId: "activity_concurrent",
+      command: "node long.cjs",
+      projectRoot: directory,
+      runId: "run_concurrent",
+      sessionId: "session_concurrent"
+    }, 30);
+    assert.equal(running.state, "running");
+    // 模型在同一轮 tool_calls 里并发 wait 同一条命令是正常用法:
+    // 两个 waiter 都应在命令结束后拿到终态,而不是后者抛"已有一个等待操作"。
+    const [first, second] = await Promise.all([
+      manager.wait(running.commandId, 5_000),
+      manager.wait(running.commandId, 5_000)
+    ]);
+    assert.equal(first.state, "completed");
+    assert.equal(second.state, "completed");
+    assert.equal(first.commandId, second.commandId);
   } finally {
     await manager.stopAll();
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });

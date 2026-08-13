@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveRuntimeShell } from "./shell";
 
@@ -60,7 +60,6 @@ type CommandEntry = CommandCallbacks & {
   stopPromise?: Promise<CommandSnapshot>;
   stopRequested: boolean;
   tail: Buffer;
-  waiting: boolean;
 };
 
 function redact(text: string): string {
@@ -113,6 +112,14 @@ function appendOutput(entry: CommandEntry, raw: Buffer): void {
 export class CommandManager {
   private readonly commands = new Map<string, CommandEntry>();
 
+  // 短 slug(如 cmd_a1b2c3d4):模型可见、可在对话中引用;碰撞由生成循环兜底。
+  private nextCommandId(): string {
+    for (;;) {
+      const id = `cmd_${randomBytes(6).toString("base64url").toLowerCase()}`;
+      if (!this.commands.has(id)) return id;
+    }
+  }
+
   async start(input: {
     activityId: string;
     command: string;
@@ -141,7 +148,7 @@ export class CommandManager {
       ...input,
       backgrounded: false,
       child,
-      commandId: `command_${randomUUID()}`,
+      commandId: this.nextCommandId(),
       done,
       emittedBytes: 0,
       finishDone,
@@ -152,8 +159,7 @@ export class CommandManager {
       startedAt: Date.now(),
       state: "running",
       stopRequested: false,
-      tail: Buffer.alloc(0),
-      waiting: false
+      tail: Buffer.alloc(0)
     };
     this.commands.set(entry.commandId, entry);
 
@@ -187,9 +193,9 @@ export class CommandManager {
   ): Promise<CommandSnapshot> {
     const entry = this.require(commandId);
     if (entry.state !== "running") return this.snapshot(entry, true);
-    if (entry.waiting) throw new Error(`命令 ${commandId} 已有一个等待操作。`);
     if (signal?.aborted) throw this.abortError();
-    entry.waiting = true;
+    // 并发等待是合法用法(模型可在同一轮发出多个 wait):各 waiter 独立持有
+    // timer/abort,共享同一个 entry.done,先醒的先拿 snapshot,互不排斥。
     let timer: ReturnType<typeof setTimeout> | undefined;
     let abort: (() => void) | undefined;
     try {
@@ -204,7 +210,6 @@ export class CommandManager {
       ]);
       return this.snapshot(entry, true);
     } finally {
-      entry.waiting = false;
       if (timer) clearTimeout(timer);
       if (abort) signal?.removeEventListener("abort", abort);
     }

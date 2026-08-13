@@ -40,6 +40,7 @@ export function reduceToolEvidence(toolName: string, result: ToolResult, sensiti
   const retainedBytes = utf8ByteLength(body);
   const facts = [
     result.command ? `命令：${result.command}` : undefined,
+    result.commandId ? `命令标识：${result.commandId}` : undefined,
     result.exitCode !== undefined ? `退出码：${result.exitCode}` : undefined,
     result.timedOut ? "状态：执行超时" : undefined,
     wasTruncated ? `裁剪：原始 ${originalBytes} 字节，保留 ${retainedBytes} 字节` : undefined
