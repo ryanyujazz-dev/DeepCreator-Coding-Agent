@@ -72,6 +72,7 @@ export class ControlToolHandlers {
       case "submit_plan": return this.submitPlan(input);
       case "update_tasks": return this.updateTasks(input);
       case "search_memory": return this.searchMemory(input);
+      case "save_memory": return this.saveMemory(input);
       case "delegate":
       case "spawn_agent": return this.delegateTask(input);
       default: return undefined;
@@ -255,6 +256,33 @@ export class ControlToolHandlers {
     const summary = `已读取 ${facts.length} 条受控记忆。`;
     this.callbacks.finishActivity(context, activityId, { body: summary, status: "completed", tool: { ...prepared, resultSummary: summary } });
     this.callbacks.record(context, call, modelStepId, text, { action: "search", target: "Memory" });
+    return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "Memory" };
+  }
+
+  private saveMemory(input: Parameters<ControlToolHandlers["handle"]>[0]): ToolOutcome {
+    const { activityId, args, call, context, modelStepId, prepared } = input;
+    const statement = String(args.statement ?? "").trim();
+    if (!statement) throw new Error("save_memory 需要 statement。");
+    const validCategories = ["preference", "project_fact", "workflow", "known_issue"] as const;
+    const category = validCategories.includes(args.category as (typeof validCategories)[number])
+      ? (args.category as (typeof validCategories)[number])
+      : undefined;
+    if (!category) throw new Error("save_memory 的 category 必须是 preference/project_fact/workflow/known_issue 之一。");
+    const visibility = args.visibility === "project" ? "project" : "personal";
+    const confidence = Math.min(1, Math.max(0, Number(args.confidence ?? 0.7)));
+    // saveMemory → MemoryStore.save,凭据拦截(sk-/api_key=/token=/password=/secret=)由底层统一执行。
+    // 写入立即持久化,但不刷新当前会话信封——<memory-index> 在下次压缩/新会话时被动重建(缓存保护)。
+    const fact = context.store.saveMemory({
+      category,
+      confidence,
+      provenance: "model",
+      projectRoot: visibility === "project" ? context.projectRoot : undefined,
+      statement,
+      visibility
+    });
+    const text = `已保存记忆（${fact.category}/${fact.visibility}）。该记忆将在下次上下文压缩或新会话时进入记忆索引；当前会话索引不变（缓存保护）。`;
+    this.callbacks.finishActivity(context, activityId, { body: text, status: "completed", tool: { ...prepared, resultSummary: text } });
+    this.callbacks.record(context, call, modelStepId, JSON.stringify({ memoryId: fact.memoryId, category: fact.category, visibility: fact.visibility }), { action: "modify", target: "Memory" });
     return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false, target: "Memory" };
   }
 

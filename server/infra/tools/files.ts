@@ -4,7 +4,7 @@ import { ArtifactEntry } from "../../../shared/contracts/runtime";
 import { stableDigest } from "../../../shared/domain/digest";
 import type { FileStateStore } from "../../app/fileStateStore";
 import { ensureInsideRoot, isSensitivePath } from "./security";
-import { splitLines, joinLines, locateLineMatches, nearestLine } from "./textMatch";
+import { splitLines, joinLines, locateLineMatches, nearestContext } from "./textMatch";
 import { generateUnifiedDiff } from "./diff";
 
 export type FileToolContext = { runId?: string; fileState?: FileStateStore };
@@ -142,9 +142,15 @@ export async function editFile(
   const applied = applyEditStrictRelaxed(contents, input, window);
   if (applied.error) {
     if (applied.error === "未找到") {
-      const near = nearestLine(splitLines(contents).lines, input.oldText);
-      const hint = near >= 0 ? `，第 ${near + 1} 行附近有相似内容` : "";
-      throw new Error(`未在 ${input.path} 中找到 oldText（精确与忽略尾随空白均不匹配${hint}）。`);
+      const sourceLines = splitLines(contents).lines;
+      const ctx = nearestContext(sourceLines, input.oldText, 5);
+      const oldFirstLine = input.oldText.split("\n")[0]?.trimEnd() ?? "";
+      const near = ctx.line >= 0 ? `，第 ${ctx.line + 1} 行附近有相似内容` : "";
+      const contextBlock = ctx.snippet.length > 0
+        ? `\n附近实际行原文（供 diff 出空白/缩进差异后重试）:\n${ctx.snippet.join("\n")}`
+        : "";
+      const wantBlock = oldFirstLine ? `\n期望 oldText 首行: ${oldFirstLine}` : "";
+      throw new Error(`未在 ${input.path} 中找到 oldText（精确与忽略尾随空白均不匹配${near}）。${wantBlock}${contextBlock}`);
     }
     const count = applied.error.match(/\((\d+)\)/)?.[1] ?? "?";
     if (applied.error.startsWith("多处")) {
@@ -205,11 +211,23 @@ export async function multiEdit(
       : undefined;
     const applied = applyEditStrictRelaxed(workingCopy, edit, editWindow);
     if (applied.error) {
-      const detail = applied.error === "未找到"
+      const base = applied.error === "未找到"
         ? "未找到 oldText（精确与忽略尾随空白均不匹配）"
         : applied.error.startsWith("多处")
           ? `oldText 出现 ${applied.error.match(/\((\d+)\)/)?.[1] ?? "?"} 次,需提供更精确文本或设 replaceAll=true`
           : `oldText 模糊匹配 ${applied.error.match(/\((\d+)\)/)?.[1] ?? "?"} 处（忽略尾随空白）`;
+      // 编辑侧最高杠杆:未找到时回显 oldText 首行 + 当前 workingCopy 附近实际行原文,
+      // 让模型一次 diff 出空白/缩进差异再重试(注意 workingCopy 已含前序 edit,行号会漂移)。
+      let detail = base;
+      if (applied.error === "未找到") {
+        const ctx = nearestContext(splitLines(workingCopy).lines, edit.oldText, 5);
+        const oldFirstLine = edit.oldText.split("\n")[0]?.trimEnd() ?? "";
+        if (oldFirstLine) detail += `\n  期望 oldText 首行: ${oldFirstLine}`;
+        if (ctx.snippet.length > 0) {
+          const loc = ctx.line >= 0 ? `（第 ${ctx.line + 1} 行附近,行号已含前序编辑）` : "";
+          detail += `\n  附近实际行原文${loc}:\n${ctx.snippet.map((line) => `    ${line}`).join("\n")}`;
+        }
+      }
       failures.push({ index, reason: detail });
       continue;
     }

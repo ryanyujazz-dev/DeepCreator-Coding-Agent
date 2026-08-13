@@ -156,7 +156,7 @@ export function toolNames(): string[] {
 export function toolCanRunInParallel(name: string): boolean {
   if (name === "delegate" || name === "spawn_agent") return true;
   if (name === "run_command") return true;
-  if (name === "search_memory") return false;
+  if (name === "search_memory" || name === "save_memory") return false;
   const registration = toolRegistry.find((tool) => tool.name === name);
   return registration?.presentation.effect === "read_only";
 }
@@ -261,6 +261,7 @@ export function toolTitle(name: string): string {
     glob: "匹配文件路径",
     search_capabilities: "搜索能力",
     search_memory: "检索记忆",
+    save_memory: "保存记忆",
     run_command: "运行命令",
     wait_command: "等待命令",
     stop_command: "停止命令",

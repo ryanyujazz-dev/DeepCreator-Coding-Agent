@@ -192,3 +192,31 @@ test("multi_edit: reports all failed edits in the error message", async () => {
     rmSync(directory, { force: true, recursive: true });
   }
 });
+
+test("multi_edit: 失败项含 oldText 首行 + 附近实际行原文(失败自纠正)", async () => {
+  const directory = setupWorkspace();
+  try {
+    writeFileSync(path.join(directory, "nearby-fail.ts"), "alpha\nbeta gamma\ndelta\n");
+    let caught: unknown;
+    try {
+      await executeTool({
+        args: {
+          path: "nearby-fail.ts",
+          edits: [{ oldText: "beta gammax", newText: "x" }] // 含相似前缀,触发 nearestLine 子串命中
+        },
+        name: "multi_edit",
+        projectRoot: directory
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.ok(caught instanceof Error, "expected multi_edit to throw");
+    const message = caught.message;
+    assert.match(message, /edit\[0\]/);
+    assert.match(message, /期望 oldText 首行: beta gammax/);
+    assert.match(message, /附近实际行原文/);
+    assert.match(message, /2: beta gamma/); // 命中行的实际原文
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

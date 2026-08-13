@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { locateLineMatches, splitLines, joinLines, nearestLine } from "../server/infra/tools/textMatch";
+import { locateLineMatches, splitLines, joinLines, nearestLine, nearestContext } from "../server/infra/tools/textMatch";
 
 test("splitLines/joinLines 保留 trailingNewline", () => {
   const { lines, trailingNewline } = splitLines("a\nb\n");
@@ -52,4 +52,23 @@ test("nearestLine: 精确命中返回行号", () => {
 
 test("nearestLine: 无匹配返回 -1", () => {
   assert.equal(nearestLine(["a", "b"], "xyz"), -1);
+});
+
+test("nearestContext: 命中行附近返回带 1-indexed 行号的实际原文", () => {
+  const source = ["alpha", "beta", "gamma", "delta", "epsilon"];
+  const ctx = nearestContext(source, "beta", 1);
+  assert.equal(ctx.line, 1);
+  assert.deepEqual(ctx.snippet, ["1: alpha", "2: beta", "3: gamma"]);
+});
+
+test("nearestContext: span 边界自动裁剪(命中首行)", () => {
+  const ctx = nearestContext(["first", "second", "third"], "first", 5);
+  assert.equal(ctx.line, 0);
+  assert.deepEqual(ctx.snippet, ["1: first", "2: second", "3: third"]);
+});
+
+test("nearestContext: 无近似行返回空 snippet + line=-1", () => {
+  const ctx = nearestContext(["alpha", "beta"], "zzz");
+  assert.equal(ctx.line, -1);
+  assert.deepEqual(ctx.snippet, []);
 });

@@ -45,6 +45,20 @@ test("editFile: 未找到时报错带附近相似行提示", async () => {
   });
 });
 
+test("editFile: 未找到时报错含附近实际行原文 + oldText 首行(失败自纠正)", async () => {
+  await withDir(async (dir) => {
+    writeFileSync(join(dir, "f.txt"), "alpha\nbeta gamma\ndelta\nepsilon");
+    await assert.rejects(
+      editFile(dir, { path: "f.txt", oldText: "beta gammax", newText: "x" }), // 含相似前缀,触发 nearestLine 子串命中
+      (error: Error) =>
+        /未在 f\.txt 中找到 oldText/.test(error.message)
+        && /期望 oldText 首行: beta gammax/.test(error.message)
+        && /附近实际行原文/.test(error.message)
+        && /2: beta gamma/.test(error.message) // 命中行(1-indexed)的实际原文
+    );
+  });
+});
+
 test("editFile: oldText 空 → 提示用 write_file", async () => {
   await withDir(async (dir) => {
     writeFileSync(join(dir, "f.txt"), "x");

@@ -43,6 +43,7 @@ export function summarizeToolResult(name: string, args: Record<string, unknown>,
   if (name === "stop_command") return `已停止命令 ${String(args.commandId ?? "")}`;
   if (name === "web_search") return `搜索 ${String(args.query ?? "")}`;
   if (name === "fetch_url") return `已抓取 ${String(args.url ?? "URL")}`;
+  if (name === "save_memory") return `已保存记忆（${String(args.category ?? "")}/${String(args.visibility ?? "personal")}）`;
   if (name === "edit_file") return `已编辑 ${String(args.path ?? "文件")}`;
   if (name === "multi_edit") {
     const count = Array.isArray(args.edits) ? args.edits.length : 0;

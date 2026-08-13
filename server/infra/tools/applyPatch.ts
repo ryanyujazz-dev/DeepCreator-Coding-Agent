@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { ApplyPatchHunk, parseApplyPatch } from "../../domain/applyPatch";
 import { ensureInsideRoot } from "./security";
+import { nearestContext } from "./textMatch";
 
 function sameLines(left: string[], right: string[], start: number, relaxed: boolean): boolean {
   if (start + left.length > right.length) return false;
@@ -39,23 +40,30 @@ function applyHunks(filePath: string, contents: string, hunks: ApplyPatchHunk[])
   const source = contents.replaceAll("\r\n", "\n").split("\n");
   if (trailingNewline) source.pop();
   let cursor = 0;
-  for (const hunk of hunks) {
+  hunks.forEach((hunk, hunkIndex) => {
     const before = hunk.lines.filter((line) => line[0] !== "+").map((line) => line.slice(1));
     const after = hunk.lines.filter((line) => line[0] !== "-").map((line) => line.slice(1));
     const anchorIndex = hunk.anchor ? findAnchor(source, hunk.anchor, cursor) : -1;
+    // hunk[N] 编号 + 期望锚点/首行 + 附近实际行原文,让模型一次 diff 出差异。
+    const wantText = hunk.anchor ?? before[0] ?? "";
+    const ctx = nearestContext(source, wantText, 5);
+    const contextBlock = ctx.snippet.length > 0
+      ? `\n  附近实际行原文:\n${ctx.snippet.map((line) => `    ${line}`).join("\n")}`
+      : "";
+    const wantBlock = wantText ? `\n  期望锚点/首行: ${wantText}` : "";
     if (hunk.anchor && anchorIndex < 0) {
-      throw new Error(`apply_patch 无法在 ${filePath} 中定位锚点 ${hunk.anchor}。补丁草稿未应用。`);
+      throw new Error(`apply_patch 无法在 ${filePath} 中定位 hunk[${hunkIndex}] 的锚点 ${hunk.anchor}。补丁草稿未应用。${wantBlock}${contextBlock}`);
     }
     if (before.length === 0 && !hunk.anchor) {
-      throw new Error(`apply_patch 在 ${filePath} 中包含没有上下文或锚点的插入。补丁草稿未应用。`);
+      throw new Error(`apply_patch 在 ${filePath} 中的 hunk[${hunkIndex}] 没有上下文或锚点。补丁草稿未应用。`);
     }
     const searchFrom = anchorIndex >= 0 ? anchorIndex : cursor;
     const found = before.length === 0 ? anchorIndex + 1 : findHunk(source, before, searchFrom, anchorIndex >= 0);
-    if (found === -2) throw new Error(`apply_patch 在 ${filePath} 中的 hunk 匹配多处，请增加 @@ 锚点或上下文。补丁草稿未应用。`);
-    if (found < 0) throw new Error(`apply_patch 无法在 ${filePath} 中定位 hunk。补丁草稿未应用。`);
+    if (found === -2) throw new Error(`apply_patch 在 ${filePath} 中的 hunk[${hunkIndex}] 匹配多处，请增加 @@ 锚点或上下文。补丁草稿未应用。${wantBlock}`);
+    if (found < 0) throw new Error(`apply_patch 无法在 ${filePath} 中定位 hunk[${hunkIndex}]。补丁草稿未应用。${wantBlock}${contextBlock}`);
     source.splice(found, before.length, ...after);
     cursor = found + after.length;
-  }
+  });
   return source.join("\n") + (trailingNewline ? "\n" : "");
 }
 

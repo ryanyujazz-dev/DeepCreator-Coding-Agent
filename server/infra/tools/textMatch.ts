@@ -79,3 +79,26 @@ export function nearestLine(source: string[], oldText: string): number {
   }
   return best;
 }
+
+/**
+ * 在 nearestLine 命中行附近取一段实际行原文,供「未找到」错误让模型 diff 出差异。
+ * 返回 { line, snippet }:line 是命中行(0-indexed,-1 表示无近似),snippet 是
+ * `行号(1-indexed): 实际原文` 的数组(前后各 span 行,边界自动裁剪)。
+ * 设计意图:Claude Code Edit 的灵魂是「失败即反馈」——错误信息里直接给附近实际行,
+ * 模型能一次 diff 出空白/缩进差异再重试,而不是盲重试。
+ */
+export function nearestContext(
+  source: string[],
+  oldText: string,
+  span = 5
+): { line: number; snippet: string[] } {
+  const hit = nearestLine(source, oldText);
+  if (hit < 0) return { line: -1, snippet: [] };
+  const from = Math.max(0, hit - span);
+  const to = Math.min(source.length - 1, hit + span);
+  const snippet: string[] = [];
+  for (let index = from; index <= to; index += 1) {
+    snippet.push(`${index + 1}: ${source[index]}`);
+  }
+  return { line: hit, snippet };
+}
