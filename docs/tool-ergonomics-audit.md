@@ -283,8 +283,11 @@ DeepCreator 工具链在**正确性与安全**上已超过 Claude Code 的细度
 | 批次 2.2(glob/grep `dot:true`,可见 `.github`/`.vscode`/点配置) | ✅ 已落地 | `glob`/`grep` 点文件用例 |
 | 批次 2.4(`save_memory` 记忆闭环:control-tool 接入 + 凭据拦截 + 写入不刷新当前信封) | ✅ 已落地 | `saveMemory` 4 断言(正常/密钥被拒/project 自动填 projectRoot/personal 空) |
 | 批次 2.4 缓存保护不变量(计划验证第 7 项) | ✅ 已落地 | `saveMemoryEnvelope` 2 断言:① 写入后当前会话 `<memory-index>` 冻结 + `prefixHash` 不变(缓存命中保护);② 新会话起点 / 压缩触发 才重建信封含新记忆 |
+| 批次 2.3(`list_files` depth,默认 1 层 + 截断标注) | ✅ 已落地 | `listFiles` 5 用例(默认 1 层/depth=2/-1 全量/maxFiles 标注/敏感文件) |
+| 批次 2.5 小步(commandId slug 化 + 进结果文本 facts 行 + wait 并发幂等) | ✅ 已落地 | `commandManager` slug+并发双 waiter;`contextEngineering` 命令标识 facts 行 |
+| 批次 2.6(`read_file` cat -n 行号 + offset/limit + 截断标注;证据上限 18000→30000) | ✅ 已落地 | `readFile` 4 用例(行号/分页/标注/**stale 契约不破**:指纹仍记未编号原文) |
 
-**仍未落地**(留后续单独计划):批次 2.3(list_files depth)、2.5(commandId 进结果文本)、2.6(read_file 行号)、批次 3(LSP/sandbox/git)。
+**仍未落地**(见 [toolset-target-design.md](./toolset-target-design.md) 已审定计划):批次 3.1/3.1b(run_command 升级 + harness 回调 → 砍 wait_command)、3.2(git_diff/git_commit)、3.3(delegate reviewer)、3.4(沙盒)、3.5(LSP)。
 
 ---
 
