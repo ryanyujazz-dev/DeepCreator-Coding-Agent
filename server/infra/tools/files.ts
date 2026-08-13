@@ -92,12 +92,42 @@ export async function listArtifacts(projectRoot: string): Promise<ArtifactEntry[
   return entries;
 }
 
-export async function readFile(projectRoot: string, input: { path: string; maxChars?: number }, ctx?: FileToolContext): Promise<string> {
+export async function readFile(
+  projectRoot: string,
+  input: { path: string; maxChars?: number; offset?: number; limit?: number },
+  ctx?: FileToolContext
+): Promise<string> {
   if (isSensitivePath(input.path)) throw new Error("出于安全原因，Runtime 不允许读取密钥或凭据文件。");
   const contents = await fs.readFile(ensureInsideRoot(projectRoot, input.path), "utf8");
+  // stale 指纹契约:recordRead 必须接收未编号、未截断的原文全文,
+  // edit_file/multi_edit 的 hashFor 校验以此为基准 —— 编号/切片只作用于返回字符串。
   if (ctx?.fileState && ctx.runId) ctx.fileState.recordRead(ctx.runId, projectRoot, input.path, contents);
   const maxChars = Math.min(200_000, Math.max(1, input.maxChars ?? 40_000));
-  return contents.slice(0, maxChars);
+  const totalLines = contents.split("\n");
+  const offset = Math.max(1, Math.floor(input.offset ?? 1)); // 1 起始行号
+  const from = Math.min(offset - 1, totalLines.length);
+  let selected = totalLines.slice(from);
+  if (input.limit !== undefined) selected = selected.slice(0, Math.max(0, Math.floor(input.limit)));
+  // 编号(cat -n 风格,4 位右对齐 + 双空格),行号计入字符预算。
+  // split("\n") 在文件以 \n 结尾时产生一个空尾元素——它是"文件末尾"标记而非真实行,
+  // 不编号(避免输出结尾悬着一串行号前缀),保留为空行。
+  const last = selected.length - 1;
+  let numbered = selected
+    .map((line, index) => (index === last && line === "" ? "" : `${String(from + index + 1).padStart(4)}  ${line}`))
+    .join("\n");
+  if (numbered.length > maxChars) {
+    // 按字符预算再裁:优先保完整行,避免行号标注落在半行处误导定位。
+    let budget = maxChars;
+    const kept: string[] = [];
+    for (const line of numbered.split("\n")) {
+      const candidate = kept.length === 0 ? line : `${kept.join("\n")}\n${line}`;
+      if (candidate.length > budget) break;
+      kept.push(line);
+    }
+    const annotation = `…[已截断：原文 ${contents.length} 字符，已返回 ${kept.join("\n").length} 字符，可用 offset/limit 继续读取后续]`;
+    numbered = kept.length > 0 ? `${kept.join("\n")}\n${annotation}` : annotation.slice(0, budget);
+  }
+  return numbered;
 }
 
 export async function writeFile(projectRoot: string, input: { path: string; content: string }, ctx?: FileToolContext): Promise<string> {

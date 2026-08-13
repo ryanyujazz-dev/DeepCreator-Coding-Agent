@@ -254,10 +254,12 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 读取文件内容
     name: "read_file",
-    description: "读取项目根目录内的 UTF-8 文本文件并返回内容。大文件超过 maxChars 时会截断并给出提示。\n\n适用场景：需要检查或修改文件内容；即将编辑文件，必须先读取；可以在同一条消息中批量读取多个可能有用的文件，以便并行加载。\n\n不适用场景：只需要了解有哪些文件，应使用 glob 或 list_files；需要跨多个文件搜索模式，应使用 grep；目标是图片或二进制文件，本工具不支持。\n\n重要：使用 edit_file 或 write_file 编辑文件前，必须先读取并理解其当前内容。未读取就编辑容易导致 oldText 匹配错误。编辑成功后不要重读验证——edit_file 和 multi_edit 成功时已返回 unified diff，重读只是浪费。只有当编辑因 oldText 不匹配而失败、需要查看当前实际内容时才重读。\n\n示例：\n  read_file(path=\"src/App.tsx\")\n  read_file(path=\"package.json\")\n  # 在一条消息中批量并行读取：\n  #   read_file(path=\"src/App.tsx\"), read_file(path=\"src/main.tsx\"), read_file(path=\"vite.config.ts\")",
+    description: "用途：读取项目内 UTF-8 文本文件，带行号返回，大文件按 maxChars 截断并明确标注。\n\n适用场景：查看源码/配置/文档；定位行号以引用 file:line、与用户沟通、看 stack trace；即将编辑文件，必须先读取。\n\n不适用场景：按模式找文件路径（glob）、按内容搜（grep）、编辑后重读验证——edit_file 和 multi_edit 成功时已返回 unified diff，重读只是浪费；只有当编辑因 oldText 不匹配而失败、需要查看当前实际内容时才重读。\n\n重要：\n  - 正文每行带 1 起始行号（cat -n 风格）。\n  - maxChars 默认 40000、上限 200000；超过按 maxChars 截断并在末尾标注“[已截断：原文 N 字符，已返回 M 字符，可用 offset/limit 读后续]”。\n  - 可用 offset（起始行）/ limit（行数）分页读大文件特定区段。\n\n示例：\n  read_file(path=\"src/index.ts\")\n  read_file(path=\"src/index.ts\", offset=120, limit=80)",
     inputSchema: objectSchema({
       path: { type: "string", description: "文件相对于工作区的路径，例如 'src/App.tsx' 或 'package.json'" },
-      maxChars: { type: "number", description: "截断前最多读取的字符数，默认 40000、上限 200000。只需要大文件开头时应调小此值。" }
+      maxChars: { type: "number", description: "截断前最多读取的字符数（含行号前缀），默认 40000、上限 200000。只需要大文件开头时应调小此值。" },
+      offset: { type: "number", description: "起始行号（1 起始），默认 1。配合 limit 分页读大文件。" },
+      limit: { type: "number", description: "最多读取的行数；不给时由 maxChars 推导。" }
     }, ["path"]),
     presentation: {
       groupMode: "consecutive",
