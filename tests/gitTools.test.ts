@@ -11,13 +11,16 @@ import { runShell } from "../server/infra/tools/shellExecution";
 // commit 输出格式/未暂存失败/审批三分支。
 
 const CLEANUP = { force: true, maxRetries: 5, recursive: true, retryDelay: 100 };
-const GIT_IDENTITY = "-c user.name=Test -c user.email=test@example.com";
 
 async function initRepo(directory: string): Promise<void> {
-  const init = await runShell(directory, `git ${GIT_IDENTITY} init -q`);
+  const init = await runShell(directory, "git init -q");
   if (init.exitCode !== 0) throw new Error(`git init 失败:${init.output}`);
+  // repo 局部 identity(模拟真实用户环境;CI runner 无全局 git config,
+  // git_commit 工具本身不带 -c identity——提交归属用户身份是正确行为)
+  const config = await runShell(directory, "git config user.name Test && git config user.email test@example.com");
+  if (config.exitCode !== 0) throw new Error(`git config 失败:${config.output}`);
   writeFileSync(path.join(directory, "a.txt"), "line1\nline2\n");
-  const add = await runShell(directory, `git add -A && git ${GIT_IDENTITY} commit -q -m "init"`);
+  const add = await runShell(directory, "git add -A && git commit -q -m init");
   if (add.exitCode !== 0) throw new Error(`初始提交失败:${add.output}`);
 }
 
