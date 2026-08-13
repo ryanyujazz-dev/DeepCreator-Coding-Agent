@@ -255,6 +255,18 @@ export function approvalFor(input: {
       title: "允许应用补丁？"
     };
   }
+  if (input.toolName === "git_commit") {
+    const amend = input.args.amend === true;
+    if (hasGrant(input.grants, input.runId, input.toolName, "workspace_write", "git_commit")) return undefined;
+    if (input.profile === "full_access") return undefined;
+    return {
+      capability: "workspace_write",
+      detail: `提交暂存区改动为 git commit${amend ? "（amend 覆盖上一次提交）" : ""}：${String(input.args.message ?? "").slice(0, 200)}`,
+      risk: "medium",
+      target: "git_commit",
+      title: "允许提交改动？"
+    };
+  }
   if (input.toolName === "delete_file") {
     const target = String(input.args.path ?? "");
     if (hasGrant(input.grants, input.runId, input.toolName, "workspace_delete", target)) return undefined;

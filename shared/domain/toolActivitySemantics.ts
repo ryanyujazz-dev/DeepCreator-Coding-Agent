@@ -80,7 +80,7 @@ export function headlineKindForTool(tool: ToolState): AggregateHeadlineKind | un
   if (tool.toolName === "list_files") return "browse";
   if (tool.toolName === "glob" || tool.toolName === "grep" || tool.toolName === "web_search" || tool.action === "search") return "locate";
   if (tool.toolName === "read_file" || tool.toolName === "fetch_url") return "read";
-  if (tool.toolName === "git_status") return "review";
+  if (tool.toolName === "git_status" || tool.toolName === "git_diff") return "review";
   if (environmentConfiguration(tool)) return "configure_environment";
   if (tool.action === "modify") return "modify";
   if (tool.action === "verify") return "verify";

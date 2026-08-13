@@ -18,6 +18,7 @@ import { globFiles, grepFiles } from "./tools/search";
 import { fetchUrl, webSearch } from "./tools/web";
 import { materializeSkillAsset, readSkillResource } from "./tools/skills";
 import { runCommandTool, runSkillScriptTool, stopCommandTool } from "./tools/managedCommands";
+import { gitCommit, gitDiff } from "./tools/git";
 import { installSkill, previewSkillInstall } from "./tools/skillInstall";
 import { toolRegistry, toolSpecs, ToolRegistration } from "./tools/registry";
 import { SkillStore } from "./skillStore";
@@ -59,6 +60,14 @@ export async function executeTool(input: {
   if (name === "git_status") {
     const result = await runShell(projectRoot, "git status --short && git diff --stat", signal);
     return { ...result, mutatedWorkspace: false };
+  }
+  if (name === "git_diff") {
+    const result = await gitDiff(projectRoot, args as never, signal);
+    return { ...result, mutatedWorkspace: false };
+  }
+  if (name === "git_commit") {
+    const result = await gitCommit(projectRoot, args as never, signal);
+    return { ...result, mutatedWorkspace: true };
   }
   if (name === "search_capabilities") {
     const matches = searchCapabilities(projectRoot, String(args.query ?? ""), Number(args.limit ?? 10), skillCatalog);
@@ -256,6 +265,8 @@ export function toolTitle(name: string): string {
     delete_file: "删除文件",
     edit_file: "编辑文件",
     git_status: "检查 Git 状态",
+    git_diff: "查看 Git 改动",
+    git_commit: "提交 Git 改动",
     enter_plan: "进入计划模式",
     list_files: "列出项目文件",
     read_file: "读取文件",

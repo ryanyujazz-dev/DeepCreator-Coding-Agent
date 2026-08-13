@@ -324,7 +324,7 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 读取 Git 工作区状态
     name: "git_status",
-    description: "读取当前 Git 工作树状态和 diff 摘要，返回已暂存、未暂存、未跟踪文件列表以及精简 diff。\n\n适用场景：提交前确认有哪些改动；编辑后验证真实 diff 是否符合预期；用户询问“改了什么”。\n\n不适用场景：需要执行 commit、push、log 等任意 Git 命令，应使用 run_command；只需要读取特定文件，应使用 read_file。\n\n示例：\n  git_status()",
+    description: "读取当前 Git 工作树状态和 diff 摘要，返回已暂存、未暂存、未跟踪文件列表以及精简 diff。\n\n适用场景：提交前确认有哪些改动；编辑后验证真实 diff 是否符合预期；用户询问“改了什么”。\n\n不适用场景：要看具体改动内容（hunk 级）应使用 git_diff；要提交改动应使用 git_commit；push、log 等其他 Git 操作用 run_command；只需要读取特定文件，应使用 read_file。\n\n示例：\n  git_status()",
     inputSchema: objectSchema({}),
     presentation: {
       groupMode: "consecutive",
@@ -334,6 +334,42 @@ export const toolRegistry: ToolRegistration[] = [
       action: "inspect",
       targetKind: "workspace",
       resolveTarget: () => "Git working tree"
+    }
+  },
+  {
+    // 只读查看 git 真实改动 hunk
+    name: "git_diff",
+    description: "用途：只读查看 git 工作区/暂存区的真实改动（unified diff），不产生副作用。\n\n适用场景：提交前自查改动、向用户汇报改了什么、确认 edit_file/apply_patch 的实际效果。\n\n不适用场景：提交（git_commit）、读单文件全文（read_file）、看文件清单级摘要含未跟踪新文件（git_status）。\n\n重要：\n  - 只读，无需审批，不动工作区。\n  - 默认对比上次提交（git diff HEAD），显示工作区+暂存区的已跟踪改动；staged=true 只看暂存区；未跟踪的新文件不在 diff 中，用 git_status 查看。\n  - 大 diff 会被 Runtime 裁剪（保留头尾），用 path 收窄。\n\n示例：\n  git_diff()\n  git_diff(path=\"src/\")\n  git_diff(staged=true)",
+    inputSchema: objectSchema({
+      path: { type: "string", description: "限定查看的文件或目录（工作区相对路径）" },
+      staged: { type: "boolean", description: "true 时只看暂存区改动（--cached），默认 false" }
+    }),
+    presentation: {
+      groupMode: "consecutive",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "read_only",
+      importance: "routine",
+      action: "inspect",
+      targetKind: "workspace",
+      resolveTarget: (args) => args.path ? String(args.path) : "Git working tree"
+    }
+  },
+  {
+    // 提交暂存区(受审批写操作)
+    name: "git_commit",
+    description: "用途：把暂存区改动提交为一个 git commit（受审批的写操作）。\n\n适用场景：用户明确要求提交、或一个完整逻辑单元改动已就绪需落检查点。\n\n不适用场景：还没改完（不要中途提交半成品）、用户没要求（不擅自提交）、想看改动（git_diff）。\n\n重要：\n  - 受审批（accessMode 非 full_access 时需用户确认）。\n  - message 必填且自描述；amend=true 时会覆盖上一条提交的 message。\n  - 只提交暂存区内容，不会自动 git add；暂存请用 run_command(git add)。\n  - 不会自动 push（push 是独立操作，需用户明确要求）。\n\n示例：\n  git_commit(message=\"fix: 编辑失败未回显附近行\")",
+    inputSchema: objectSchema({
+      message: { type: "string", description: "commit message，自描述本次改动" },
+      amend: { type: "boolean", description: "true 时 amend 到上一次提交（message 覆盖原提交说明），默认 false" }
+    }, ["message"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "workspace_write",
+      importance: "notable",
+      action: "modify",
+      targetKind: "workspace",
+      resolveTarget: () => "git commit"
     }
   },
   {

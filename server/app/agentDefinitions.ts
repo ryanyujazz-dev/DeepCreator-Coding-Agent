@@ -21,6 +21,7 @@ const EXPLORER_TOOLS = new Set([
   "grep",
   "glob",
   "git_status",
+  "git_diff",
   "web_search",
   "fetch_url",
   "ask_user",
@@ -38,6 +39,7 @@ const WORKER_TOOLS = new Set([
   "install_skill",
   "run_skill_script",
   "run_command",
+  "git_commit",
   "stop_command"
 ]);
 

@@ -89,7 +89,11 @@ test("cancelling a wait does not stop the managed command", async () => {
     assert.equal((await manager.stop(running.commandId))?.state, "cancelled");
   } finally {
     await manager.stopAll();
-    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    try {
+      rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
   }
 });
 
