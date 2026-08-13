@@ -20,23 +20,38 @@ const IGNORED_DIRECTORIES = new Set([
   "output"
 ]);
 
-export async function listFiles(projectRoot: string, input: { maxFiles?: number }): Promise<string> {
+export async function listFiles(projectRoot: string, input: { maxFiles?: number; depth?: number }): Promise<string> {
   const root = ensureInsideRoot(projectRoot);
   const output: string[] = [];
   const maxFiles = Math.min(1000, Math.max(1, input.maxFiles ?? 200));
-  async function walk(current: string): Promise<void> {
+  // depth=1(默认)只列顶层文件 + 顶层目录名;-1 = 全量递归(旧行为);>=1 最多展开到该层。
+  // 目录本身始终出现(带 / 后缀),保证模型能据此选择更深的 depth 下钻。
+  const maxDepth = input.depth === -1 ? Number.POSITIVE_INFINITY : Math.max(1, Number(input.depth ?? 1));
+  let truncated = false;
+  async function walk(current: string, level: number): Promise<void> {
     if (output.length >= maxFiles) return;
     for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-      if (output.length >= maxFiles) return;
+      if (output.length >= maxFiles) {
+        truncated = true;
+        return;
+      }
       if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
       if (!entry.isDirectory() && isSensitivePath(entry.name)) continue;
       const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) await walk(fullPath);
-      else output.push(path.relative(root, fullPath));
+      if (entry.isDirectory()) {
+        if (level >= maxDepth) {
+          output.push(`${path.relative(root, fullPath).split(path.sep).join("/")}/`);
+        } else {
+          await walk(fullPath, level + 1);
+        }
+      } else {
+        output.push(path.relative(root, fullPath).split(path.sep).join("/"));
+      }
     }
   }
-  await walk(root);
-  return output.join("\n") || "项目目录中没有文件。";
+  await walk(root, 1);
+  if (output.length === 0) return "项目目录中没有文件。";
+  return output.join("\n") + (truncated ? `\n…[已达 maxFiles=${maxFiles} 上限，结果已截断；可用 depth 或 glob 收窄]` : "");
 }
 
 // 扫描 <projectRoot>/output/ 子树(agent 生成内容的约定目录 —— 与 listFiles「排除 output」相反),

@@ -236,9 +236,10 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 列出项目文件树
     name: "list_files",
-    description: "以树形结构列出项目文件，自动跳过依赖目录（node_modules、dist、.git、.venv）、构建产物和敏感文件。\n\n适用场景：任务开始时需要项目结构的整体概览；深入具体文件前需要理解目录布局。\n\n不适用场景：需要匹配特定模式的文件，应使用 glob；需要搜索文件内容，应使用 grep；项目很大且只需要其中一部分。\n\n注意：结果受 maxFiles 限制，默认 200。大型项目应优先使用带具体模式的 glob。\n\n示例：\n  list_files()\n  list_files(maxFiles=500)",
+    description: "用途：以平铺列表列出项目文件，默认只列一层（顶层），可用 depth 控制递归深度。\n\n适用场景：了解项目结构、确认文件存在、开工前摸底。\n\n不适用场景：按模式找特定文件（glob）、读内容（read_file）。\n\n重要：\n  - 默认 depth=1（只列顶层），避免大项目一次吃满上限。\n  - 自动跳过依赖/构建产物/敏感目录（node_modules、.git、dist、output 等）。\n  - maxFiles 默认 200、上限 1000；超过截断并标注。\n\n示例：\n  list_files()\n  list_files(depth=2)",
     inputSchema: objectSchema({
-      maxFiles: { type: "number", description: "最多返回多少个文件条目，默认 200，并受硬性上限约束" }
+      maxFiles: { type: "number", description: "最多返回多少个文件条目，默认 200，并受硬性上限约束" },
+      depth: { type: "number", description: "递归层数，默认 1（只列顶层）；-1 = 全量递归" }
     }),
     presentation: {
       groupMode: "consecutive",

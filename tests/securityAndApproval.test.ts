@@ -19,6 +19,8 @@ test("blocks credential files and redacts secrets from public text", async () =>
     const listed = await executeTool({ args: {}, name: "list_files", projectRoot: directory });
     assert.ok(!listed.output.includes(".env.local"));
     assert.ok(listed.output.includes(".env.example"));
+    const recursive = await executeTool({ args: { depth: -1 }, name: "list_files", projectRoot: directory });
+    assert.ok(!recursive.output.includes(".env.local"));
     assert.equal(redactSensitiveText("token sk-sensitive-value-123456789"), "token [REDACTED_API_KEY]");
     assert.ok(!summarizeToolArguments("write_file", { path: "a.ts", content: "private source" }).includes("private source"));
   } finally {
