@@ -59,6 +59,21 @@ test("readFile: 超过 maxChars 时按整行截断并尾附标注", async () => 
   }
 });
 
+test("readFile: 单行超预算时字符级回退,不返回零内容死局", async () => {
+  // 压缩 JS/大 JSON 单行文件:行粒度的 offset/limit 无法切分单行,
+  // 若整行丢弃则永远读不出内容 → 必须回退到字符级切片。
+  const huge = `{"bundle":"${"y".repeat(100_000)}"}`;
+  const directory = fixture(huge);
+  try {
+    const output = await readFile(directory, { path: "sample.ts", maxChars: 5000 });
+    assert.ok(output.startsWith("   1  {"));
+    assert.ok(output.includes("y"));
+    assert.match(output, /…\[已截断：原文 100013 字符，已返回 5000 字符/);
+  } finally {
+    rmSync(directory, CLEANUP);
+  }
+});
+
 test("readFile: 行号化不破坏 edit_file 的 stale 指纹契约", async () => {
   const directory = fixture("export const value = 1;\nexport const other = 2;\n");
   const fileState = new FileStateStore();

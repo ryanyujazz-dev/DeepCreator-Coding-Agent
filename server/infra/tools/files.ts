@@ -26,7 +26,9 @@ export async function listFiles(projectRoot: string, input: { maxFiles?: number;
   const maxFiles = Math.min(1000, Math.max(1, input.maxFiles ?? 200));
   // depth=1(默认)只列顶层文件 + 顶层目录名;-1 = 全量递归(旧行为);>=1 最多展开到该层。
   // 目录本身始终出现(带 / 后缀),保证模型能据此选择更深的 depth 下钻。
-  const maxDepth = input.depth === -1 ? Number.POSITIVE_INFINITY : Math.max(1, Number(input.depth ?? 1));
+  const maxDepth = input.depth === -1
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(input.depth) ? Math.max(1, Math.floor(input.depth as number)) : 1;
   let truncated = false;
   async function walk(current: string, level: number): Promise<void> {
     if (output.length >= maxFiles) return;
@@ -116,16 +118,24 @@ export async function readFile(
     .map((line, index) => (index === last && line === "" ? "" : `${String(from + index + 1).padStart(4)}  ${line}`))
     .join("\n");
   if (numbered.length > maxChars) {
-    // 按字符预算再裁:优先保完整行,避免行号标注落在半行处误导定位。
-    const budget = maxChars;
-    const kept: string[] = [];
-    for (const line of numbered.split("\n")) {
-      const candidate = kept.length === 0 ? line : `${kept.join("\n")}\n${line}`;
-      if (candidate.length > budget) break;
-      kept.push(line);
+    // 按字符预算线性累加完整行,避免行号标注落在半行处误导定位。
+    const numberedLines = numbered.split("\n");
+    let used = 0;
+    let keptCount = 0;
+    for (const line of numberedLines) {
+      const addition = keptCount === 0 ? line.length : line.length + 1; // +1 换行
+      if (used + addition > maxChars) break;
+      used += addition;
+      keptCount += 1;
     }
-    const annotation = `…[已截断：原文 ${contents.length} 字符，已返回 ${kept.join("\n").length} 字符，可用 offset/limit 继续读取后续]`;
-    numbered = kept.length > 0 ? `${kept.join("\n")}\n${annotation}` : annotation.slice(0, budget);
+    let keptText = numberedLines.slice(0, keptCount).join("\n");
+    if (keptCount === 0) {
+      // 单行就超预算(压缩 JS/大 JSON 行):字符级回退切第一行,
+      // 否则 offset/limit(行粒度)永远无法读出内容。
+      keptText = numberedLines[0]?.slice(0, Math.max(0, maxChars)) ?? "";
+    }
+    const annotation = `…[已截断：原文 ${contents.length} 字符，已返回 ${keptText.length} 字符，可用 offset/limit 继续读取后续]`;
+    numbered = `${keptText}\n${annotation}`;
   }
   return numbered;
 }

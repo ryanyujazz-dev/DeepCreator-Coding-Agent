@@ -229,28 +229,34 @@ export class CommandManager {
     return entry.stopPromise;
   }
 
-  /** harness 回调入口:等待该 run 的全部运行中命令进入终态,返回期间新 settle 的
-   *  命令快照(每个快照只被消费一次)。无运行命令且无未消费结果时立即返回 []。
-   *  abort 语义镜像 delegations.waitForResult:reject AbortError,listener 自清理。 */
-  waitForSettled(runId: string, signal?: AbortSignal): Promise<CommandSnapshot[]> {
+  /** harness 回调入口:挂起直到该 run 的全部运行中命令进入终态,resolve void。
+   *  只通知、不消费——结果快照由调用方随后 takeSettled 取走(镜像 delegation 的
+   *  waitForResult/takeResults 分工,避免 resolve 值被丢弃时静默丢输出)。
+   *  maxWaitMs 到点也 resolve(周期醒):调用方借此在长挂起间隙处理 steer 等队列。
+   *  abort reject AbortError,listener 自清理。 */
+  waitForSettled(runId: string, signal?: AbortSignal, maxWaitMs?: number): Promise<void> {
     if (signal?.aborted) return Promise.reject(this.abortError());
-    if (this.running(runId).length === 0) return Promise.resolve(this.takeSettled(runId));
-    return new Promise<CommandSnapshot[]>((resolve, reject) => {
+    if (this.running(runId).length === 0) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
       const listeners = this.settleListeners.get(runId) ?? new Set<() => void>();
-      const done = () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
         listeners.delete(done);
         if (listeners.size === 0) this.settleListeners.delete(runId);
-        resolve(this.takeSettled(runId));
+      };
+      const done = () => {
+        cleanup();
+        resolve();
       };
       const onAbort = () => {
-        listeners.delete(done);
-        if (listeners.size === 0) this.settleListeners.delete(runId);
-        signal?.removeEventListener("abort", onAbort);
+        cleanup();
         reject(this.abortError());
       };
       listeners.add(done);
       this.settleListeners.set(runId, listeners);
+      if (maxWaitMs !== undefined) timer = setTimeout(done, Math.max(1, maxWaitMs));
       signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
@@ -389,6 +395,13 @@ export class CommandManager {
   }
 
   private prune(): void {
+    // newlySettled 孤儿清理:该 run 已无任何命令条目(被取消/永不再恢复的 run),
+    // 其未消费快照(单条最多 ~1MB retained output)不会再被取走 → 丢弃防泄漏。
+    for (const runId of this.newlySettled.keys()) {
+      if (!([...this.commands.values()].some((entry) => entry.runId === runId))) {
+        this.newlySettled.delete(runId);
+      }
+    }
     if (this.commands.size < MAX_MANAGED_COMMANDS * 2) return;
     for (const [commandId, entry] of this.commands) {
       if (entry.state !== "running") this.commands.delete(commandId);

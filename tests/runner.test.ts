@@ -1123,7 +1123,7 @@ test("awaits a running managed command via harness callback and injects its sett
   const store = new RuntimeStore(directory);
   let commandChecks = 0;
   let settleWaits = 0;
-  let delivered = false; // takeSettledCommands 消费一次即空(镜像 commandManager.takeSettled)
+  let delivered = false; // 忠实模拟:waitForSettled 只通知,快照由 takeSettled 一次性消费
   let injectionSeen = false;
   let stopCalls = 0;
   let turns = 0;
@@ -1142,7 +1142,6 @@ test("awaits a running managed command via harness callback and injects its sett
     },
     waitForSettled: async () => {
       settleWaits += 1;
-      return [];
     }
   };
   const provider: Provider = {
@@ -1213,6 +1212,114 @@ test("awaits a running managed command via harness callback and injects its sett
   }
 });
 
+test("reminds the model it can stop a never-settling background command after a long wait", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-wedge-"));
+  const store = new RuntimeStore(directory);
+  let stopCommandSeen = false;
+  let stopCalls = 0;
+  let turns = 0;
+  const wedgeToolHost = {
+    ...toolHost,
+    stopCommands: async () => { stopCalls += 1; },
+    waitForSettled: async (_runId: string, _signal?: AbortSignal, maxWaitMs?: number) => {
+      // 模拟周期醒(真实 30s;测试 5ms 防热循环),必须传 maxWaitMs
+      if (maxWaitMs === undefined) throw new Error("必须传 maxWaitMs 周期醒");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      turns += 1;
+      stopCommandSeen ||= request.messages.some((message) =>
+        message.role === "user" && message.text?.includes("请调用 stop_command 结束它")
+      );
+      if (turns === 2) {
+        // 收到长挂起提醒 → 模型决定 stop_command
+        const argumentsText = JSON.stringify({ commandId: "cmd_forever" });
+        return {
+          answer: "",
+          continuationMessage: { role: "assistant", text: null, toolCalls: [{ argumentsText, callId: "call_stop_wedge", index: 0, name: "stop_command" }] },
+          finishCause: "tool_calls",
+          thinking: "",
+          toolCalls: [{ argumentsText, callId: "call_stop_wedge", index: 0, name: "stop_command" }]
+        };
+      }
+      const answer = turns === 1 ? "服务已启动。" : "命令已停止，任务完成。";
+      request.onFragment?.({ kind: "answer", text: answer });
+      return {
+        answer,
+        continuationMessage: { role: "assistant", text: answer },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+  try {
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_wedge",
+      title: "长驻命令"
+    });
+    store.append({
+      data: { model: "test", prompt: "启动服务", startedAt: new Date().toISOString() },
+      runId: "run_wedge",
+      sessionId: "session_wedge",
+      type: "run.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_wedge");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "启动服务",
+      provider,
+      registry,
+      runId: "run_wedge",
+      sessionId: "session_wedge",
+      // 提醒阈值 0:首次周期醒即提醒(真实默认 120s)
+      settledWaitPromptMs: 0,
+      signal: controller.signal,
+      store,
+      tools: {
+        ...wedgeToolHost,
+        // stop_command 后命令清空 → run 可完成
+        runningCommands: () => (stopCommandSeen ? [] : [{ commandId: "cmd_forever", elapsedMs: 60_000 }]),
+        execute: async (input: Parameters<typeof toolHost.execute>[0]) => input.name === "stop_command"
+          ? {
+              command: "npm run dev",
+              commandId: "cmd_forever",
+              commandState: "cancelled" as const,
+              elapsedMs: 120_000,
+              exitCode: 1,
+              mutatedWorkspace: false,
+              output: "stopped",
+              outputTruncated: false
+            }
+          : toolHost.execute(input)
+      }
+    });
+    assert.equal(stopCommandSeen, true, "长挂起后必须提醒模型可 stop_command");
+    assert.equal(turns, 3, "提醒→stop_command→最终回答,共 3 轮");
+    assert.equal(stopCalls, 1);
+    assert.equal(store.getRun("run_wedge")?.status, "completed");
+    assert.equal(store.getRun("run_wedge")?.answer, "命令已停止，任务完成。");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
 test("command control calls update the original activity without creating a slot", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-control-"));
   const store = new RuntimeStore(directory);
@@ -1236,7 +1343,7 @@ test("command control calls update the original activity without creating a slot
       : toolHost.execute(input),
     runningCommands: () => [],
     stopCommands: async () => undefined,
-    waitForSettled: async () => []
+    waitForSettled: async () => undefined
   };
   const provider: Provider = {
     capabilities: {

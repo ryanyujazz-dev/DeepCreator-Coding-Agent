@@ -43,8 +43,9 @@ export interface ToolHost {
   stopCommands(runId: string): Promise<void>;
   /** harness 回调:同步取走该 run 已 settle 但尚未注入模型的命令快照(取走即清空)。 */
   takeSettledCommands(runId: string): Array<{ command: string; commandId: string; exitCode?: number; output: string; state: string }>;
-  /** harness 回调:挂起等待该 run 全部后台命令 settle(镜像 delegations.waitForResult)。 */
-  waitForSettled(runId: string, signal?: AbortSignal): Promise<Array<{ commandId: string; command: string; exitCode?: number; output: string; state: string }>>;
+  /** harness 回调:挂起等待该 run 全部后台命令 settle(resolve void,不消费快照;
+   *  快照由 takeSettledCommands 取)。maxWaitMs 到点也 resolve(周期醒处理 steer)。 */
+  waitForSettled(runId: string, signal?: AbortSignal, maxWaitMs?: number): Promise<void>;
   summarizeArgs(name: string, args: Record<string, unknown>): string;
   summarizeResult(name: string, args: Record<string, unknown>, output: string): string;
   title(name: string): string;

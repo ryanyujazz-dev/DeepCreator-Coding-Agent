@@ -58,7 +58,7 @@ function followUp(value: unknown): boolean {
 
 function delegation(value: unknown): boolean {
   return record(value)
-    && oneOf(value.agentId, ["explorer", "worker"] as const)
+    && oneOf(value.agentId, ["explorer", "reviewer", "worker"] as const)
     && string(value.childRunId)
     && string(value.childSessionId)
     && string(value.createdAt)
@@ -239,7 +239,7 @@ const payloadSchemas = {
     && number(value.contextWindowTokens)
     && number(value.compactThresholdTokens)
     && optional(value.kind, (item) => oneOf(item, ["primary", "subagent"] as const))
-    && optional(value.agentId, (item) => oneOf(item, ["explorer", "worker"] as const))
+    && optional(value.agentId, (item) => oneOf(item, ["explorer", "reviewer", "worker"] as const))
     && optional(value.parentSessionId, string)
     && optional(value.parentRunId, string)
     && optional(value.originDelegationId, string),
