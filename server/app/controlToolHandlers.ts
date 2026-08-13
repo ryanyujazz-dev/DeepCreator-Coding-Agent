@@ -297,10 +297,12 @@ export class ControlToolHandlers {
     const requestedAgent = args.agent ?? args.subagent_type;
     const agent = requestedAgent === "explorer" || requestedAgent === "Explore"
       ? "explorer"
-      : requestedAgent === "worker" || requestedAgent === "general-purpose" ? "worker" : undefined;
+      : requestedAgent === "reviewer" || requestedAgent === "code-reviewer"
+        ? "reviewer"
+        : requestedAgent === "worker" || requestedAgent === "general-purpose" ? "worker" : undefined;
     const message = String(args.message ?? args.prompt ?? "").trim();
     if (!agent || !message) {
-      const text = "agent 必须是 explorer 或 worker，message 不能为空。";
+      const text = "agent 必须是 explorer、reviewer 或 worker，message 不能为空。";
       this.callbacks.finishActivity(context, activityId, { body: text, status: "failed", tool: { ...prepared, resultSummary: text } });
       this.callbacks.record(context, call, modelStepId, text, { action: "execute", target: "子代理" }, true);
       return { contextRecords: [], message: { role: "tool", text, toolCallKey: call.callId }, mutatedWorkspace: false, protocolError: false };

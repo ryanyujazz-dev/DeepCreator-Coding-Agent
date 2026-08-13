@@ -709,9 +709,9 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 子代理委派：创建独立 Session/Run，结果通过 Runtime 信封异步回传。
     name: "delegate",
-    description: "把一个自包含任务委派给独立子代理。子代理拥有独立系统提示词、工具白名单和会话上下文，看不到父对话。工具立即返回子会话标识；子代理终态结果稍后自动进入当前上下文，父运行在读取结果前不会结束。\n\n适用场景：需要大范围只读调查（在多个目录/命名约定里找东西、只需结论不需文件转储）时委派 explorer 并行 fan-out；需要把一段有明确边界的实现交给隔离工作区执行时委派 worker。同一步可以并行发起多个委派，每个父运行最多 4 个，是扩大并行度的主手段。\n\n不适用场景：单一明确的小改动，直接自己做更快（委派有独立会话开销）；需要跨多步骤持续交互的任务；子代理不能继续委派（深度为 1，无递归）。\n\n角色选型：agent='explorer' 只调查和读取，不能写文件、不能跑命令——适合搜索、定位、汇总 file:line 结论；agent='worker' 可修改并验证工作区（近似 full_access）——适合执行已明确的改动并自验证。选择时优先 explorer（零副作用），只有确需写入或跑验证命令时才用 worker。\n\n重要：给子代理的 message 必须完整自包含（含文件路径和足够上下文），因为子代理看不到本对话。\n\n示例：\n  delegate(agent='explorer', message='检查路由注册与对应测试，报告 file:line 和结论。')\n  # 并行 fan-out（同一条消息里多个 delegate）：\n  #   delegate(agent='explorer', message='查 auth 模块的所有导出'),\n  #   delegate(agent='explorer', message='查订单模块的测试覆盖')",
+    description: "把一个自包含任务委派给独立子代理。子代理拥有独立系统提示词、工具白名单和会话上下文，看不到父对话。工具立即返回子会话标识；子代理终态结果稍后自动进入当前上下文，父运行在读取结果前不会结束。\n\n适用场景：需要大范围只读调查（在多个目录/命名约定里找东西、只需结论不需文件转储）时委派 explorer 并行 fan-out；需要只读审查改动/代码（读文件、git_diff、按严重程度给结论）时委派 reviewer；需要把一段有明确边界的实现交给隔离工作区执行时委派 worker。同一步可以并行发起多个委派，每个父运行最多 4 个，是扩大并行度的主手段。\n\n不适用场景：单一明确的小改动，直接自己做更快（委派有独立会话开销）；需要跨多步骤持续交互的任务；子代理不能继续委派（深度为 1，无递归）。\n\n角色选型：agent='explorer' 只调查和读取，不能写文件、不能跑命令——适合搜索、定位、汇总 file:line 结论；agent='reviewer' 只读审查（读/搜/git_diff，可停止后台命令），不能写、不能启动新命令——适合评审改动、检查合规；agent='worker' 可修改并验证工作区（近似 full_access）——适合执行已明确的改动并自验证。选择时优先 explorer/reviewer（零副作用），只有确需写入或跑验证命令时才用 worker。\n\n重要：给子代理的 message 必须完整自包含（含文件路径和足够上下文），因为子代理看不到本对话。\n\n示例：\n  delegate(agent='explorer', message='检查路由注册与对应测试，报告 file:line 和结论。')\n  delegate(agent='reviewer', message='审查工作区未提交改动，按严重程度列出问题与 file:line。')\n  # 并行 fan-out（同一条消息里多个 delegate）：\n  #   delegate(agent='explorer', message='查 auth 模块的所有导出'),\n  #   delegate(agent='explorer', message='查订单模块的测试覆盖')",
     inputSchema: objectSchema({
-      agent: { type: "string", enum: ["explorer", "worker"], description: "要使用的内置子代理" },
+      agent: { type: "string", enum: ["explorer", "reviewer", "worker"], description: "要使用的内置子代理" },
       message: { type: "string", description: "给子代理的完整、自包含用户消息" }
     }, ["agent", "message"]),
     presentation: {

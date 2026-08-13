@@ -145,6 +145,7 @@ test("delegate creates an independent hidden session and asynchronously delivers
 
 test("built-in agent profiles enforce fixed tools and forbid nested delegation", () => {
   const explorer = createAgentToolHost(toolHost, agentDefinition("explorer"));
+  const reviewer = createAgentToolHost(toolHost, agentDefinition("reviewer"));
   const worker = createAgentToolHost(toolHost, agentDefinition("worker"));
   assert.equal(explorer.has("read_file"), true);
   assert.equal(explorer.has("write_file"), false);
@@ -152,6 +153,18 @@ test("built-in agent profiles enforce fixed tools and forbid nested delegation",
   assert.equal(worker.has("write_file"), true);
   assert.equal(worker.has("run_command"), true);
   assert.equal(worker.has("delegate"), false);
+  // reviewer 镜像 Claude Code code-reviewer 的结构性只读:
+  // 读/搜/git_diff 可用,stop_command(=KillShell)可用,写/启动命令/委派不可用。
+  assert.equal(reviewer.has("read_file"), true);
+  assert.equal(reviewer.has("git_diff"), true);
+  assert.equal(reviewer.has("git_status"), true);
+  assert.equal(reviewer.has("stop_command"), true);
+  assert.equal(reviewer.has("write_file"), false);
+  assert.equal(reviewer.has("edit_file"), false);
+  assert.equal(reviewer.has("run_command"), false);
+  assert.equal(reviewer.has("git_commit"), false);
+  assert.equal(reviewer.has("delegate"), false);
+  assert.equal(agentDefinition("reviewer").maxAccessMode, "smart_approval");
   assert.equal(toolHost.has("spawn_agent"), true);
   assert.equal(toolHost.names().includes("spawn_agent"), false);
   assert.equal(toolHost.specs.some((tool) => tool.name === "spawn_agent"), false);

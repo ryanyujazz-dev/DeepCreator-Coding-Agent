@@ -2,7 +2,7 @@
 
 > 对标:Claude Code(退出型命令靠 harness 回调自动送回;非退出型保留 TaskOutput/TaskStop)。
 > 依据:[tool-ergonomics-audit.md](./tool-ergonomics-audit.md) 全批次 + 三角度"后台命令架构"核实 + 三组"工具集现状"盘点。
-> 状态:**已审(2026-08-13)**。§二/§三 对应审计批次 2.3/2.5/2.6 已落地;§四(harness 回调)+ §一(砍 wait_command)见实施计划;§六 分叉已拍板:**stop_command 留**。本文给出每个工具的名称 / 描述 / schema / tool result 组织方式。
+> 状态:**已审并全部落地(2026-08-13)**。§二(改造三工具)、§三(新增 git 工具)、§四(harness 回调)、§一(砍 wait_command)均已实现;§六 分叉已拍板:**stop_command 留**。本文给出每个工具的名称 / 描述 / schema / tool result 组织方式。
 
 ## 设计原则
 

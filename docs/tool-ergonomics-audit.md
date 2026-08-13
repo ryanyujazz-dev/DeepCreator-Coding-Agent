@@ -103,6 +103,7 @@ DeepCreator 工具链在**正确性与安全**上已超过 Claude Code 的细度
 
 - 描述只有 4 行,**完全没有 when-to-use / when-NOT-to-use**,没教并行 fan-out(最多 4)和 explorer vs worker 选型([registry.ts:668](../server/infra/tools/registry.ts:668))。(trivial 修复)
 - explorer(只读但**不能跑命令验证**)↔ worker(一选中就 full_access)权限跨度太大,缺"只读+可跑验证命令"的中间角色(类似 Claude Code code-reviewer)。
+  > 2026-08-13 核实修正:经本地 Claude Code 官方插件源码(`feature-dev/agents/code-reviewer.md`)核实,内置 code-reviewer 实为**结构性只读**(`Glob, Grep, LS, Read, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput`,**无 Bash、无写工具**),验证命令由 /code-review 编排层明令禁止。批次 3.3 据此落地 reviewer = explorer 工具集 + `stop_command`(对应 KillShell),**不含 run_command**。
 - 不能自定义 system prompt / 工具白名单;Claude Code subagent 可自定义 + Agent teams 对等消息。
 
 ### 🟢 P1/P2:零散易用性补强(都 confirmed)
@@ -286,8 +287,12 @@ DeepCreator 工具链在**正确性与安全**上已超过 Claude Code 的细度
 | 批次 2.3(`list_files` depth,默认 1 层 + 截断标注) | ✅ 已落地 | `listFiles` 5 用例(默认 1 层/depth=2/-1 全量/maxFiles 标注/敏感文件) |
 | 批次 2.5 小步(commandId slug 化 + 进结果文本 facts 行 + wait 并发幂等) | ✅ 已落地 | `commandManager` slug+并发双 waiter;`contextEngineering` 命令标识 facts 行 |
 | 批次 2.6(`read_file` cat -n 行号 + offset/limit + 截断标注;证据上限 18000→30000) | ✅ 已落地 | `readFile` 4 用例(行号/分页/标注/**stale 契约不破**:指纹仍记未编号原文) |
+| 批次 3.1b(harness 回调:后台命令 settle → 自动注入续写 + 唤醒 runner;completionGate 删 running_commands 门) | ✅ 已落地 | `commandManager` waitForSettled 端到端;`runner` 注入用例(turns=2 + 注入文案);`completionGate` 改断言 |
+| 批次 3.1(`run_command` 增 timeout_ms + run_in_background;**删 wait_command**) | ✅ 已落地 | `toolSemantics` timeout/background 断言;runner control 用例改 stop_command 版 |
+| 批次 3.2(`git_diff` 只读真实 hunk + `git_commit` 受审批) | ✅ 已落地 | `gitTools` 5 用例(hunk/staged/path/空 diff/非 git 目录;commit 格式/未暂存失败/审批三分支) |
+| 批次 3.3(`delegate` 增第三个角色 reviewer) | ✅ 已落地 | `delegation` reviewer 白名单断言(结构性只读:无 run_command/写工具,有 stop_command) |
 
-**仍未落地**(见 [toolset-target-design.md](./toolset-target-design.md) 已审定计划):批次 3.1/3.1b(run_command 升级 + harness 回调 → 砍 wait_command)、3.2(git_diff/git_commit)、3.3(delegate reviewer)、3.4(沙盒)、3.5(LSP)。
+**仍未落地**(批次 3.4/3.5,结构性,单独设计):沙盒(protected paths + 网络独立开关 + 平台级隔离)、LSP 代码智能层。
 
 ---
 
