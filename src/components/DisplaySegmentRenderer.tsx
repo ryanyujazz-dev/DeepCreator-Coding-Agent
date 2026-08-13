@@ -30,13 +30,11 @@ function indicatorIcon(indicator: Extract<ActivityIndicator, { mode: "tool" }>) 
 function ActivitySlotView({
   slot,
   activity,
-  continuationActive,
   onOpenFile,
   onStopCommand
 }: {
   slot: ActivitySlot;
   activity?: Activity;
-  continuationActive: boolean;
   onOpenFile: (path: string) => void;
   onStopCommand: (commandId: string) => void;
 }) {
@@ -63,11 +61,15 @@ function ActivitySlotView({
   const isThinking = slot.visual.mode === "thinking";
   const patchDraft = activity?.draft;
   const nativeSearch = activity?.tool?.toolName === "web_search" && activity.modelItemId;
-  const slotActive = slot.logicalState === "active" || continuationActive;
+  // P1: a slot shows "in-progress" styling ONLY while its own tool is running.
+  // continuationActive (this segment is the run's last/active one) no longer
+  // counts — once the tool is done (logicalState === "empty") it never reads as
+  // in-progress, even if it is the continuation target.
+  const slotActive = slot.logicalState === "active";
   const skillDetail = activity?.error || activity?.body;
   const skillExpandable = skillActivity && Boolean(skillDetail || activity?.command?.commandId);
   return (
-    <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${isThinking ? " is-thinking" : ""}${skillActivity ? " is-skill" : ""}`}>
+    <article className={`work-step tool-step display-activity-slot is-${slot.logicalState}${slotActive ? " is-active" : ""}${isThinking ? " is-thinking" : ""}${skillActivity ? " is-skill" : ""}`}>
       {slot.visual.mode === "tool" && <div className="work-dot">{skillActivity ? <Blocks size={13} /> : indicatorIcon(slot.visual)}</div>}
       <div className="work-body">
         {skillActivity
@@ -205,7 +207,11 @@ export function DisplaySegmentRenderer({
   onStopCommand,
   onTextFrame,
   runActive,
-  continuationActive = false
+  // continuationActive is still passed by RunTimeline (and asserted by
+  // designSystem.test.ts) but no longer drives any styling after the P1 change
+  // (a done tool/aggregate never reads as in-progress). Renamed to _ to mark it
+  // intentionally unused until the prop is removed from the call site.
+  continuationActive: _continuationActive = false
 }: {
   segment: DisplaySegment;
   activities: Parameters<typeof ActivityAggregateRenderer>[0]["activities"];
@@ -217,6 +223,10 @@ export function DisplaySegmentRenderer({
   runActive: boolean;
   continuationActive?: boolean;
 }) {
+  // The aggregate, when present, has REPLACED the activity slot for this span
+  // (a content boundary closed a ≥2-tool span). So slots are only shown when
+  // there is NO aggregate. The projection guarantees a segment has either an
+  // aggregate or activity slots, never both.
   const activityUsesSeedSlot = !segment.mainActivity && !segment.aggregate && segment.activitySlots.length > 0;
   const seedSlot = activityUsesSeedSlot ? segment.activitySlots[0] : undefined;
   const remainingSlots = seedSlot ? segment.activitySlots.slice(1) : segment.activitySlots;
@@ -231,7 +241,6 @@ export function DisplaySegmentRenderer({
         <div className="display-segment-primary" key={seedSlot.slotId}>
           <ActivitySlotView
             activity={activities.find((activity) => activity.activityId === seedSlot.visual.sourceActivityId)}
-            continuationActive={continuationActive}
             onOpenFile={onOpenFile}
             onStopCommand={onStopCommand}
             slot={seedSlot}
@@ -240,7 +249,7 @@ export function DisplaySegmentRenderer({
       )}
       {segment.aggregate && (
         <ActivityAggregateRenderer
-          active={continuationActive}
+          active={false}
           activities={activities}
           aggregate={segment.aggregate}
           changes={changes}
@@ -253,7 +262,6 @@ export function DisplaySegmentRenderer({
         <div className="display-segment-activity" key={slot.slotId}>
           <ActivitySlotView
             activity={activities.find((activity) => activity.activityId === slot.visual.sourceActivityId)}
-            continuationActive={continuationActive}
             onOpenFile={onOpenFile}
             onStopCommand={onStopCommand}
             slot={slot}

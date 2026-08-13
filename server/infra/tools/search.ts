@@ -145,7 +145,7 @@ export async function grepFiles(
   const workspaceRoot = path.resolve(projectRoot);
   const root = ensureInsideRoot(workspaceRoot, input.path ?? ".");
   const { regex, warnings } = compileGrepPattern(input);
-  const globFilter = input.glob ? new Minimatch(input.glob, { dot: false }) : null;
+  const globFilter = input.glob ? new Minimatch(input.glob, { dot: true }) : null;
   const maxFiles = Math.min(1000, Math.max(1, input.max_results ?? 200));
   const contextLines = Math.min(3, Math.max(0, input.context ?? 0));
   // output_mode 四档:默认 files_with_matches(只返回路径,省 token)
@@ -316,7 +316,7 @@ export async function globFiles(
   const root = ensureInsideRoot(workspaceRoot, input.path ?? ".");
   let matcher: Minimatch;
   try {
-    matcher = new Minimatch(input.pattern, { dot: false });
+    matcher = new Minimatch(input.pattern, { dot: true });
   } catch (error) {
     throw new Error(`无效的 glob 模式：${input.pattern}（${error instanceof Error ? error.message : String(error)}）`);
   }

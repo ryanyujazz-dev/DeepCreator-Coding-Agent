@@ -17,7 +17,8 @@ import { applyPatch } from "./tools/applyPatch";
 import { globFiles, grepFiles } from "./tools/search";
 import { fetchUrl, webSearch } from "./tools/web";
 import { materializeSkillAsset, readSkillResource } from "./tools/skills";
-import { runCommandTool, runSkillScriptTool, stopCommandTool, waitCommandTool } from "./tools/managedCommands";
+import { runCommandTool, runSkillScriptTool, stopCommandTool } from "./tools/managedCommands";
+import { gitCommit, gitDiff } from "./tools/git";
 import { installSkill, previewSkillInstall } from "./tools/skillInstall";
 import { toolRegistry, toolSpecs, ToolRegistration } from "./tools/registry";
 import { SkillStore } from "./skillStore";
@@ -59,6 +60,14 @@ export async function executeTool(input: {
   if (name === "git_status") {
     const result = await runShell(projectRoot, "git status --short && git diff --stat", signal);
     return { ...result, mutatedWorkspace: false };
+  }
+  if (name === "git_diff") {
+    const result = await gitDiff(projectRoot, args as never, signal);
+    return { ...result, mutatedWorkspace: false };
+  }
+  if (name === "git_commit") {
+    const result = await gitCommit(projectRoot, args as never, signal);
+    return { ...result, mutatedWorkspace: true };
   }
   if (name === "search_capabilities") {
     const matches = searchCapabilities(projectRoot, String(args.query ?? ""), Number(args.limit ?? 10), skillCatalog);
@@ -110,17 +119,19 @@ export async function executeTool(input: {
   if (name === "web_search") return { mutatedWorkspace: false, output: await webSearch(args as never, signal) };
   if (name === "run_command") {
     const command = String(args.command ?? "").trim();
+    // timeout_ms:模型可调前台等待上限(clamp 1..600000);run_in_background=true 时
+    // checkpointMs=1 → start() 的 wait 立即到点 → backgrounded,返回 running snapshot。
+    const requestedTimeout = Number(args.timeout_ms ?? 120_000);
+    const timeoutMs = args.run_in_background === true
+      ? 1
+      : Math.min(600_000, Math.max(1, Number.isFinite(requestedTimeout) ? requestedTimeout : 120_000));
     return runCommandTool({
       ...input,
-      checkpointMs: commandCheckpointMs
+      checkpointMs: timeoutMs
     }, command);
   }
   if (name === "run_skill_script") {
     return runSkillScriptTool({ ...input, checkpointMs: commandCheckpointMs }, skillCatalog, args);
-  }
-  if (name === "wait_command") {
-    const commandId = String(args.commandId ?? "").trim();
-    return waitCommandTool({ ...input, checkpointMs: commandCheckpointMs }, commandId);
   }
   if (name === "stop_command") {
     const commandId = String(args.commandId ?? "").trim();
@@ -156,7 +167,7 @@ export function toolNames(): string[] {
 export function toolCanRunInParallel(name: string): boolean {
   if (name === "delegate" || name === "spawn_agent") return true;
   if (name === "run_command") return true;
-  if (name === "search_memory") return false;
+  if (name === "search_memory" || name === "save_memory") return false;
   const registration = toolRegistry.find((tool) => tool.name === name);
   return registration?.presentation.effect === "read_only";
 }
@@ -254,6 +265,8 @@ export function toolTitle(name: string): string {
     delete_file: "删除文件",
     edit_file: "编辑文件",
     git_status: "检查 Git 状态",
+    git_diff: "查看 Git 改动",
+    git_commit: "提交 Git 改动",
     enter_plan: "进入计划模式",
     list_files: "列出项目文件",
     read_file: "读取文件",
@@ -261,8 +274,8 @@ export function toolTitle(name: string): string {
     glob: "匹配文件路径",
     search_capabilities: "搜索能力",
     search_memory: "检索记忆",
+    save_memory: "保存记忆",
     run_command: "运行命令",
-    wait_command: "等待命令",
     stop_command: "停止命令",
     submit_plan: "提交实施方案",
     update_tasks: "更新执行任务",
@@ -293,6 +306,8 @@ export function createToolHost(skillCatalog = defaultSkillCatalog, skillStore?: 
     runningCommands: (runId) => commandManager.running(runId),
     specs: toolSpecs,
     stopCommands: (runId) => commandManager.stopRun(runId),
+    takeSettledCommands: (runId) => commandManager.takeSettled(runId),
+    waitForSettled: (runId, signal, maxWaitMs) => commandManager.waitForSettled(runId, signal, maxWaitMs),
     summarizeArgs: summarizeToolArguments,
     summarizeResult: summarizeToolResult,
     title: toolTitle

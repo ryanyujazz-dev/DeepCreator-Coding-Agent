@@ -86,6 +86,27 @@ test("grep: glob 过滤文件类型", async () => {
   }
 });
 
+test("grep: 能搜索点目录/点配置内容,dot:true", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-grep-dotfile-"));
+  try {
+    mkdirSync(path.join(directory, ".github", "workflows"), { recursive: true });
+    writeFileSync(path.join(directory, ".github", "workflows", "ci.yml"), "DOTFILE_MARKER: ci\n");
+    writeFileSync(path.join(directory, ".eslintrc.json"), "DOTFILE_MARKER: eslint\n");
+    writeFileSync(path.join(directory, ".env"), "DOTFILE_MARKER: should-not-search\n");
+    const result = await executeTool({
+      args: { pattern: "DOTFILE_MARKER", output_mode: "content" },
+      name: "grep",
+      projectRoot: directory
+    });
+    assert.match(result.output, /\.github[\\/]workflows[\\/]ci\.yml/, "应能搜索 .github 点目录内容");
+    assert.ok(result.output.includes(".eslintrc.json"), "应能搜索 .eslintrc.json 点配置内容");
+    // 安全护栏不受 dot:true 影响:.env 仍被排除
+    assert.ok(!result.output.includes("should-not-search"), ".env 仍应被排除");
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
 test("grep: path 限定后仍返回工作区相对路径", async () => {
   const directory = setupProject();
   try {

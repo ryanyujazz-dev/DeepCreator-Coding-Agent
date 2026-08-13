@@ -245,6 +245,65 @@ function recordFunctionName(tool: Record<string, unknown>): string | undefined {
   return tool.type === "function" && typeof tool.name === "string" ? tool.name : undefined;
 }
 
+test("round-trips a prior web_search_call with action.queries so /responses does not 400", async () => {
+  let requestBody = "";
+  const server = createServer((request, response) => {
+    request.on("data", (chunk) => (requestBody += chunk.toString()));
+    request.on("end", () => {
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      // 第二轮:历史里已有一个上轮产生的 web_search_call,DeepSeek 响应流只回传了
+      // action.query(单字符串),但请求侧校验要求 action.queries(数组)。
+      const events = [
+        { type: "response.output_item.added", sequence_number: 1, output_index: 0, item: { id: "msg_2", type: "message", status: "in_progress", content: [] } },
+        { type: "response.output_text.delta", sequence_number: 2, output_index: 0, item_id: "msg_2", delta: "继续" },
+        { type: "response.output_item.done", sequence_number: 3, output_index: 0, item: { id: "msg_2", type: "message", status: "completed", content: [{ type: "output_text", text: "继续" }] } },
+        { type: "response.completed", sequence_number: 4, response: { usage: { input_tokens: 10, output_tokens: 5 } } }
+      ];
+      for (const event of events) response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      response.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const provider = new DeepSeekProvider("test-key", `http://127.0.0.1:${address.port}/chat/completions`);
+    await provider.stream({
+      messages: [
+        { role: "user", text: "查资料" },
+        {
+          role: "assistant",
+          outputItems: [{
+            itemId: "ws_prior",
+            modelStepId: "step_prior",
+            outputIndex: 0,
+            sequence: 1,
+            status: "completed",
+            type: "hosted_tool",
+            toolName: "web_search",
+            searchQuery: "Responses API",
+            searchStatus: "completed"
+          }],
+          text: null
+        },
+        { role: "user", text: "接着说" }
+      ],
+      model: "deepseek-v4-pro",
+      modelStepId: "step_roundtrip",
+      protocol: "responses",
+      tools: [{ name: "web_search", description: "search", inputSchema: { type: "object" } }]
+    });
+    const body = JSON.parse(requestBody) as { input: Array<Record<string, unknown>> };
+    const replayed = body.input.find((item) => item.type === "web_search_call") as
+      | { action?: { queries?: unknown[]; query?: string } } | undefined;
+    assert.ok(replayed, "历史 web_search_call 应被回放进 input");
+    assert.ok(Array.isArray(replayed?.action?.queries) && (replayed?.action?.queries?.length ?? 0) > 0,
+      "回放的 web_search_call.action 必须带非空 queries 数组,否则 /responses 会 400 missing field queries");
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
 test("streams custom apply_patch input as an unapplied tool call", async () => {
   let requestBody = "";
   const patch = "*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch";

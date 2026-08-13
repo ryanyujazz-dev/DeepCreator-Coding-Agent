@@ -517,7 +517,7 @@ test("declared Skill scripts reuse managed command completion, failure and stop 
     const running = await executeTool({
       activityId: "activity_skill_running",
       args: { capabilityId, scriptId: "validate" },
-      commandCheckpointMs: 20,
+      commandCheckpointMs: 500,
       name: "run_skill_script",
       projectRoot: project,
       runId: "run_skill_running",
@@ -533,6 +533,11 @@ test("declared Skill scripts reuse managed command completion, failure and stop 
     });
     assert.equal(stopped.commandState, "cancelled");
   } finally {
-    rmSync(root, { force: true, recursive: true });
+    // Windows 下被终止的 node 进程句柄释放有延迟,EPERM 需重试(commandManager 测试同款模式)
+    try {
+      rmSync(root, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
   }
 });

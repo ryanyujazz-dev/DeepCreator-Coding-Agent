@@ -198,7 +198,7 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 按关键词读取已确认的结构化记忆事实
     name: "search_memory",
-    description: "按关键词读取用户确认过的结构化 MemoryFact。这些是用户或先前会话保存并经过整理的事实，例如“项目使用 pnpm”“测试使用 vitest”。本工具只读，不会自动创建记忆。\n\n适用场景：任务开始时检查用户或项目是否保存过偏好和约定；向用户提问前，确认对方是否已经提供过答案。\n\n不适用场景：需要当前代码库状态，应使用 read_file 或 grep；需要保存新事实，目前尚无保存工具，应向用户说明。\n\n示例：\n  search_memory(query=\"package manager\")\n  search_memory(query=\"test framework\", limit=5)",
+    description: "按关键词读取用户确认过的结构化 MemoryFact。这些是用户或先前会话保存并经过整理的事实，例如“项目使用 pnpm”“测试使用 vitest”。本工具只读。\n\n适用场景：已注入的 `<memory-index>` 摘要被截断或需要某条事实的完整字段（category/confidence/visibility）时，按关键词检索全文；确认某条旧记忆是否仍存在。\n\n不适用场景：任务开始时检查偏好——记忆摘要已通过会话开头的 `<memory-index>` 自动注入，无需主动调用本工具；需要当前代码库状态，应使用 read_file 或 grep；需要保存新事实，应使用 save_memory。\n\n示例：\n  search_memory(query=\"package manager\")\n  search_memory(query=\"test framework\", limit=5)",
     inputSchema: objectSchema({
       query: { type: "string", description: "用于搜索已保存记忆事实的关键词或短语" },
       limit: { type: "number", description: "最多返回多少条事实，默认 10" }
@@ -214,11 +214,32 @@ export const toolRegistry: ToolRegistration[] = [
     }
   },
   {
+    // 保存一条结构化记忆事实(写入 runtime.sqlite,跨会话复用)
+    name: "save_memory",
+    description: "保存一条已确认的结构化 MemoryFact，供后续会话和项目复用。本工具写入持久记忆库，不修改工作区文件。\n\n适用场景：用户明确要求“记住”某件事；发现了稳定、会跨会话复用的约定或事实（技术栈、测试命令、已确认的偏好）。\n\n不适用场景：临时信息或仅与当前会话相关的上下文；需要当前代码库状态，应使用 read_file 或 grep；需要检索已存记忆，应使用 search_memory。\n\n重要：① 不要保存密钥或凭据（API key、token、password、secret）——会被拦截报错。② 保存立即持久化，但写入对当前会话的 `<memory-index>` 不立即生效——该记忆将在下次上下文压缩或新会话时进入记忆索引（这是刻意的缓存保护，保存已成功，不要因为没有立即见到而重试）。\n\n示例：\n  save_memory(statement=\"项目使用 pnpm 而非 npm\", category=\"project_fact\", visibility=\"project\")\n  save_memory(statement=\"用户偏好用 vitest 做测试\", category=\"preference\", visibility=\"personal\")",
+    inputSchema: objectSchema({
+      statement: { type: "string", description: "要保存的事实陈述，一句话、自包含、可跨会话复用。不要包含密钥或凭据。" },
+      category: { type: "string", enum: ["preference", "project_fact", "workflow", "known_issue"], description: "事实类别：preference 用户偏好；project_fact 项目事实；workflow 工作流/约定；known_issue 已知问题" },
+      visibility: { type: "string", enum: ["personal", "project"], description: "可见范围：personal 跨所有项目可见（默认）；project 仅当前项目可见（自动绑定当前项目根）" },
+      confidence: { type: "number", description: "置信度 0 到 1，默认 0.7；仅在高确信时调高" }
+    }, ["statement", "category"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "control_only",
+      importance: "routine",
+      action: "modify",
+      targetKind: "workspace",
+      resolveTarget: (args) => String(args.statement ?? "memory").slice(0, 80)
+    }
+  },
+  {
     // 列出项目文件树
     name: "list_files",
-    description: "以树形结构列出项目文件，自动跳过依赖目录（node_modules、dist、.git、.venv）、构建产物和敏感文件。\n\n适用场景：任务开始时需要项目结构的整体概览；深入具体文件前需要理解目录布局。\n\n不适用场景：需要匹配特定模式的文件，应使用 glob；需要搜索文件内容，应使用 grep；项目很大且只需要其中一部分。\n\n注意：结果受 maxFiles 限制，默认 200。大型项目应优先使用带具体模式的 glob。\n\n示例：\n  list_files()\n  list_files(maxFiles=500)",
+    description: "用途：以平铺列表列出项目文件，默认只列一层（顶层），可用 depth 控制递归深度。\n\n适用场景：了解项目结构、确认文件存在、开工前摸底。\n\n不适用场景：按模式找特定文件（glob）、读内容（read_file）。\n\n重要：\n  - 默认 depth=1（只列顶层），避免大项目一次吃满上限。\n  - 自动跳过依赖/构建产物/敏感目录（node_modules、.git、dist、output 等）。\n  - maxFiles 默认 200、上限 1000；超过截断并标注。\n\n示例：\n  list_files()\n  list_files(depth=2)",
     inputSchema: objectSchema({
-      maxFiles: { type: "number", description: "最多返回多少个文件条目，默认 200，并受硬性上限约束" }
+      maxFiles: { type: "number", description: "最多返回多少个文件条目，默认 200，并受硬性上限约束" },
+      depth: { type: "number", description: "递归层数，默认 1（只列顶层）；-1 = 全量递归" }
     }),
     presentation: {
       groupMode: "consecutive",
@@ -233,10 +254,12 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 读取文件内容
     name: "read_file",
-    description: "读取项目根目录内的 UTF-8 文本文件并返回内容。大文件超过 maxChars 时会截断并给出提示。\n\n适用场景：需要检查或修改文件内容；即将编辑文件，必须先读取；可以在同一条消息中批量读取多个可能有用的文件，以便并行加载。\n\n不适用场景：只需要了解有哪些文件，应使用 glob 或 list_files；需要跨多个文件搜索模式，应使用 grep；目标是图片或二进制文件，本工具不支持。\n\n重要：使用 edit_file 或 write_file 编辑文件前，必须先读取并理解其当前内容。未读取就编辑容易导致 oldText 匹配错误。\n\n示例：\n  read_file(path=\"src/App.tsx\")\n  read_file(path=\"package.json\")\n  # 在一条消息中批量并行读取：\n  #   read_file(path=\"src/App.tsx\"), read_file(path=\"src/main.tsx\"), read_file(path=\"vite.config.ts\")",
+    description: "用途：读取项目内 UTF-8 文本文件，带行号返回，大文件按 maxChars 截断并明确标注。\n\n适用场景：查看源码/配置/文档；定位行号以引用 file:line、与用户沟通、看 stack trace；即将编辑文件，必须先读取。\n\n不适用场景：按模式找文件路径（glob）、按内容搜（grep）、编辑后重读验证——edit_file 和 multi_edit 成功时已返回 unified diff，重读只是浪费；只有当编辑因 oldText 不匹配而失败、需要查看当前实际内容时才重读。\n\n重要：\n  - 正文每行带 1 起始行号（cat -n 风格）。\n  - maxChars 默认 40000、上限 200000；超过按 maxChars 截断并在末尾标注“[已截断：原文 N 字符，已返回 M 字符，可用 offset/limit 读后续]”。\n  - 可用 offset（起始行）/ limit（行数）分页读大文件特定区段。\n\n示例：\n  read_file(path=\"src/index.ts\")\n  read_file(path=\"src/index.ts\", offset=120, limit=80)",
     inputSchema: objectSchema({
       path: { type: "string", description: "文件相对于工作区的路径，例如 'src/App.tsx' 或 'package.json'" },
-      maxChars: { type: "number", description: "截断前最多读取的字符数，默认 200000。只需要大文件开头时应调小此值。" }
+      maxChars: { type: "number", description: "截断前最多读取的字符数（含行号前缀），默认 40000、上限 200000。只需要大文件开头时应调小此值。" },
+      offset: { type: "number", description: "起始行号（1 起始），默认 1。配合 limit 分页读大文件。" },
+      limit: { type: "number", description: "最多读取的行数；不给时由 maxChars 推导。" }
     }, ["path"]),
     presentation: {
       groupMode: "consecutive",
@@ -258,7 +281,7 @@ export const toolRegistry: ToolRegistration[] = [
       pattern: { type: "string", description: "要搜索的 JavaScript（ECMAScript）正则。不要使用 (?i) 等 PCRE 内联标志，改用 case_sensitive=false。" },
       path: { type: "string", description: "可选，用工作区相对路径限定搜索子目录，例如 'src/'" },
       glob: { type: "string", description: "可选，用 minimatch 模式过滤文件类型，例如 '**/*.ts' 或 '**/*.{tsx,ts}'" },
-      output_mode: { type: "string", enum: ["files_with_matches", "content", "count", "json"], description: "结果格式：'files_with_matches' 默认只返回路径；'content' 返回 path:line:content；'count' 返回每个文件的命中数；'json' 返回结构化字段" },
+      output_mode: { type: "string", enum: ["files_with_matches", "content", "count", "json"], description: "结果格式：'files_with_matches' 默认只返回路径；'content' 返回 path:line:content；'count' 返回每个文件的命中数；'json' 返回结构化数组，每项含 path/line/column/match/contextBefore/contextAfter 字段。" },
       case_sensitive: { type: "boolean", description: "是否区分大小写，默认 true。需要忽略大小写时设为 false，不要写 (?i)。" },
       fixed_strings: { type: "boolean", description: "是否把 pattern 视为字面量并转义正则元字符，默认 false。搜索 URL、API Key 或含特殊字符的字符串时使用。" },
       context: { type: "number", description: "每个匹配项前后显示多少行上下文，范围 0 至 3，默认 0" },
@@ -301,7 +324,7 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 读取 Git 工作区状态
     name: "git_status",
-    description: "读取当前 Git 工作树状态和 diff 摘要，返回已暂存、未暂存、未跟踪文件列表以及精简 diff。\n\n适用场景：提交前确认有哪些改动；编辑后验证真实 diff 是否符合预期；用户询问“改了什么”。\n\n不适用场景：需要执行 commit、push、log 等任意 Git 命令，应使用 run_command；只需要读取特定文件，应使用 read_file。\n\n示例：\n  git_status()",
+    description: "读取当前 Git 工作树状态和 diff 摘要，返回已暂存、未暂存、未跟踪文件列表以及精简 diff。\n\n适用场景：提交前确认有哪些改动；编辑后验证真实 diff 是否符合预期；用户询问“改了什么”。\n\n不适用场景：要看具体改动内容（hunk 级）应使用 git_diff；要提交改动应使用 git_commit；push、log 等其他 Git 操作用 run_command；只需要读取特定文件，应使用 read_file。\n\n示例：\n  git_status()",
     inputSchema: objectSchema({}),
     presentation: {
       groupMode: "consecutive",
@@ -311,6 +334,42 @@ export const toolRegistry: ToolRegistration[] = [
       action: "inspect",
       targetKind: "workspace",
       resolveTarget: () => "Git working tree"
+    }
+  },
+  {
+    // 只读查看 git 真实改动 hunk
+    name: "git_diff",
+    description: "用途：只读查看 git 工作区/暂存区的真实改动（unified diff），不产生副作用。\n\n适用场景：提交前自查改动、向用户汇报改了什么、确认 edit_file/apply_patch 的实际效果。\n\n不适用场景：提交（git_commit）、读单文件全文（read_file）、看文件清单级摘要含未跟踪新文件（git_status）。\n\n重要：\n  - 只读，无需审批，不动工作区。\n  - 默认对比上次提交（git diff HEAD），显示工作区+暂存区的已跟踪改动；staged=true 只看暂存区；未跟踪的新文件不在 diff 中，用 git_status 查看。\n  - 大 diff 会被 Runtime 裁剪（保留头尾），用 path 收窄。\n\n示例：\n  git_diff()\n  git_diff(path=\"src/\")\n  git_diff(staged=true)",
+    inputSchema: objectSchema({
+      path: { type: "string", description: "限定查看的文件或目录（工作区相对路径）" },
+      staged: { type: "boolean", description: "true 时只看暂存区改动（--cached），默认 false" }
+    }),
+    presentation: {
+      groupMode: "consecutive",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "read_only",
+      importance: "routine",
+      action: "inspect",
+      targetKind: "workspace",
+      resolveTarget: (args) => args.path ? String(args.path) : "Git working tree"
+    }
+  },
+  {
+    // 提交暂存区(受审批写操作)
+    name: "git_commit",
+    description: "用途：把暂存区改动提交为一个 git commit（受审批的写操作）。\n\n适用场景：用户明确要求提交、或一个完整逻辑单元改动已就绪需落检查点。\n\n不适用场景：还没改完（不要中途提交半成品）、用户没要求（不擅自提交）、想看改动（git_diff）。\n\n重要：\n  - 受审批（accessMode 非 full_access 时需用户确认）。\n  - message 必填且自描述；amend=true 时会覆盖上一条提交的 message。\n  - 只提交暂存区内容，不会自动 git add；暂存请用 run_command(git add)。\n  - 不会自动 push（push 是独立操作，需用户明确要求）。\n\n示例：\n  git_commit(message=\"fix: 编辑失败未回显附近行\")",
+    inputSchema: objectSchema({
+      message: { type: "string", description: "commit message，自描述本次改动" },
+      amend: { type: "boolean", description: "true 时 amend 到上一次提交（message 覆盖原提交说明），默认 false" }
+    }, ["message"]),
+    presentation: {
+      groupMode: "standalone",
+      detail: COLLAPSED_RAW_DETAIL,
+      effect: "workspace_write",
+      importance: "notable",
+      action: "modify",
+      targetKind: "workspace",
+      resolveTarget: () => "git commit"
     }
   },
   {
@@ -354,7 +413,7 @@ export const toolRegistry: ToolRegistration[] = [
   },
   {
     name: "apply_patch",
-    description: "使用 Codex apply_patch 文本格式原子描述一个或多个工作区文件改动。Responses 协议会把它作为 custom tool 调用；补丁在完整生成、解析、审批之前只是未应用草稿。\n\n格式必须以 *** Begin Patch 开始、*** End Patch 结束，并使用 *** Add File、*** Update File 或 *** Delete File 文件段。更新段使用 @@ hunk，内容行分别以空格、+、- 开头。",
+    description: "使用 Codex apply_patch 文本格式，在一个原子操作中描述一个或多个工作区文件的增删改。补丁在完整生成、解析、审批之前只是未应用的草稿；任一处失败则整批回滚，不写盘。\n\n适用场景：需要跨多个文件的协调改动（重命名一个符号并同步所有引用文件）；单次改动同时含新增、更新、删除文件；需要比逐个 edit_file 更紧凑、可整体审阅的一次性 diff。\n\n不适用场景：只改单个文件的局部，应优先用 edit_file（更小、更易审查的 diff）；创建单个新文件，应使用 write_file；单文件多处协调编辑，应使用 multi_edit。\n\n重要：格式必须以 *** Begin Patch 开始、*** End Patch 结束，使用 *** Add File / *** Update File / *** Delete File 段。更新段用 @@ hunk，内容行分别以空格（上下文）、+（新增）、-（删除）开头。匹配依赖上下文行精确比对，空白或缩进不一致会失败。\n\n示例：\n  apply_patch(patch=\"*** Begin Patch\\n*** Update File: src/config.ts\\n@@\\n-const PORT = 3000;\\n+const PORT = 8080;\\n*** End Patch\")",
     inputSchema: objectSchema({
       patch: { type: "string", description: "完整的 apply_patch 文本，包括 Begin Patch 与 End Patch 标记" }
     }, ["patch"]),
@@ -397,8 +456,8 @@ export const toolRegistry: ToolRegistration[] = [
       oldText: { type: "string", description: "要查找的精确文本。除非 replaceAll 为 true，否则必须在文件中唯一。请包含足够的周边上下文以确保唯一性。" },
       newText: { type: "string", description: "替换后的文本" },
       replaceAll: { type: "boolean", description: "设为 true 时替换 oldText 的所有匹配项，默认 false" },
-      startLine: { type: "number", description: "可选，1 起始行号。提供后精确匹配失败时（strict=0），在 [startLine, endLine] 行窗口内做 relaxed（trimEnd）匹配，用于 oldText 全文不唯一时精准定位。strict 精确命中时窗口不生效。" },
-      endLine: { type: "number", description: "可选，1 起始结束行号（含）。与 startLine 配合限定 relaxed 匹配窗口。" }
+      startLine: { type: "number", description: "可选，1 起始行号。注意：startLine 与 endLine 必须同时给出，且仅在 oldText 精确匹配（strict）未命中时作为 relaxed（trimEnd）窗口生效——strict 命中时此窗口被忽略。由于编辑过程中行号会随前序改动漂移，优先靠提供足够上下文的 oldText 保证唯一，行号锚定仅作兜底。" },
+      endLine: { type: "number", description: "可选，1 起始结束行号（含）。必须与 startLine 同时给出，二者仅共同限定 relaxed 匹配窗口。" }
     }, ["path", "oldText", "newText"]),
     presentation: {
       groupMode: "workspace_delta",
@@ -426,8 +485,8 @@ export const toolRegistry: ToolRegistration[] = [
           oldText: { type: "string", description: "要查找的精确文本。除非 replaceAll 为 true，否则必须在文件中唯一。" },
           newText: { type: "string", description: "替换后的文本" },
           replaceAll: { type: "boolean", description: "设为 true 时替换 oldText 的所有匹配项，默认 false" },
-          startLine: { type: "number", description: "可选，1 起始行号，限定该 edit 应用时 workingCopy 的 relaxed 匹配窗口（非原始文件行号）。" },
-          endLine: { type: "number", description: "可选，1 起始结束行号（含）。与 startLine 配合。" }
+          startLine: { type: "number", description: "可选，1 起始行号。注意：startLine 与 endLine 必须同时给出，且仅在该项 oldText 精确匹配未命中时作为 relaxed（trimEnd）窗口生效——行号参照的是该项应用时 workingCopy 的行号（前序 edit 已生效后），会因前序编辑而漂移，优先用足够上下文的 oldText 保证唯一。" },
+          endLine: { type: "number", description: "可选，1 起始结束行号（含）。必须与 startLine 同时给出，共同限定该项的 relaxed 匹配窗口。" }
         }, ["oldText", "newText"])
       }
     }, ["path", "edits"]),
@@ -465,9 +524,11 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 执行 shell 命令(托管对象)
     name: "run_command",
-    description: "在项目根目录执行 shell 命令，例如构建、测试、Git 操作和启动进程。这是一个受托管对象：命令会在前台等待 60 秒；如果仍在运行，将返回 commandId，此时必须使用 wait_command 继续等待，或使用 stop_command 停止。\n\n适用场景：仅用于真实 shell 执行，包括构建（npm run build）、测试（npm test）、Git 操作（git commit）、启动开发服务器和运行脚本。\n\n不适用场景：搜索代码或文件，应分别使用 grep、glob、list_files 或 read_file。\n\n重要：绝不能通过 run_command 执行 rg、grep、findstr、find、cat、head、tail 或 ls。这些 shell 命令在 Windows 与 Git Bash 组合下经常因方言差异失败，也会绕过专用工具的依赖过滤和敏感文件保护。\n\n托管命令规则：\n- 命令运行超过 60 秒时会返回 commandId。使用 wait_command 继续等待，或使用 stop_command 终止。\n- 不要重复运行同一个长命令来轮询，这会创建重复进程。应对现有 commandId 使用 wait_command。\n- 仍有托管命令运行时，Run 不能结束。结束前必须调用 wait_command 或 stop_command。\n\n非安全命令，包括修改和网络访问，需要用户审批。对于非简单或潜在高风险命令，例如删除、强制推送或安装，请在调用前用 content 简短说明命令的作用和原因，帮助用户在审批前理解操作。\n\n示例：\n  run_command(command=\"npm run build\")\n  run_command(command=\"npm test\")\n  run_command(command=\"git add -A && git commit -m 'feat: add login page'\")",
+    description: "用途：在项目根目录执行一条真实 shell 命令（构建、测试、git、启服务、脚本）。\n\n适用场景：需要真正运行进程、产生副作用或产出运行时输出的操作。\n\n不适用场景：读文件内容（read_file）、按模式找文件（glob）、按内容搜（grep）、查 git 改动（git_diff）。能用专用工具就别用本工具；绝不能通过 run_command 执行 rg、grep、findstr、find、cat、head、tail 或 ls——这些命令在 Windows 与 Git Bash 组合下经常因方言差异失败，也会绕过专用工具的依赖过滤和敏感文件保护。\n\n重要：\n  - 每次调用 spawn 一个全新隔离 shell，cwd 固定为项目根目录，环境变量不跨调用持久（在同一条命令内用 VAR=val 前缀传递）。\n  - timeout_ms 是前台等待上限（默认 120000 / 上限 600000），不是杀死超时——到点未退出则命令转入后台继续运行，返回 running 态与 commandId。\n  - run_in_background=true 时立即转后台（不等），返回 commandId；命令自然结束后，Runtime 自动把最终输出作为续写消息送回（无需轮询、无需等待工具）。\n  - 返回正文始终含 commandId（供后续 stop_command 引用）。\n\n非安全命令，包括修改和网络访问，需要用户审批。对于非简单或潜在高风险命令，例如删除、强制推送或安装，请在调用前用 content 简短说明命令的作用和原因，帮助用户在审批前理解操作。\n\n示例：\n  run_command(command=\"npm test\", timeout_ms=300000)\n  run_command(command=\"npm run dev\", run_in_background=true)",
     inputSchema: objectSchema({
-      command: { type: "string", description: "要执行的 shell 命令，例如 'npm run build'、'git status' 或 'npx tsc --noEmit'" }
+      command: { type: "string", description: "要执行的 shell 命令，例如 'npm run build'、'git status' 或 'npx tsc --noEmit'" },
+      timeout_ms: { type: "number", description: "前台等待上限（毫秒），默认 120000、上限 600000；到点命令转后台继续运行而非被杀。" },
+      run_in_background: { type: "boolean", description: "true 时立即转后台并返回 commandId；命令自然结束后 Runtime 自动把最终输出作为续写消息送回。适合 dev server、watcher 等长驻进程。" }
     }, ["command"]),
     presentation: {
       groupMode: "standalone",
@@ -503,7 +564,7 @@ export const toolRegistry: ToolRegistration[] = [
   },
   {
     name: "run_skill_script",
-    description: "运行已受信任 Skill 在 skill.json 中声明的 .mjs 脚本。脚本工作目录固定为项目根目录，并复用 run_command 的 commandId、等待、停止、取消、输出裁剪和变更采集生命周期。\n\n适用场景：已加载的 Skill 明确要求执行其声明脚本。\n\n不适用场景：legacy Skill、未受信任 Skill、manifest 未声明的文件，或普通项目命令。\n\n重要：脚本以当前系统用户权限运行，但不会继承模型 API Key、Runtime Token 或 GitHub Token。仍在运行时必须使用 wait_command 或 stop_command 管理原 commandId。",
+    description: "运行已受信任 Skill 在 skill.json 中声明的 .mjs 脚本。脚本工作目录固定为项目根目录，并复用 run_command 的 commandId、停止、取消、输出裁剪和变更采集生命周期。\n\n适用场景：已加载的 Skill 明确要求执行其声明脚本。\n\n不适用场景：legacy Skill、未受信任 Skill、manifest 未声明的文件，或普通项目命令。\n\n重要：脚本以当前系统用户权限运行，但不会继承模型 API Key、Runtime Token 或 GitHub Token。脚本转后台后自然结束时，Runtime 会自动把最终输出作为续写消息送回；需要中途终止时对返回的 commandId 使用 stop_command。",
     inputSchema: objectSchema({
       capabilityId: { type: "string", description: "Skill 能力标识 capabilityId" },
       scriptId: { type: "string", description: "skill.json scripts 中声明的脚本标识" },
@@ -520,28 +581,11 @@ export const toolRegistry: ToolRegistration[] = [
     }
   },
   {
-    // 等待托管命令
-    name: "wait_command",
-    description: "等待仍在运行的托管命令。返回自上次轮询以来的 stdout、stderr 增量输出，并最多阻塞 60 秒；命令退出时会提前返回。\n\n适用场景：run_command 因命令运行超过 60 秒而返回 commandId；需要收集更多输出或确认命令是否完成。\n\n不适用场景：命令已经退出，结果已经直接返回；希望停止命令而不是等待，应使用 stop_command。\n\n重要：不要重新运行原命令来轮询，这会创建重复的托管对象。始终对现有 commandId 使用 wait_command。\n\n示例：\n  wait_command(commandId=\"cmd_a1b2c3\")",
-    inputSchema: objectSchema({
-      commandId: { type: "string", description: "run_command 在命令仍运行时返回的 commandId" }
-    }, ["commandId"]),
-    presentation: {
-      groupMode: "standalone",
-      detail: COLLAPSED_RAW_DETAIL,
-      effect: "control_only",
-      importance: "routine",
-      action: "execute",
-      targetKind: "process",
-      resolveTarget: (args) => String(args.commandId ?? "")
-    }
-  },
-  {
     // 停止托管命令
     name: "stop_command",
-    description: "停止托管命令及其完整进程树。对已经停止或退出的命令调用也是安全的，操作具有幂等性。\n\n适用场景：不再需要某个长时间运行的命令，例如开发服务器，需要终止它；Run 因命令仍在运行而无法结束，并且不希望继续等待。\n\n不适用场景：希望继续等待命令，应使用 wait_command。\n\n示例：\n  stop_command(commandId=\"cmd_a1b2c3\")",
+    description: "停止托管命令及其完整进程树。对已经停止或退出的命令调用也是安全的，操作具有幂等性。\n\n适用场景：不再需要某个长时间运行的命令（例如开发服务器、watcher），需要终止它；后台命令行为异常，需要中途放弃。\n\n不适用场景：希望拿到命令的最终结果——后台命令自然结束后，Runtime 会自动把最终输出作为续写消息送回，无需任何等待或停止。\n\n重要：commandId 来自 run_command 返回正文中的「命令标识：」行。\n\n示例：\n  stop_command(commandId=\"cmd_a1b2c3d4\")",
     inputSchema: objectSchema({
-      commandId: { type: "string", description: "要停止的托管命令 commandId" }
+      commandId: { type: "string", description: "要停止的托管命令 commandId（run_command 返回正文中的命令标识）" }
     }, ["commandId"]),
     presentation: {
       groupMode: "standalone",
@@ -665,9 +709,9 @@ export const toolRegistry: ToolRegistration[] = [
   {
     // 子代理委派：创建独立 Session/Run，结果通过 Runtime 信封异步回传。
     name: "delegate",
-    description: "把一个自包含任务委派给独立子代理。子代理拥有独立系统提示词、工具白名单和会话上下文，看不到父对话。工具会立即返回子会话标识；子代理终态结果稍后自动进入当前上下文，父运行在读取结果前不会结束。\n\nagent='explorer' 只调查和读取；agent='worker' 可以修改和验证工作区。同一步可以并行发起多个委派，每个父运行最多 4 个。子代理不能继续委派。\n\n示例：delegate(agent='explorer', message='检查路由注册与对应测试，报告 file:line 和结论。')",
+    description: "把一个自包含任务委派给独立子代理。子代理拥有独立系统提示词、工具白名单和会话上下文，看不到父对话。工具立即返回子会话标识；子代理终态结果稍后自动进入当前上下文，父运行在读取结果前不会结束。\n\n适用场景：需要大范围只读调查（在多个目录/命名约定里找东西、只需结论不需文件转储）时委派 explorer 并行 fan-out；需要只读审查改动/代码（读文件、git_diff、按严重程度给结论）时委派 reviewer；需要把一段有明确边界的实现交给隔离工作区执行时委派 worker。同一步可以并行发起多个委派，每个父运行最多 4 个，是扩大并行度的主手段。\n\n不适用场景：单一明确的小改动，直接自己做更快（委派有独立会话开销）；需要跨多步骤持续交互的任务；子代理不能继续委派（深度为 1，无递归）。\n\n角色选型：agent='explorer' 只调查和读取，不能写文件、不能跑命令——适合搜索、定位、汇总 file:line 结论；agent='reviewer' 只读审查（读/搜/git_diff，可停止后台命令），不能写、不能启动新命令——适合评审改动、检查合规；agent='worker' 可修改并验证工作区（近似 full_access）——适合执行已明确的改动并自验证。选择时优先 explorer/reviewer（零副作用），只有确需写入或跑验证命令时才用 worker。\n\n重要：给子代理的 message 必须完整自包含（含文件路径和足够上下文），因为子代理看不到本对话。\n\n示例：\n  delegate(agent='explorer', message='检查路由注册与对应测试，报告 file:line 和结论。')\n  delegate(agent='reviewer', message='审查工作区未提交改动，按严重程度列出问题与 file:line。')\n  # 并行 fan-out（同一条消息里多个 delegate）：\n  #   delegate(agent='explorer', message='查 auth 模块的所有导出'),\n  #   delegate(agent='explorer', message='查订单模块的测试覆盖')",
     inputSchema: objectSchema({
-      agent: { type: "string", enum: ["explorer", "worker"], description: "要使用的内置子代理" },
+      agent: { type: "string", enum: ["explorer", "reviewer", "worker"], description: "要使用的内置子代理" },
       message: { type: "string", description: "给子代理的完整、自包含用户消息" }
     }, ["agent", "message"]),
     presentation: {

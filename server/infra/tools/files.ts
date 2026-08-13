@@ -4,7 +4,7 @@ import { ArtifactEntry } from "../../../shared/contracts/runtime";
 import { stableDigest } from "../../../shared/domain/digest";
 import type { FileStateStore } from "../../app/fileStateStore";
 import { ensureInsideRoot, isSensitivePath } from "./security";
-import { splitLines, joinLines, locateLineMatches, nearestLine } from "./textMatch";
+import { splitLines, joinLines, locateLineMatches, nearestContext } from "./textMatch";
 import { generateUnifiedDiff } from "./diff";
 
 export type FileToolContext = { runId?: string; fileState?: FileStateStore };
@@ -20,23 +20,40 @@ const IGNORED_DIRECTORIES = new Set([
   "output"
 ]);
 
-export async function listFiles(projectRoot: string, input: { maxFiles?: number }): Promise<string> {
+export async function listFiles(projectRoot: string, input: { maxFiles?: number; depth?: number }): Promise<string> {
   const root = ensureInsideRoot(projectRoot);
   const output: string[] = [];
   const maxFiles = Math.min(1000, Math.max(1, input.maxFiles ?? 200));
-  async function walk(current: string): Promise<void> {
+  // depth=1(默认)只列顶层文件 + 顶层目录名;-1 = 全量递归(旧行为);>=1 最多展开到该层。
+  // 目录本身始终出现(带 / 后缀),保证模型能据此选择更深的 depth 下钻。
+  const maxDepth = input.depth === -1
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(input.depth) ? Math.max(1, Math.floor(input.depth as number)) : 1;
+  let truncated = false;
+  async function walk(current: string, level: number): Promise<void> {
     if (output.length >= maxFiles) return;
     for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-      if (output.length >= maxFiles) return;
+      if (output.length >= maxFiles) {
+        truncated = true;
+        return;
+      }
       if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
       if (!entry.isDirectory() && isSensitivePath(entry.name)) continue;
       const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) await walk(fullPath);
-      else output.push(path.relative(root, fullPath));
+      if (entry.isDirectory()) {
+        if (level >= maxDepth) {
+          output.push(`${path.relative(root, fullPath).split(path.sep).join("/")}/`);
+        } else {
+          await walk(fullPath, level + 1);
+        }
+      } else {
+        output.push(path.relative(root, fullPath).split(path.sep).join("/"));
+      }
     }
   }
-  await walk(root);
-  return output.join("\n") || "项目目录中没有文件。";
+  await walk(root, 1);
+  if (output.length === 0) return "项目目录中没有文件。";
+  return output.join("\n") + (truncated ? `\n…[已达 maxFiles=${maxFiles} 上限，结果已截断；可用 depth 或 glob 收窄]` : "");
 }
 
 // 扫描 <projectRoot>/output/ 子树(agent 生成内容的约定目录 —— 与 listFiles「排除 output」相反),
@@ -77,12 +94,50 @@ export async function listArtifacts(projectRoot: string): Promise<ArtifactEntry[
   return entries;
 }
 
-export async function readFile(projectRoot: string, input: { path: string; maxChars?: number }, ctx?: FileToolContext): Promise<string> {
+export async function readFile(
+  projectRoot: string,
+  input: { path: string; maxChars?: number; offset?: number; limit?: number },
+  ctx?: FileToolContext
+): Promise<string> {
   if (isSensitivePath(input.path)) throw new Error("出于安全原因，Runtime 不允许读取密钥或凭据文件。");
   const contents = await fs.readFile(ensureInsideRoot(projectRoot, input.path), "utf8");
+  // stale 指纹契约:recordRead 必须接收未编号、未截断的原文全文,
+  // edit_file/multi_edit 的 hashFor 校验以此为基准 —— 编号/切片只作用于返回字符串。
   if (ctx?.fileState && ctx.runId) ctx.fileState.recordRead(ctx.runId, projectRoot, input.path, contents);
   const maxChars = Math.min(200_000, Math.max(1, input.maxChars ?? 40_000));
-  return contents.slice(0, maxChars);
+  const totalLines = contents.split("\n");
+  const offset = Math.max(1, Math.floor(input.offset ?? 1)); // 1 起始行号
+  const from = Math.min(offset - 1, totalLines.length);
+  let selected = totalLines.slice(from);
+  if (input.limit !== undefined) selected = selected.slice(0, Math.max(0, Math.floor(input.limit)));
+  // 编号(cat -n 风格,4 位右对齐 + 双空格),行号计入字符预算。
+  // split("\n") 在文件以 \n 结尾时产生一个空尾元素——它是"文件末尾"标记而非真实行,
+  // 不编号(避免输出结尾悬着一串行号前缀),保留为空行。
+  const last = selected.length - 1;
+  let numbered = selected
+    .map((line, index) => (index === last && line === "" ? "" : `${String(from + index + 1).padStart(4)}  ${line}`))
+    .join("\n");
+  if (numbered.length > maxChars) {
+    // 按字符预算线性累加完整行,避免行号标注落在半行处误导定位。
+    const numberedLines = numbered.split("\n");
+    let used = 0;
+    let keptCount = 0;
+    for (const line of numberedLines) {
+      const addition = keptCount === 0 ? line.length : line.length + 1; // +1 换行
+      if (used + addition > maxChars) break;
+      used += addition;
+      keptCount += 1;
+    }
+    let keptText = numberedLines.slice(0, keptCount).join("\n");
+    if (keptCount === 0) {
+      // 单行就超预算(压缩 JS/大 JSON 行):字符级回退切第一行,
+      // 否则 offset/limit(行粒度)永远无法读出内容。
+      keptText = numberedLines[0]?.slice(0, Math.max(0, maxChars)) ?? "";
+    }
+    const annotation = `…[已截断：原文 ${contents.length} 字符，已返回 ${keptText.length} 字符，可用 offset/limit 继续读取后续]`;
+    numbered = `${keptText}\n${annotation}`;
+  }
+  return numbered;
 }
 
 export async function writeFile(projectRoot: string, input: { path: string; content: string }, ctx?: FileToolContext): Promise<string> {
@@ -142,9 +197,15 @@ export async function editFile(
   const applied = applyEditStrictRelaxed(contents, input, window);
   if (applied.error) {
     if (applied.error === "未找到") {
-      const near = nearestLine(splitLines(contents).lines, input.oldText);
-      const hint = near >= 0 ? `，第 ${near + 1} 行附近有相似内容` : "";
-      throw new Error(`未在 ${input.path} 中找到 oldText（精确与忽略尾随空白均不匹配${hint}）。`);
+      const sourceLines = splitLines(contents).lines;
+      const ctx = nearestContext(sourceLines, input.oldText, 5);
+      const oldFirstLine = input.oldText.split("\n")[0]?.trimEnd() ?? "";
+      const near = ctx.line >= 0 ? `，第 ${ctx.line + 1} 行附近有相似内容` : "";
+      const contextBlock = ctx.snippet.length > 0
+        ? `\n附近实际行原文（供 diff 出空白/缩进差异后重试）:\n${ctx.snippet.join("\n")}`
+        : "";
+      const wantBlock = oldFirstLine ? `\n期望 oldText 首行: ${oldFirstLine}` : "";
+      throw new Error(`未在 ${input.path} 中找到 oldText（精确与忽略尾随空白均不匹配${near}）。${wantBlock}${contextBlock}`);
     }
     const count = applied.error.match(/\((\d+)\)/)?.[1] ?? "?";
     if (applied.error.startsWith("多处")) {
@@ -205,11 +266,23 @@ export async function multiEdit(
       : undefined;
     const applied = applyEditStrictRelaxed(workingCopy, edit, editWindow);
     if (applied.error) {
-      const detail = applied.error === "未找到"
+      const base = applied.error === "未找到"
         ? "未找到 oldText（精确与忽略尾随空白均不匹配）"
         : applied.error.startsWith("多处")
           ? `oldText 出现 ${applied.error.match(/\((\d+)\)/)?.[1] ?? "?"} 次,需提供更精确文本或设 replaceAll=true`
           : `oldText 模糊匹配 ${applied.error.match(/\((\d+)\)/)?.[1] ?? "?"} 处（忽略尾随空白）`;
+      // 编辑侧最高杠杆:未找到时回显 oldText 首行 + 当前 workingCopy 附近实际行原文,
+      // 让模型一次 diff 出空白/缩进差异再重试(注意 workingCopy 已含前序 edit,行号会漂移)。
+      let detail = base;
+      if (applied.error === "未找到") {
+        const ctx = nearestContext(splitLines(workingCopy).lines, edit.oldText, 5);
+        const oldFirstLine = edit.oldText.split("\n")[0]?.trimEnd() ?? "";
+        if (oldFirstLine) detail += `\n  期望 oldText 首行: ${oldFirstLine}`;
+        if (ctx.snippet.length > 0) {
+          const loc = ctx.line >= 0 ? `（第 ${ctx.line + 1} 行附近,行号已含前序编辑）` : "";
+          detail += `\n  附近实际行原文${loc}:\n${ctx.snippet.map((line) => `    ${line}`).join("\n")}`;
+        }
+      }
       failures.push({ index, reason: detail });
       continue;
     }

@@ -7,6 +7,8 @@ const TOOL_LABELS: Record<string, string> = {
   edit_file: "编辑文件",
   enter_plan: "进入计划模式",
   git_status: "检查 Git 状态",
+  git_diff: "查看 Git 改动",
+  git_commit: "提交 Git 改动",
   glob: "匹配文件路径",
   grep: "搜索文件内容",
   invoke_capability: "启用能力",
@@ -23,7 +25,6 @@ const TOOL_LABELS: Record<string, string> = {
   stop_command: "停止命令",
   submit_plan: "提交实施方案",
   update_tasks: "更新执行任务",
-  wait_command: "等待命令",
   write_file: "写入文件"
 };
 

@@ -20,6 +20,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:all": "concurrently \"npm:dev:runtime\" \"npm:dev\"",
+    "dev:preview": "concurrently \"npm:dev:runtime\" \"npm:dev:web\"",
+    "dev:web": "vite --host 127.0.0.1 --port 5180 --strictPort",
     "dev:runtime": "tsx server/index.ts",
     "dev:runtime:watch": "tsx watch server/index.ts",
     "dev:desktop": "electron-forge start",

@@ -27,7 +27,7 @@ test("yields a live command and settles it exactly once when stopped", async () 
       sessionId: "session_long"
     }, 30);
     assert.equal(running.state, "running");
-    assert.match(running.commandId, /^command_/);
+    assert.match(running.commandId, /^cmd_[a-z0-9_-]{8}$/);
 
     const waiting = await manager.wait(running.commandId, 30);
     assert.equal(waiting.state, "running");
@@ -79,7 +79,7 @@ test("cancelling a wait does not stop the managed command", async () => {
       projectRoot: directory,
       runId: "run_original",
       sessionId: "session_wait_abort"
-    }, 30);
+    }, 200);
     const controller = new AbortController();
     const waiting = manager.wait(running.commandId, 5_000, controller.signal);
     controller.abort();
@@ -89,7 +89,11 @@ test("cancelling a wait does not stop the managed command", async () => {
     assert.equal((await manager.stop(running.commandId))?.state, "cancelled");
   } finally {
     await manager.stopAll();
-    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    try {
+      rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
   }
 });
 
@@ -109,6 +113,104 @@ test("bounds retained command output and reports truncation", async () => {
     assert.equal(completed.outputTruncated, true);
     assert.match(completed.output, /Runtime 省略了/);
     assert.ok(Buffer.byteLength(completed.output) < COMMAND_OUTPUT_MAX_BYTES + 1_000);
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("concurrent waiters all receive the settled snapshot instead of one rejecting", async () => {
+  const directory = fixture();
+  const manager = new CommandManager();
+  writeFileSync(path.join(directory, "long.cjs"), "setTimeout(() => process.exit(0), 150);\n");
+  try {
+    const running = await manager.start({
+      activityId: "activity_concurrent",
+      command: "node long.cjs",
+      projectRoot: directory,
+      runId: "run_concurrent",
+      sessionId: "session_concurrent"
+    }, 30);
+    assert.equal(running.state, "running");
+    // 模型在同一轮 tool_calls 里并发 wait 同一条命令是正常用法:
+    // 两个 waiter 都应在命令结束后拿到终态,而不是后者抛"已有一个等待操作"。
+    const [first, second] = await Promise.all([
+      manager.wait(running.commandId, 5_000),
+      manager.wait(running.commandId, 5_000)
+    ]);
+    assert.equal(first.state, "completed");
+    assert.equal(second.state, "completed");
+    assert.equal(first.commandId, second.commandId);
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("waitForSettled notifies without consuming; takeSettled drains exactly once", async () => {
+  const directory = fixture();
+  const manager = new CommandManager();
+  // 一条 150ms 后自然退出(后台化)+ 一条常驻(永不退出,验证只有全部终态才唤醒)。
+  writeFileSync(path.join(directory, "exits.cjs"), "setTimeout(() => process.exit(0), 150);\n");
+  writeFileSync(path.join(directory, "stays.cjs"), "setInterval(() => undefined, 20);\n");
+  try {
+    const exits = await manager.start({
+      activityId: "activity_exits",
+      command: "node exits.cjs",
+      projectRoot: directory,
+      runId: "run_settled",
+      sessionId: "session_settled"
+    }, 30);
+    const stays = await manager.start({
+      activityId: "activity_stays",
+      command: "node stays.cjs",
+      projectRoot: directory,
+      runId: "run_settled",
+      sessionId: "session_settled"
+    }, 30);
+    assert.equal(exits.state, "running");
+    assert.equal(stays.state, "running");
+
+    const waiting = manager.waitForSettled("run_settled");
+    // 命令尚未全部 settle → promise 不得提前 resolve;期间快照已在 newlySettled
+    // 但只有全部终态才唤醒(notify-only,不消费)
+    const early = await Promise.race([waiting.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50))]);
+    assert.equal(early, false);
+
+    await manager.stop(stays.commandId);
+    await waiting;
+    const settled = manager.takeSettled("run_settled");
+    assert.equal(settled.length, 2); // exits 自然结束 + stays 被 stop → 都进 newlySettled
+    assert.ok(settled.every((snapshot) => ["completed", "cancelled", "failed"].includes(snapshot.state)));
+    // 消费一次即清空:再次取为空,不会重复注入
+    assert.equal(manager.takeSettled("run_settled").length, 0);
+    // 全部终态后新调用立即 resolve
+    await manager.waitForSettled("run_settled");
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("waitForSettled wakes periodically via maxWaitMs even while a command keeps running", async () => {
+  const directory = fixture();
+  const manager = new CommandManager();
+  writeFileSync(path.join(directory, "stays.cjs"), "setInterval(() => undefined, 20);\n");
+  try {
+    const running = await manager.start({
+      activityId: "activity_periodic",
+      command: "node stays.cjs",
+      projectRoot: directory,
+      runId: "run_periodic",
+      sessionId: "session_periodic"
+    }, 30);
+    assert.equal(running.state, "running");
+    // 命令常驻不退 → 无 settle 事件;maxWaitMs=80 到点必须周期性 resolve,
+    // runner 借此在长挂起间隙处理 steer(否则用户 steer 在此期间失联)。
+    const startedAt = Date.now();
+    await manager.waitForSettled("run_periodic", undefined, 80);
+    assert.ok(Date.now() - startedAt >= 70);
+    assert.equal(manager.get(running.commandId)?.state, "running"); // 周期醒不杀命令
   } finally {
     await manager.stopAll();
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });

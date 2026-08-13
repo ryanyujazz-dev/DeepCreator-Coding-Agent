@@ -114,6 +114,27 @@ test("glob: 🔒 敏感路径排除", async () => {
   }
 });
 
+test("glob: 能匹配点文件(.github/.vscode/点配置),dot:true", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-glob-dotfile-"));
+  try {
+    mkdirSync(path.join(directory, ".github", "workflows"), { recursive: true });
+    mkdirSync(path.join(directory, ".vscode"), { recursive: true });
+    writeFileSync(path.join(directory, ".github", "workflows", "ci.yml"), "on: [push]\n");
+    writeFileSync(path.join(directory, ".vscode", "settings.json"), "{}\n");
+    writeFileSync(path.join(directory, ".eslintrc.json"), "{}\n");
+    writeFileSync(path.join(directory, ".env"), "SECRET=should-not-appear\n");
+    // dot:true 后点目录/点配置文件可见
+    const result = await executeTool({ args: { pattern: "**/*" }, name: "glob", projectRoot: directory });
+    assert.match(result.output, /\.github[\\/]workflows[\\/]ci\.yml/, ".github 点目录应可见");
+    assert.match(result.output, /\.vscode[\\/]settings\.json/, ".vscode 点目录应可见");
+    assert.ok(result.output.includes(".eslintrc.json"), ".eslintrc.json 点配置应可见");
+    // 安全护栏不受 dot:true 影响:.env 仍被排除
+    assert.ok(!result.output.includes(".env"), ".env 仍应被排除");
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
 test("glob: 🔒 路径越界拒绝", async () => {
   const directory = setupProject();
   try {

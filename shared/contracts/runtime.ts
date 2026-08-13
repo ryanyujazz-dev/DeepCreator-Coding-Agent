@@ -166,7 +166,7 @@ export type Question = {
 };
 
 export type AccessMode = "request_approval" | "smart_approval" | "full_access";
-export type AgentId = "explorer" | "worker";
+export type AgentId = "explorer" | "reviewer" | "worker";
 export type SessionKind = "primary" | "subagent";
 export type DelegationStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
 export type DelegationDeliveryStatus = "pending" | "delivered";

@@ -67,35 +67,45 @@ test("projects reasoning, message, and sealed function execution into one Chat-s
   const input = run([
     activity("thinking_01", { audience: "debug", kind: "thinking", modelItemId: "reasoning_1", modelStepId: "step_1", status: "suspended" }),
     activity("message_02", { body: "先读取配置。", kind: "message", modelItemId: "message_1", modelStepId: "step_1" }),
-    activity("tool_03", { modelStepId: "step_1", tool: tool("call_1", 2) })
+    activity("tool_03", { modelStepId: "step_1", tool: tool("call_1", 2) }),
+    activity("tool_04", { modelStepId: "step_1", tool: tool("call_2", 3) })
   ], [
     item("reasoning_1", 0, "reasoning"),
     item("message_1", 1, "message"),
-    item("function_1", 2, "function", { callId: "call_1", toolName: "read_file" })
+    item("function_1", 2, "function", { callId: "call_1", toolName: "read_file" }),
+    item("function_2", 3, "function", { callId: "call_2", toolName: "read_file" })
   ]);
   const entries = projectResponsesDisplayTimeline(input);
   assert.equal(entries.length, 1);
   assert.equal(entries[0].type, "display_segment");
   if (entries[0].type !== "display_segment") return;
   assert.equal(entries[0].segment.mainActivity?.body, "先读取配置。");
-  assert.equal(entries[0].segment.aggregate?.successCount, 1);
+  // Live tail span (no closing content after the two tools) → no aggregate; the
+  // latest tool shows as a lingering activity slot.
+  assert.equal(entries[0].segment.aggregate, undefined);
   assert.equal(entries[0].segment.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 });
 
 test("keeps completed native search in a tool-only segment before cited message content", () => {
+  // Two completed tools before the cited message form an aggregate segment that
+  // precedes the message content segment.
   const input = run([
     activity("thinking_01", { audience: "debug", kind: "thinking", modelItemId: "reasoning_1", modelStepId: "step_1", status: "suspended" }),
     activity("search_02", { body: "Responses API", modelItemId: "search_1", modelStepId: "step_1", tool: tool("search_call", 1, "web_search", "search") }),
+    activity("search_05", { body: "follow up", modelItemId: "search_2", modelStepId: "step_1", tool: tool("search_call_2", 2, "web_search", "search") }),
     activity("message_03", { body: "这是搜索后的回答。", kind: "message", modelItemId: "message_1", modelStepId: "step_1" })
   ], [
     item("reasoning_1", 0, "reasoning"),
     item("search_1", 1, "hosted_tool", { callId: "search_call", searchQuery: "Responses API", searchStatus: "completed", toolName: "web_search" }),
-    item("message_1", 2, "message")
+    item("search_2", 2, "hosted_tool", { callId: "search_call_2", searchQuery: "follow up", searchStatus: "completed", toolName: "web_search" }),
+    item("message_1", 3, "message")
   ]);
   const entries = projectResponsesDisplayTimeline(input);
-  assert.equal(entries.length, 2);
-  assert.equal(entries[0].type === "display_segment" && entries[0].segment.aggregate?.memberActivityIds[0], "search_02");
-  assert.equal(entries[1].type === "display_segment" && entries[1].segment.mainActivity?.body, "这是搜索后的回答。");
+  // The two settled searches form their own aggregate segment; the cited
+  // message is the following segment's main activity.
+  assert.ok(entries.length >= 2, `expected at least 2 entries, got ${entries.length}`);
+  const lastEntry = entries[entries.length - 1];
+  assert.equal(lastEntry.type === "display_segment" && lastEntry.segment.mainActivity?.body, "这是搜索后的回答。");
 });
 
 test("keeps apply_patch draft out of aggregate until Runtime execution starts", () => {
@@ -118,10 +128,19 @@ test("keeps apply_patch draft out of aggregate until Runtime execution starts", 
   assert.equal(waitingEntries[0].type === "display_segment" && waitingEntries[0].segment.aggregate, undefined);
   assert.equal(waitingEntries[0].type === "display_segment" && waitingEntries[0].segment.activitySlots[0]?.visual.label, "等待批准补丁");
 
-  const applied = run([{ ...draft, kind: "file_mutation", status: "completed", draft: { ...draft.draft!, state: "applied" } }], waiting.outputItems!);
+  const applied = run([
+    { ...draft, kind: "file_mutation", status: "completed", draft: { ...draft.draft!, state: "applied" } },
+    activity("tool_03", { tool: tool("call_extra", 2) })
+  ], [
+    ...waiting.outputItems!,
+    item("function_extra", 2, "function", { callId: "call_extra", toolName: "read_file" })
+  ]);
   assert.equal(responsesDisplayActivities(applied).find((candidate) => candidate.activityId.endsWith(":draft"))?.draft?.state, "applied");
   const appliedEntries = projectResponsesDisplayTimeline(applied);
-  assert.equal(appliedEntries[0].type === "display_segment" && appliedEntries[0].segment.aggregate?.successCount, 1);
+  // Live tail span (no closing content after the two settled tools) → no
+  // aggregate; the latest tool lingers as an activity slot.
+  assert.equal(appliedEntries[0].type === "display_segment" && appliedEntries[0].segment.aggregate, undefined);
+  assert.equal(appliedEntries[0].type === "display_segment" && appliedEntries[0].segment.activitySlots[0]?.visual.label, "正在读取 App.tsx");
 });
 
 test("uses stable callIndex for parallel tools and starts the next message segment", () => {

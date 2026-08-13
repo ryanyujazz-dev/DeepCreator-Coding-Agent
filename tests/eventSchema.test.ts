@@ -98,3 +98,38 @@ test("rejects unknown or incomplete V2 Events at the decoding boundary", () => {
   assert.equal(decodeEvent({ ...startedEvent(), type: "run.teleported" }), undefined);
   assert.equal(decodeEvent({ ...startedEvent(), scope: { sessionId: "session_schema" } }), undefined);
 });
+
+test("delegation events accept the reviewer agent id at the decoding boundary", () => {
+  // reviewer 是批次 3.3 新增 AgentId;event schema 若漏更新,客户端 SSE 解析会抛错
+  // 进入重连死循环,且 EventStore 重放会静默丢弃该事件。
+  const delegationEvent = {
+    at: "2026-08-13T00:00:00.000Z",
+    data: {
+      delegation: {
+        agentId: "reviewer",
+        childRunId: "run_child",
+        childSessionId: "session_child",
+        createdAt: "2026-08-13T00:00:00.000Z",
+        deliveryStatus: "pending",
+        delegationId: "delegation_1",
+        message: "审查改动",
+        parentActivityId: "activity_1",
+        parentCallId: "call_1",
+        parentRunId: "run_schema",
+        parentSessionId: "session_schema",
+        status: "running",
+        updatedAt: "2026-08-13T00:00:00.000Z"
+      }
+    },
+    eventId: "session_schema:9",
+    offset: 9,
+    scope: { sessionId: "session_schema" },
+    type: "delegation.created",
+    version: EVENT_VERSION
+  };
+  assert.equal(eventSchema.safeParse(delegationEvent).success, true);
+  assert.equal(eventSchema.safeParse({
+    ...delegationEvent,
+    data: { delegation: { ...delegationEvent.data.delegation, agentId: "auditor" } }
+  }).success, false);
+});

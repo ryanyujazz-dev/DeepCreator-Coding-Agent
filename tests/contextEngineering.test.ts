@@ -537,6 +537,20 @@ test("reduces oversized evidence with explicit truncation and secret redaction",
   }
 });
 
+test("includes the commandId facts row so the model can reference it for stop_command", () => {
+  const evidence = reduceToolEvidence("run_command", {
+    command: "npm run dev",
+    commandId: "cmd_abc12345",
+    commandState: "running",
+    mutatedWorkspace: false,
+    output: "vite v5 ready"
+  });
+  assert.match(evidence.modelText, /命令标识：cmd_abc12345/);
+  // 无 commandId 的普通工具结果不注入该行
+  const plain = reduceToolEvidence("read_file", { mutatedWorkspace: false, output: "hello" });
+  assert.doesNotMatch(plain.modelText, /命令标识/);
+});
+
 test("persists DeepSeek tool reasoning across runs but drops ordinary final reasoning", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-context-loop-"));
   try {

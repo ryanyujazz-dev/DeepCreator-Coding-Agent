@@ -57,6 +57,8 @@ type RuntimeInput = {
   rules: RuleSource;
   workspaceBaseline: Baseline;
   continuation?: boolean;
+  /** 命令长挂起多久后提醒模型可 stop_command(默认 120s;测试注入小值)。 */
+  settledWaitPromptMs?: number;
   summaryModel?: string;
   system: RunRegistry["system"];
   thinkingSummary?: ThinkingSummaryLoop;
@@ -181,11 +183,40 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     messages.push(...results);
     return results.length > 0;
   };
+  // harness 回调(批次 3.1b):后台命令自然结束后把最终输出作为续写消息注入。
+  // 输出按 head/tail 裁剪到与 evidence 证据上限同量级——与 toolPipeline
+  // settleManagedCommand 持久化 context_update 的 modelText(14000 上限)同形,
+  // 崩溃续跑重放时模型看到一致的消息形态。
+  const SETTLED_OUTPUT_MAX_CHARS = 14_000;
+  // 命令长时间不结束时的周期提醒:模型挂起等待期间无法自发行动,超时后提示
+  // 一次可调 stop_command 结束命令(run 完成门要求全部命令终态)。
+  const settledWaitPromptMs = input.settledWaitPromptMs ?? 120_000;
+  let settledWaitingSince: number | undefined;
+  const settledCommandMessage = (settled: { command: string; commandId: string; exitCode?: number; output: string; state: string }) => {
+    const output = settled.output.length <= SETTLED_OUTPUT_MAX_CHARS
+      ? settled.output
+      : `${settled.output.slice(0, Math.floor(SETTLED_OUTPUT_MAX_CHARS * 0.68))}\n\n[...中间内容已由 Runtime 裁剪...]\n\n${settled.output.slice(-Math.floor(SETTLED_OUTPUT_MAX_CHARS * 0.32))}`;
+    return `命令 ${settled.commandId} 已结束。状态：${settled.state}，退出码：${settled.exitCode ?? "未知"}。\n${output}`;
+  };
+  const applySettledCommandResults = () => {
+    const settled = input.tools.takeSettledCommands?.(input.runId) ?? [];
+    for (const snapshot of settled) {
+      messages.push({ role: "user", text: settledCommandMessage(snapshot) });
+    }
+    return settled.length > 0;
+  };
+  // 恢复(continuation/断线续接)时丢弃上一轮循环遗留的内存快照:该轮挂起期间
+  // 被 finally 取消的命令已由 settleManagedCommand 持久化 context_update,
+  // prepareRuntimeContext 会重放——这里再注入就是同一信息投递两次。
+  if (input.continuation) input.tools.takeSettledCommands?.(input.runId);
 
   while (true) {
     if (input.signal?.aborted) throw new DOMException("运行已取消。", "AbortError");
     applyPendingSteers();
     applyDelegationResults();
+    // settle 结果在 provider 调用前注入(与 delegation 结果同位),本轮请求即带上,
+    // 避免先空转一轮 provider 再注入的浪费。
+    applySettledCommandResults();
     if (providerRequestCount > 0 && estimateProviderRequestTokens(messages, tools) >= prepared.thresholdTokens) {
       const refreshedSession = input.store.getSession(input.sessionId)!;
       const refreshed = await prepareRuntimeContext(input, refreshedSession, tools, true);
@@ -287,7 +318,7 @@ async function executeRun(input: RuntimeInput): Promise<void> {
     };
 
     const openToolActivityOnName = (params: { callId: string; index: number; itemId?: string; name: string }): string | undefined => {
-      if (params.name === "wait_command" || params.name === "stop_command") return undefined;
+      if (params.name === "stop_command") return undefined;
       if (!input.tools.has(params.name)) return undefined;
       const outline = input.tools.outline(params.name);
       const activityId = openActivity(input, {
@@ -574,14 +605,12 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       throw new ModelProtocolError(response.protocolIssue.message);
     }
 
-    const runningCommandsAtFinal = response.toolCalls.length === 0
-      ? input.tools.runningCommands(input.runId)
-      : [];
+    // completionGate 只剩任务维护门;后台命令由下方 harness 回调(harness 回调注入)接管。
     const currentRun = response.toolCalls.length === 0
       ? input.store.getRun(input.runId)
       : undefined;
     const completionBlock = response.toolCalls.length === 0
-      ? evaluateCompletion({ run: currentRun, runningCommandCount: runningCommandsAtFinal.length })
+      ? evaluateCompletion({ run: currentRun })
       : undefined;
     if (thinkingActivity) {
       const currentThinking = input.store.getRun(input.runId)?.activities.find((activity) => activity.activityId === thinkingActivity);
@@ -611,13 +640,33 @@ async function executeRun(input: RuntimeInput): Promise<void> {
         applyDelegationResults();
         continue;
       }
-      if (completionBlock?.kind === "task_maintenance") {
+      // harness 回调:有未终态后台命令 → 挂起等 settle(周期醒 30s)。
+      // 内部等待循环:只有真正有事(命令全部终态 / settle 注入 / 用户 steer /
+      // 长挂起提醒)才 break 回 provider,避免每 30s 用不变上下文空转一轮。
+      if (input.tools.runningCommands(input.runId).length > 0) {
+        settledWaitingSince ??= input.registry.system.nowMs();
+        while (true) {
+          await input.tools.waitForSettled(input.runId, input.signal, 30_000);
+          if (applyPendingSteers()) break; // 用户 steer → 唤醒模型
+          if (input.tools.runningCommands(input.runId).length === 0) {
+            settledWaitingSince = undefined;
+            break; // 全部终态 → 循环顶注入 settle 结果
+          }
+          if (input.registry.system.nowMs() - settledWaitingSince >= settledWaitPromptMs) {
+            settledWaitingSince = input.registry.system.nowMs(); // 重置,下一周期才再提醒
+            messages.push({ role: "user", text: "仍有后台命令在运行，Run 在全部命令进入终态前无法结束。若命令输出已满足需要，请调用 stop_command 结束它；否则继续等待。" });
+            break; // 提醒 → 唤醒模型决策(等/停)
+          }
+          // 无事发生 → 继续挂起,不打扰模型
+        }
+        continue;
+      }
+      settledWaitingSince = undefined;
+      if (completionBlock) {
         taskMaintenanceCorrectionCount += 1;
         if (taskMaintenanceCorrectionCount > 2) {
           throw new ModelProtocolError(`模型未能在最终回答前维护任务计划：${completionBlock.issue}。`);
         }
-      }
-      if (completionBlock) {
         messages.push({ role: "user", text: completionBlock.retryMessage });
         continue;
       }
@@ -642,6 +691,11 @@ async function executeRun(input: RuntimeInput): Promise<void> {
       if ((input.delegations?.activeCount(input.runId) ?? 0) > 0) {
         await input.delegations!.waitForResult(input.runId, input.signal);
         applyDelegationResults();
+        continue;
+      }
+      // finishRun 前兜底:命令在模型流式输出期间 settle(未走 no-tool_calls 分支)
+      // 或取消 settle 落入 newlySettled → 注入后回到循环顶重新收尾判断。
+      if (applySettledCommandResults()) {
         continue;
       }
       finishRun({

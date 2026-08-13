@@ -176,12 +176,12 @@ Only the initial reasoning seed may display `Thinking`. After a tool has occupie
 
 ## Managed Commands
 
-`run_command` has no total runtime limit. It waits for at most 60 seconds and returns either a terminal result or a live `commandId`. A live command remains attached to its original activity slot and continues streaming bounded output.
+`run_command` has no total runtime limit. `timeout_ms` (default 120000, cap 600000) is the foreground wait checkpoint, not a kill deadline: a command still running past it is backgrounded with a live `commandId`. `run_in_background=true` backgrounds immediately. A live command remains attached to its original activity slot and continues streaming bounded output.
 
-- `wait_command(commandId)` waits for another checkpoint and updates the original command.
-- `stop_command(commandId)` terminates the original process tree and settles the original activity.
-- Neither control tool creates a new visible activity slot or aggregate member.
-- An Agent Run must not finish while a managed command remains alive. A candidate final response is rejected until the model waits for the command or stops it; cancellation and failure still stop every command owned by the Run as cleanup.
+- `stop_command(commandId)` terminates the original process tree and settles the original activity. It is the only control tool; there is no wait tool.
+- When a backgrounded command settles naturally, the Runtime injects its final output as a continuation message (harness callback) — the model never polls.
+- The control tool does not create a new visible activity slot or aggregate member.
+- An Agent Run must not finish while a managed command remains alive. The runner suspends on the harness callback until every command reaches a terminal state; cancellation and failure still stop every command owned by the Run as cleanup.
 - Command completion, cancellation, and process errors must converge on one authoritative `done` event.
 
 ## Empty-Slot Rules
@@ -360,7 +360,7 @@ The following invariants must remain true:
 6. Prefer one tool call per independent object; batch tools need child-level progress semantics.
 7. Project at most one activity slot: the last real tool in stable call order that is still running.
 8. Make command control calls update the original command instead of creating duplicate activities.
-9. Never finish an Agent run while one of its managed commands is running; use `wait_command` or `stop_command` first.
+9. Never finish an Agent run while one of its managed commands is running; the runner suspends on the harness callback until every command settles, and `stop_command` is the only manual control.
 10. Buffer tool-call fragments until the provider step is complete; fragments never create public Activities.
 11. Derive one dominant headline for the complete step and carry it on durable tool facts.
 12. Keep a segment headline monotonic; completed counts may update independently after every real tool terminal event.

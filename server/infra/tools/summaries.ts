@@ -39,10 +39,10 @@ export function summarizeToolResult(name: string, args: Record<string, unknown>,
     const count = output.split("\n").filter((line) => !line.startsWith("(") && line.trim()).length;
     return `匹配 ${String(args.pattern ?? "")}，找到 ${count} 个文件`;
   }
-  if (name === "wait_command") return `已检查命令 ${String(args.commandId ?? "")}`;
   if (name === "stop_command") return `已停止命令 ${String(args.commandId ?? "")}`;
   if (name === "web_search") return `搜索 ${String(args.query ?? "")}`;
   if (name === "fetch_url") return `已抓取 ${String(args.url ?? "URL")}`;
+  if (name === "save_memory") return `已保存记忆（${String(args.category ?? "")}/${String(args.visibility ?? "personal")}）`;
   if (name === "edit_file") return `已编辑 ${String(args.path ?? "文件")}`;
   if (name === "multi_edit") {
     const count = Array.isArray(args.edits) ? args.edits.length : 0;

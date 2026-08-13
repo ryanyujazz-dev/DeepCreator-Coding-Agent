@@ -63,6 +63,32 @@ test("keeps every file untouched when any hunk is invalid", async () => {
   }
 });
 
+test("失败信息含 hunk 编号 + 期望首行 + 附近实际行原文(失败自纠正)", async () => {
+  const root = await fs.mkdtemp(path.join(tmpdir(), "deepcreator-apply-patch-nearby-"));
+  try {
+    await fs.writeFile(path.join(root, "f.txt"), "alpha\nbeta gamma\ndelta\n", "utf8");
+    // -beta gammax(相似前缀)在文件中 strict/relaxed 都不命中,但第2行 "beta gamma" 相似 → 触发 nearestContext
+    const patch = [
+      "*** Begin Patch",
+      "*** Update File: f.txt",
+      "@@",
+      "-beta gammax",
+      "+changed",
+      "*** End Patch"
+    ].join("\n");
+    await assert.rejects(
+      applyPatch(root, { patch }),
+      (error: Error) =>
+        /无法在 f\.txt 中定位 hunk\[0\]/.test(error.message)
+        && /期望锚点\/首行: beta gammax/.test(error.message)
+        && /附近实际行原文/.test(error.message)
+        && /2: beta gamma/.test(error.message)
+    );
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+  }
+});
+
 test("uses @@ anchors to disambiguate repeated hunk content", async () => {
   const root = await fs.mkdtemp(path.join(tmpdir(), "deepcreator-apply-patch-anchor-"));
   try {

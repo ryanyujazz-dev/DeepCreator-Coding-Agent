@@ -1118,11 +1118,13 @@ test("publishes a Chat apply_patch draft before requesting approval", async () =
   }
 });
 
-test("does not accept final content while a managed command is running", async () => {
+test("awaits a running managed command via harness callback and injects its settled output", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-gate-"));
   const store = new RuntimeStore(directory);
   let commandChecks = 0;
-  let correctionSeen = false;
+  let settleWaits = 0;
+  let delivered = false; // 忠实模拟:waitForSettled 只通知,快照由 takeSettled 一次性消费
+  let injectionSeen = false;
   let stopCalls = 0;
   let turns = 0;
   const guardedToolHost = {
@@ -1130,7 +1132,17 @@ test("does not accept final content while a managed command is running", async (
     runningCommands: () => commandChecks++ === 0
       ? [{ commandId: "command_live", elapsedMs: 60_000 }]
       : [],
-    stopCommands: async () => { stopCalls += 1; }
+    stopCommands: async () => { stopCalls += 1; },
+    takeSettledCommands: () => {
+      if (settleWaits >= 1 && !delivered) {
+        delivered = true;
+        return [{ command: "npm run dev", commandId: "command_live", exitCode: 0, output: "ready", state: "completed" }];
+      }
+      return [];
+    },
+    waitForSettled: async () => {
+      settleWaits += 1;
+    }
   };
   const provider: Provider = {
     capabilities: {
@@ -1142,10 +1154,10 @@ test("does not accept final content while a managed command is running", async (
     },
     async stream(request) {
       turns += 1;
-      correctionSeen ||= request.messages.some((message) =>
-        message.role === "user" && message.text?.includes("当前文本不能作为最终回答")
+      injectionSeen ||= request.messages.some((message) =>
+        message.role === "user" && message.text?.includes("命令 command_live 已结束。状态：completed，退出码：0")
       );
-      const answer = turns === 1 ? "命令已经可以了。" : "命令结束，检查完成。";
+      const answer = turns === 1 ? "命令还在跑。" : "命令结束，检查完成。";
       request.onFragment?.({ kind: "answer", text: answer });
       return {
         answer,
@@ -1187,10 +1199,121 @@ test("does not accept final content while a managed command is running", async (
       tools: guardedToolHost
     });
 
+    // 第一轮模型给出"最终文本"但命令仍在运行 → runner 挂起 waitForSettled,
+    // 注入 settle 续写消息,第二轮才接受最终回答。不再出现"请调用 wait_command"重试文案。
     assert.equal(turns, 2);
-    assert.equal(correctionSeen, true);
+    assert.equal(settleWaits, 1);
+    assert.equal(injectionSeen, true);
     assert.equal(stopCalls, 1);
     assert.equal(store.getRun("run_command_gate")?.answer, "命令结束，检查完成。");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+  }
+});
+
+test("reminds the model it can stop a never-settling background command after a long wait", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "deepcreator-command-wedge-"));
+  const store = new RuntimeStore(directory);
+  let stopCommandSeen = false;
+  let stopCalls = 0;
+  let turns = 0;
+  const wedgeToolHost = {
+    ...toolHost,
+    stopCommands: async () => { stopCalls += 1; },
+    waitForSettled: async (_runId: string, _signal?: AbortSignal, maxWaitMs?: number) => {
+      // 模拟周期醒(真实 30s;测试 5ms 防热循环),必须传 maxWaitMs
+      if (maxWaitMs === undefined) throw new Error("必须传 maxWaitMs 周期醒");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  const provider: Provider = {
+    capabilities: {
+      contextWindowTokens: 1_000_000,
+      supportsParallelToolCalls: true,
+      supportsStrictTools: false,
+      supportsThinking: true,
+      supportsTools: true
+    },
+    async stream(request) {
+      turns += 1;
+      stopCommandSeen ||= request.messages.some((message) =>
+        message.role === "user" && message.text?.includes("请调用 stop_command 结束它")
+      );
+      if (turns === 2) {
+        // 收到长挂起提醒 → 模型决定 stop_command
+        const argumentsText = JSON.stringify({ commandId: "cmd_forever" });
+        return {
+          answer: "",
+          continuationMessage: { role: "assistant", text: null, toolCalls: [{ argumentsText, callId: "call_stop_wedge", index: 0, name: "stop_command" }] },
+          finishCause: "tool_calls",
+          thinking: "",
+          toolCalls: [{ argumentsText, callId: "call_stop_wedge", index: 0, name: "stop_command" }]
+        };
+      }
+      const answer = turns === 1 ? "服务已启动。" : "命令已停止，任务完成。";
+      request.onFragment?.({ kind: "answer", text: answer });
+      return {
+        answer,
+        continuationMessage: { role: "assistant", text: answer },
+        finishCause: "complete",
+        thinking: "",
+        toolCalls: []
+      };
+    }
+  };
+  try {
+    store.createSession({
+      compactThresholdTokens: 850_000,
+      contextWindowTokens: 1_000_000,
+      model: "test",
+      projectRoot: directory,
+      sessionId: "session_wedge",
+      title: "长驻命令"
+    });
+    store.append({
+      data: { model: "test", prompt: "启动服务", startedAt: new Date().toISOString() },
+      runId: "run_wedge",
+      sessionId: "session_wedge",
+      type: "run.started"
+    });
+    const registry = new RunRegistry();
+    const controller = registry.startRun("run_wedge");
+    await runAgent({
+      model: "test",
+      projectRoot: directory,
+      prompt: "启动服务",
+      provider,
+      registry,
+      runId: "run_wedge",
+      sessionId: "session_wedge",
+      // 提醒阈值 0:首次周期醒即提醒(真实默认 120s)
+      settledWaitPromptMs: 0,
+      signal: controller.signal,
+      store,
+      tools: {
+        ...wedgeToolHost,
+        // stop_command 后命令清空 → run 可完成
+        runningCommands: () => (stopCommandSeen ? [] : [{ commandId: "cmd_forever", elapsedMs: 60_000 }]),
+        execute: async (input: Parameters<typeof toolHost.execute>[0]) => input.name === "stop_command"
+          ? {
+              command: "npm run dev",
+              commandId: "cmd_forever",
+              commandState: "cancelled" as const,
+              elapsedMs: 120_000,
+              exitCode: 1,
+              mutatedWorkspace: false,
+              output: "stopped",
+              outputTruncated: false
+            }
+          : toolHost.execute(input)
+      }
+    });
+    assert.equal(stopCommandSeen, true, "长挂起后必须提醒模型可 stop_command");
+    assert.equal(turns, 3, "提醒→stop_command→最终回答,共 3 轮");
+    assert.equal(stopCalls, 1);
+    assert.equal(store.getRun("run_wedge")?.status, "completed");
+    assert.equal(store.getRun("run_wedge")?.answer, "命令已停止，任务完成。");
   } finally {
     store.close();
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
@@ -1203,23 +1326,24 @@ test("command control calls update the original activity without creating a slot
   let turns = 0;
   const controlToolHost = {
     ...toolHost,
-    execute: async (input: Parameters<typeof toolHost.execute>[0]) => input.name === "wait_command"
+    execute: async (input: Parameters<typeof toolHost.execute>[0]) => input.name === "stop_command"
       ? {
           command: "node long.cjs",
           commandActivityId: "activity_original_command",
           commandId: "command_original",
           commandRunId: "run_command_control",
           commandSessionId: "session_command_control",
-          commandState: "completed" as const,
+          commandState: "cancelled" as const,
           elapsedMs: 61_000,
-          exitCode: 0,
+          exitCode: 1,
           mutatedWorkspace: false,
-          output: "finished",
+          output: "stopped",
           outputTruncated: false
         }
       : toolHost.execute(input),
     runningCommands: () => [],
-    stopCommands: async () => undefined
+    stopCommands: async () => undefined,
+    waitForSettled: async () => undefined
   };
   const provider: Provider = {
     capabilities: {
@@ -1235,27 +1359,27 @@ test("command control calls update the original activity without creating a slot
         const argumentsText = JSON.stringify({ commandId: "command_original" });
         request.onFragment?.({
           argumentsText,
-          callId: "call_wait",
+          callId: "call_stop",
           index: 0,
           kind: "tool_call",
-          name: "wait_command"
+          name: "stop_command"
         });
         return {
           answer: "",
           continuationMessage: {
             role: "assistant",
             text: null,
-            toolCalls: [{ argumentsText, callId: "call_wait", index: 0, name: "wait_command" }]
+            toolCalls: [{ argumentsText, callId: "call_stop", index: 0, name: "stop_command" }]
           },
           finishCause: "tool_calls",
           thinking: "",
-          toolCalls: [{ argumentsText, callId: "call_wait", index: 0, name: "wait_command" }]
+          toolCalls: [{ argumentsText, callId: "call_stop", index: 0, name: "stop_command" }]
         };
       }
-      request.onFragment?.({ kind: "answer", text: "命令已完成。" });
+      request.onFragment?.({ kind: "answer", text: "命令已停止。" });
       return {
-        answer: "命令已完成。",
-        continuationMessage: { role: "assistant", text: "命令已完成。" },
+        answer: "命令已停止。",
+        continuationMessage: { role: "assistant", text: "命令已停止。" },
         finishCause: "complete",
         thinking: "",
         toolCalls: []
@@ -1274,7 +1398,7 @@ test("command control calls update the original activity without creating a slot
       title: "命令控制"
     });
     store.append({
-      data: { model: "test", prompt: "等待命令完成", startedAt: new Date().toISOString() },
+      data: { model: "test", prompt: "停止命令", startedAt: new Date().toISOString() },
       runId: "run_command_control",
       sessionId: "session_command_control",
       type: "run.started"
@@ -1297,7 +1421,7 @@ test("command control calls update the original activity without creating a slot
     await runAgent({
       model: "test",
       projectRoot: directory,
-      prompt: "等待命令完成",
+      prompt: "停止命令",
       provider,
       registry,
       runId: "run_command_control",
@@ -1308,8 +1432,8 @@ test("command control calls update the original activity without creating a slot
     });
 
     const run = store.getRun("run_command_control")!;
-    assert.equal(run.activities.find((activity) => activity.activityId === "activity_original_command")?.status, "completed");
-    assert.equal(run.activities.some((activity) => activity.tool?.callId === "call_wait"), false);
+    assert.equal(run.activities.find((activity) => activity.activityId === "activity_original_command")?.status, "cancelled");
+    assert.equal(run.activities.some((activity) => activity.tool?.callId === "call_stop"), false);
   } finally {
     store.close();
     rmSync(directory, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });

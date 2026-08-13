@@ -87,8 +87,8 @@ export const MODEL_REGISTRY: ModelOption[] = [
     id: "deepseek-v4-pro",
     label: "DeepSeek V4 Pro",
     provider: "deepseek",
-    defaultProtocol: "chat",
-    supportedProtocols: ["chat"]
+    defaultProtocol: "responses",
+    supportedProtocols: ["responses", "chat"]
   },
   {
     description: "智谱 GLM-5.2 — 旗舰模型,深度思考与 Agent 能力强",
@@ -187,7 +187,8 @@ export async function startRuntime(options: RuntimeOptions): Promise<RunningRunt
     }
     if (family === "deepseek") {
       if (!apiKey) throw new Error(`模型 ${model} 需要 DeepSeek API Key，但未配置。`);
-      if (protocol === "responses" && model !== "deepseek-v4-flash") throw new Error(`模型 ${model} 目前不支持 Responses 协议。`);
+      const registryEntry = MODEL_REGISTRY.find((item) => item.id === model);
+      if (protocol === "responses" && !(registryEntry?.supportedProtocols ?? []).includes("responses")) throw new Error(`模型 ${model} 目前不支持 Responses 协议。`);
       return { model, protocol, provider: deepseekProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.deepseek };
     }
     return { model: "mock-agent", protocol: "chat" as const, provider: mockProvider, summaryModel: SUMMARY_MODEL_BY_PROVIDER.mock };

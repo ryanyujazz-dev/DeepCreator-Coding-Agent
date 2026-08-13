@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveRuntimeShell } from "./shell";
 
@@ -60,7 +60,6 @@ type CommandEntry = CommandCallbacks & {
   stopPromise?: Promise<CommandSnapshot>;
   stopRequested: boolean;
   tail: Buffer;
-  waiting: boolean;
 };
 
 function redact(text: string): string {
@@ -112,6 +111,19 @@ function appendOutput(entry: CommandEntry, raw: Buffer): void {
 
 export class CommandManager {
   private readonly commands = new Map<string, CommandEntry>();
+  // harness 回调(镜像 delegationCoordinator.resultListeners):runId → 等待该 run
+  // 全部后台命令 settle 的 waiter;newlySettled 记录已 settle 但未被消费的命令,
+  // 防止同一结果被注入模型两次。
+  private readonly settleListeners = new Map<string, Set<() => void>>();
+  private readonly newlySettled = new Map<string, CommandSnapshot[]>();
+
+  // 短 slug(如 cmd_a1b2c3d4):模型可见、可在对话中引用;碰撞由生成循环兜底。
+  private nextCommandId(): string {
+    for (;;) {
+      const id = `cmd_${randomBytes(6).toString("base64url").toLowerCase()}`;
+      if (!this.commands.has(id)) return id;
+    }
+  }
 
   async start(input: {
     activityId: string;
@@ -141,7 +153,7 @@ export class CommandManager {
       ...input,
       backgrounded: false,
       child,
-      commandId: `command_${randomUUID()}`,
+      commandId: this.nextCommandId(),
       done,
       emittedBytes: 0,
       finishDone,
@@ -152,8 +164,7 @@ export class CommandManager {
       startedAt: Date.now(),
       state: "running",
       stopRequested: false,
-      tail: Buffer.alloc(0),
-      waiting: false
+      tail: Buffer.alloc(0)
     };
     this.commands.set(entry.commandId, entry);
 
@@ -187,9 +198,9 @@ export class CommandManager {
   ): Promise<CommandSnapshot> {
     const entry = this.require(commandId);
     if (entry.state !== "running") return this.snapshot(entry, true);
-    if (entry.waiting) throw new Error(`命令 ${commandId} 已有一个等待操作。`);
     if (signal?.aborted) throw this.abortError();
-    entry.waiting = true;
+    // 并发等待是合法用法(模型可在同一轮发出多个 wait):各 waiter 独立持有
+    // timer/abort,共享同一个 entry.done,先醒的先拿 snapshot,互不排斥。
     let timer: ReturnType<typeof setTimeout> | undefined;
     let abort: (() => void) | undefined;
     try {
@@ -204,7 +215,6 @@ export class CommandManager {
       ]);
       return this.snapshot(entry, true);
     } finally {
-      entry.waiting = false;
       if (timer) clearTimeout(timer);
       if (abort) signal?.removeEventListener("abort", abort);
     }
@@ -217,6 +227,45 @@ export class CommandManager {
     if (entry.stopPromise) return entry.stopPromise;
     entry.stopPromise = this.stopEntry(entry);
     return entry.stopPromise;
+  }
+
+  /** harness 回调入口:挂起直到该 run 的全部运行中命令进入终态,resolve void。
+   *  只通知、不消费——结果快照由调用方随后 takeSettled 取走(镜像 delegation 的
+   *  waitForResult/takeResults 分工,避免 resolve 值被丢弃时静默丢输出)。
+   *  maxWaitMs 到点也 resolve(周期醒):调用方借此在长挂起间隙处理 steer 等队列。
+   *  abort reject AbortError,listener 自清理。 */
+  waitForSettled(runId: string, signal?: AbortSignal, maxWaitMs?: number): Promise<void> {
+    if (signal?.aborted) return Promise.reject(this.abortError());
+    if (this.running(runId).length === 0) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const listeners = this.settleListeners.get(runId) ?? new Set<() => void>();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        listeners.delete(done);
+        if (listeners.size === 0) this.settleListeners.delete(runId);
+      };
+      const done = () => {
+        cleanup();
+        resolve();
+      };
+      const onAbort = () => {
+        cleanup();
+        reject(this.abortError());
+      };
+      listeners.add(done);
+      this.settleListeners.set(runId, listeners);
+      if (maxWaitMs !== undefined) timer = setTimeout(done, Math.max(1, maxWaitMs));
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  /** 消费该 run 的未交付 settle 结果(取走即清空,防重复注入)。 */
+  takeSettled(runId: string): CommandSnapshot[] {
+    const pending = this.newlySettled.get(runId) ?? [];
+    this.newlySettled.delete(runId);
+    return pending;
   }
 
   private async stopEntry(entry: CommandEntry): Promise<CommandSnapshot> {
@@ -278,7 +327,20 @@ export class CommandManager {
     entry.child.stdout.destroy();
     entry.child.stderr.destroy();
     entry.finishDone();
-    if (entry.backgrounded) entry.onSettled?.(this.snapshot(entry, false));
+    if (entry.backgrounded) {
+      // harness 回调:后台命令 settle 时记录快照供 waitForSettled 消费;
+      // 若该 run 已全部终态则唤醒 waiter(镜像 delegation 的 publishResult)。
+      // 前台命令(settle 发生在 start() 返回前)不进此列表——其结果已随工具结果同步返回。
+      const settled = this.snapshot(entry, false);
+      const pending = this.newlySettled.get(entry.runId) ?? [];
+      pending.push(settled);
+      this.newlySettled.set(entry.runId, pending);
+      if (this.running(entry.runId).length === 0) {
+        const listeners = this.settleListeners.get(entry.runId);
+        if (listeners) [...listeners].forEach((listener) => listener());
+      }
+      entry.onSettled?.(settled);
+    }
   }
 
   private terminate(entry: CommandEntry): Promise<void> {
@@ -333,6 +395,13 @@ export class CommandManager {
   }
 
   private prune(): void {
+    // newlySettled 孤儿清理:该 run 已无任何命令条目(被取消/永不再恢复的 run),
+    // 其未消费快照(单条最多 ~1MB retained output)不会再被取走 → 丢弃防泄漏。
+    for (const runId of this.newlySettled.keys()) {
+      if (!([...this.commands.values()].some((entry) => entry.runId === runId))) {
+        this.newlySettled.delete(runId);
+      }
+    }
     if (this.commands.size < MAX_MANAGED_COMMANDS * 2) return;
     for (const [commandId, entry] of this.commands) {
       if (entry.state !== "running") this.commands.delete(commandId);

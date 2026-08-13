@@ -371,7 +371,7 @@ export function sessionRevisionHash(input: BuildInput, guidance: ResolvedRule[])
 }
 
 // ADR-007: 兼容新旧标签格式(连字符 memory-index 和下划线 memory_index)
-function envelopeSection(text: string, tag: "memory_index" | "capability_index" | "skill_index"): string {
+export function envelopeSection(text: string, tag: "memory_index" | "capability_index" | "skill_index"): string {
   const hyphenTag = tag.replace(/_/g, "-");
   return text.match(new RegExp(`<(?:${tag}|${hyphenTag})>([\\s\\S]*?)</(?:${tag}|${hyphenTag})>`))?.[1]?.trim() ?? "";
 }

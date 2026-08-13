@@ -239,7 +239,7 @@ function OperationMemberRow({
       >
         <span>{memberIcon(activity)}</span>
         {isFileReference ? (
-          <span className="operation-file-reference">
+          <span className={`operation-file-reference${activity.status === "running" ? " working-glow" : ""}`}>
             <span>{fileActionLabel(activity)}</span>
             <button
               onClick={(event) => {
@@ -469,8 +469,7 @@ function AggregateSummary({ aggregate, active }: { aggregate: ToolAggregate; act
     .join(" · ");
   return (
     <>
-      <span className={`activity-aggregate-headline ${active ? "working-glow" : ""}`}>{aggregate.headlineLabel}</span>
-      {baseLabel && <><span className="activity-aggregate-divider"> | </span><span>{baseLabel}</span></>}
+      {baseLabel && <span className={active ? "activity-aggregate-running" : ""}>{baseLabel}</span>}
       {failureLabel && <span className="operation-group-failure">{failureLabel}</span>}
       {cancelledLabel && <span className="operation-group-cancelled">{cancelledLabel}</span>}
     </>
@@ -479,7 +478,10 @@ function AggregateSummary({ aggregate, active }: { aggregate: ToolAggregate; act
 
 export function ActivityAggregateRenderer({
   aggregate,
-  active = false,
+  // `active` is still passed (DisplaySegmentRenderer sends active={false}) but
+  // after the P1 change the aggregate's in-progress state derives solely from
+  // aggregate.status, so the prop is unused. Renamed to _ until removed.
+  active: _active = false,
   onOpenFile,
   onOpenAgent,
   activities,
@@ -506,7 +508,11 @@ export function ActivityAggregateRenderer({
     setHasOpened(true);
     setExpanded((value) => !value);
   };
-  const headlineActive = active || aggregate.status === "running";
+  // P1: the aggregate is "in-progress" only while it itself is still running
+  // (a tool in the segment hasn't settled). The continuation/active prop no
+  // longer factors in — once every tool is done, the aggregate never reads as
+  // in-progress even if it is the run's last segment.
+  const headlineActive = aggregate.status === "running";
   const delegationMembers = members.filter((activity) => activity.delegation);
   const allDelegations = aggregate.semantic === "delegation" && delegationMembers.length === members.length;
   const delegationWaiting = delegationMembers.filter((activity) => activity.delegation?.status === "waiting").length;

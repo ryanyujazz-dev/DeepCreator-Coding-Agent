@@ -32,8 +32,8 @@ History uses short imperative subjects, often with prefixes such as `feat:`, `fi
 
 Treat [the conversation display model](docs/conversation-display-model.md) as authoritative. Preserve real tool `start` and `done` facts. First content anchors a thinking-only seed; content after tool work starts the next segment. Aggregate headers are lazy, and logically empty activity slots retain their previous visual label. Prefer one tool call per independent object. Batch tools require child-level progress semantics.
 
-Long-running commands are managed objects: `run_command` yields a `commandId`, while `wait_command` and `stop_command` control the original activity without creating another slot. Never reintroduce a hard command timeout or duplicate a still-running command to poll it.
-An Agent run must not finish while one of its managed commands is still running. Continue with `wait_command` or end it with `stop_command`; final content is valid only after every command reaches a terminal state.
+Long-running commands are managed objects: `run_command` yields a `commandId` in its result text, and `stop_command` controls the original activity without creating another slot. Never reintroduce a hard command timeout or duplicate a still-running command to poll it. There is no wait tool: a backgrounded command's final output is delivered automatically by the Runtime as a continuation message when it settles.
+An Agent run must not finish while one of its managed commands is still running. The runner suspends on the harness callback until every command reaches a terminal state; the model never needs to poll. `stop_command` is the only manual control.
 Every persisted assistant `tool_calls` message must have exactly one result per `tool_call_id`. Cancellation and failure paths must append explicit interrupted results before closing the Run, and provider-bound history must still be protocol-normalized to repair legacy or out-of-order records.
 
 For file mutations, keep streamed `liveFiles` previews separate from authoritative Git-derived `activity.files` and `run.changes`. Never aggregate a preview as a completed workspace change.
