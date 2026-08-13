@@ -43,7 +43,7 @@ test("readFile: offset 从指定行开始,limit 限制行数", async () => {
 });
 
 test("readFile: 超过 maxChars 时按整行截断并尾附标注", async () => {
-  const lines = Array.from({ length: 500 }, (_, index) => `x`.repeat(40));
+  const lines = Array.from({ length: 500 }, () => `x`.repeat(40));
   const contents = `${lines.join("\n")}\n`;
   const directory = fixture(contents);
   try {
@@ -66,7 +66,7 @@ test("readFile: 行号化不破坏 edit_file 的 stale 指纹契约", async () =
   try {
     // 读取(返回带行号)后直接编辑 —— 指纹记录的是未编号原文,编辑不得误报 stale
     const read = await readFile(directory, { path: "sample.ts" }, ctx);
-    assert.match(read, /^   1  export const value = 1;$/m);
+    assert.match(read, /^ {3}1 {2}export const value = 1;$/m);
     const edited = await editFile(
       directory,
       { newText: "export const value = 42;", oldText: "export const value = 1;", path: "sample.ts" },

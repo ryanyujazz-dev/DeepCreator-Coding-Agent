@@ -117,7 +117,7 @@ export async function readFile(
     .join("\n");
   if (numbered.length > maxChars) {
     // 按字符预算再裁:优先保完整行,避免行号标注落在半行处误导定位。
-    let budget = maxChars;
+    const budget = maxChars;
     const kept: string[] = [];
     for (const line of numbered.split("\n")) {
       const candidate = kept.length === 0 ? line : `${kept.join("\n")}\n${line}`;
