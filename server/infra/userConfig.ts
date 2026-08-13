@@ -41,7 +41,7 @@ const DEFAULT_CONFIG: UserConfig = {
   contextWindowTokens: 1_000_000,
   locale: "en-US",
   model: "deepseek-v4-flash",
-  modelProtocols: { "deepseek-v4-flash": "responses" },
+  modelProtocols: { "deepseek-v4-flash": "responses", "deepseek-v4-pro": "responses" },
   permissions: { allow: [], deny: [] }
 };
 

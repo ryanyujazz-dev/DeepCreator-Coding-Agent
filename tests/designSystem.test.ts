@@ -236,9 +236,9 @@ test("uses semantic aggregate icons and keeps the current aggregate active throu
   assert.match(renderer, /execute:\s*TerminalSquare/);
   assert.match(renderer, /start_database:\s*Database/);
   assert.match(renderer, /deploy:\s*Rocket/);
-  assert.match(renderer, /headlineActive = active \|\| aggregate\.status === "running"/);
+  assert.match(renderer, /headlineActive = aggregate\.status === "running"/);
   assert.match(renderer, /active \? "working-glow" : ""/);
-  assert.match(segmentRenderer, /slotActive = slot\.logicalState === "active" \|\| continuationActive/);
+  assert.match(segmentRenderer, /slotActive = slot\.logicalState === "active"/);
   assert.match(segmentRenderer, /slotActive \? "working-glow" : ""/);
   assert.doesNotMatch(segmentRenderer, /isThinking \? "purpose-sweep" : "working-glow"/);
   assert.match(styles, /\.working-glow,\s*\.purpose-sweep\s*\{[^}]*--working-sweep-width:\s*50px;[^}]*--working-sweep-duration:\s*1\.5s/s);

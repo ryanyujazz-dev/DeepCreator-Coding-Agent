@@ -167,11 +167,19 @@ function responseInput(messages: ModelMessage[]): Array<Record<string, unknown>>
         } else if (item.type === "custom" && item.callId && item.toolName) {
           input.push({ type: "custom_tool_call", id: item.itemId, call_id: item.callId, name: item.toolName, input: item.draft ?? "" });
         } else if (item.type === "hosted_tool") {
+          // DeepSeek 反序列化请求侧的 web_search_call.action 时,必填字段是 queries(数组),
+          // 而响应流里它只回传 query(单字符串)。回放历史时若只带 query 会触发 400
+          // "input: missing field queries"。因此这里同时下发 queries + query,
+          // 兼顾请求侧校验与响应侧字段形态。
+          const queries = item.searchQuery ? item.searchQuery.split(/\s*[·・]\s*/).filter(Boolean) : [];
+          const action = queries.length
+            ? { type: "search", queries, query: queries[0] ?? item.searchQuery }
+            : undefined;
           input.push({
             type: "web_search_call",
             id: item.itemId,
             status: item.status === "failed" ? "failed" : "completed",
-            action: item.searchQuery ? { type: "search", query: item.searchQuery } : undefined
+            action
           });
         }
       }

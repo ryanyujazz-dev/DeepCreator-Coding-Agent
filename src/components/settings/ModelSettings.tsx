@@ -18,7 +18,7 @@ function protocolsFor(modelId: string, model?: ModelOption): ModelProtocol[] {
   // A settings renderer can be newer than the currently running desktop
   // Runtime. Keep the known Flash capability selectable so saving the setting
   // can restart that Runtime with the new protocol metadata.
-  return modelId === "deepseek-v4-flash" ? ["responses", "chat"] : ["chat"];
+  return ["deepseek-v4-flash", "deepseek-v4-pro"].includes(modelId) ? ["responses", "chat"] : ["chat"];
 }
 
 export function ModelSettings() {

@@ -751,3 +751,173 @@ html[data-color-scheme="dark"] :is(
 .surface-review-dels {
   color: var(--color-danger);
 }
+
+/* Aggregate expanded content: drop the per-row icons and replace them with one
+   vertical rail on the left of the expanded block. Header icon
+   (.operation-group-icon) and disclosure chevrons stay — only the leading icons
+   of the expanded rows go. All rules are scoped under .activity-aggregate so the
+   dead-code ActivityGroupRenderer and the standalone ModificationFileRow are
+   untouched, and the unscoped rules in styles.css that designSystem.test.ts
+   asserts on remain intact. This feature CSS loads after styles.css
+   (src/styles/index.css), so cascade order also favors these overrides. */
+
+/* The rail anchors on the inner wrapper div of the expander, not on
+   .operation-group-details itself. The wrapper is the grid-rows 0fr -> 1fr
+   animation layer (styles.css ~1420): it is height 0 when collapsed (so the
+   rail is naturally invisible) and has overflow:hidden (styles.css ~1443), and
+   it NEVER scrolls. The inner .operation-group-details (max-height:340px /
+   overflow:auto) scrolls its rows past this wrapper, so the ::before reads as
+   one continuous, fixed line regardless of scroll position, single- vs
+   many-row, or the .is-modify (overflow:visible) variant. */
+.activity-aggregate .operation-group-expander.is-expanded > div {
+  position: relative;
+}
+
+/* The hairline. 1px wide, centered on the header icon's midline so the rail
+   reads as a continuation of the summary icon. Header geometry (from styles.css):
+   .operation-group-summary is inline-flex with no padding; its first child
+   .operation-group-icon is width var(--execution-icon-column) = 16px, so the
+   icon center sits at 8px from the content-box left edge. The rail left edge
+   is therefore calc(8px - .5px) (half the 1px width) to center it. Color is a
+   softened muted token via color-mix — no raw value, dark-mode parity automatic. */
+.activity-aggregate .operation-group-expander.is-expanded > div::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--execution-icon-column) / 2 - 0.5px);
+  width: 1px;
+  background: color-mix(in srgb, var(--process-muted-color) 42%, transparent);
+  pointer-events: none;
+}
+
+/* Align expanded row content with the header TEXT. .operation-group-summary is
+   inline-flex with gap:4px between the 16px icon and the action label, so the
+   header text starts at 16px + 4px = 20px. Padding-left here pushes the rows'
+   content edge to that same 20px. (Rows still have their own chevron column on
+   the right; this only sets the left text edge.) */
+.activity-aggregate .operation-group-details {
+  padding-left: calc(var(--execution-icon-column) + var(--execution-column-gap));
+}
+
+/* Replace the aggregate header icon with a static hollow ring. The header icon
+   span (.operation-group-icon) stays in the layout as the 16px-wide alignment
+   column (so the rail below and the row text both keep lining up on it); its
+   SVG child is dropped and a ring is painted dead-center at x=8px, the same
+   line the vertical rail sits on, so the ring reads as the rail's top cap /
+   tree-node head. The ring does NOT animate — the running state is signaled by
+   the summary text color only (see .activity-aggregate-running below). */
+.activity-aggregate .operation-group-icon {
+  color: transparent;
+}
+
+.activity-aggregate .operation-group-icon > svg {
+  display: none;
+}
+
+.activity-aggregate .operation-group-icon::after {
+  content: "";
+  display: block;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--process-muted-color) 54%, transparent);
+  border-radius: var(--radius-circle);
+  background: transparent;
+}
+
+/* While the aggregate is running (or is the continuation target) its summary
+   text is "a little gray" — lighter than the settled muted gray but not the
+   full content-color — via a mid tone between --process-muted-color and
+   --process-content-color. The running state is signaled by color only: no
+   sweep animation and no breathing dot. */
+.activity-aggregate .activity-aggregate-running {
+  color: color-mix(in srgb, var(--process-muted-color) 45%, var(--process-content-color));
+}
+
+/* Active activity slot: replace its left icon (.work-dot's SVG) with a
+   breathing dot, mirroring the sidebar task-title breathing dot
+   (sidebar-list.css: .session-breathing-dot.is-active). Only the ACTIVE slot
+   (slot.logicalState === "active", or it is the continuation target via
+   .is-active) shows the dot; idle tool slots keep their category icon. The dot
+   is painted via ::after (centered by the existing .work-dot place-items:center
+   grid cell) using the sidebar's exact spec — 7px solid theme-blue running the
+   shared sidebar-task-breathe keyframes — so the sidebar and the conversation
+   share one "running" motion language. */
+.display-activity-slot.is-active .work-dot {
+  color: transparent;
+}
+
+.display-activity-slot.is-active .work-dot > svg {
+  display: none;
+}
+
+.display-activity-slot.is-active .work-dot::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-circle);
+  background: var(--theme-blue);
+  animation: sidebar-task-breathe 1.55s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .display-activity-slot.is-active .work-dot::after {
+    animation: none;
+    opacity: 0.72;
+  }
+}
+
+/* Settled activity slot (logicalState "empty"): the tool is done. Per P3 the
+   done slot does NOT vanish immediately — it lingers showing a static hollow
+   ring (no sweep, no breathing) until the next tool starts, at which point the
+   slot switches to that new running tool. The ring matches the aggregate's ring
+   spec exactly so the two surfaces read as one shape language. Icons are no
+   longer used on activity slots at all — a slot is either a breathing dot
+   (running) or a hollow ring (done). */
+.display-activity-slot.is-empty .work-dot {
+  color: transparent;
+}
+
+.display-activity-slot.is-empty .work-dot > svg {
+  display: none;
+}
+
+.display-activity-slot.is-empty .work-dot::after {
+  content: "";
+  display: block;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--process-muted-color) 54%, transparent);
+  border-radius: var(--radius-circle);
+  background: transparent;
+}
+
+/* ModificationFileRow pencil icon. .operation-file-summary is inline-flex with a
+   gap, so display:none drops the cell cleanly with no leftover gap. */
+.activity-aggregate .operation-file-summary-icon {
+  display: none;
+}
+
+/* OperationMemberRow normal branch: collapse the leading 16px icon column. The
+   14px chevron column is retained. Hide the leading memberIcon span. */
+.activity-aggregate .operation-call-row,
+.activity-aggregate .operation-call-row.is-expandable {
+  grid-template-columns: minmax(0, auto) 14px;
+}
+
+.activity-aggregate .operation-call-row > span:first-child {
+  display: none;
+}
+
+/* Delegation branch (.delegation-call-row grid: auto / minmax(0,1fr) / auto /
+   auto for icon, message, status, chevron). Drop the first track so the 3
+   remaining children map to 3 tracks. Hide the Bot-icon span. */
+.activity-aggregate .delegation-call-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.activity-aggregate .delegation-call-row > span:first-child {
+  display: none;
+}

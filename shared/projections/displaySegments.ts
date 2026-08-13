@@ -240,7 +240,7 @@ function bucketLabel(bucket: string, activities: Activity[], hasFailures: boolea
   if (bucket === "search") return `搜索 ${count} 项内容`;
   if (bucket === "external_search") return `检索 ${count} 项外部结果`;
   if (bucket === "external_read") return `查阅 ${count} 个页面`;
-  if (bucket === "review") return `检查 ${count} 次工作区改动`;
+  if (bucket === "review") return `检查 ${count} 次工作区`;
   if (bucket === "delegation") return `委派 ${activities.length} 个子代理`;
   if (bucket === "verify") return `完成 ${count} 项验证`;
   if (bucket === "execute") return hasFailures
@@ -250,10 +250,18 @@ function bucketLabel(bucket: string, activities: Activity[], hasFailures: boolea
   return `检查 ${count} 项`;
 }
 
-function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
-  const settled = draft.tools.filter((activity) => activity.status !== "running");
-  if (settled.length === 0) return undefined;
-  const hasRunning = draft.tools.some((activity) => activity.status === "running");
+function projectAggregate(
+  spanTools: Activity[],
+  ctx: { segmentId: string; runId: string }
+): ToolAggregate | undefined {
+  // The aggregate materializes only for a CLOSED work span (the next content
+  // message arrived and sealed this span) that holds ≥2 tool calls (count by
+  // calls, including failed/cancelled/running). It REPLACES the activity slot
+  // for that span. `spanTools` is exactly that closed span's tool calls — never
+  // a live (unclosed) span, which stays as a single activity slot instead.
+  if (spanTools.length < 2) return undefined;
+  const settled = spanTools.filter((activity) => activity.status !== "running");
+  const hasRunning = spanTools.some((activity) => activity.status === "running");
   const buckets = new Map<string, Activity[]>();
   for (const activity of settled.filter((item) => item.status === "completed")) {
     const bucket = aggregateBucket(activity);
@@ -277,37 +285,74 @@ function projectAggregate(draft: SegmentDraft): ToolAggregate | undefined {
     ? "running"
     : failureCount > 0 ? "failed" : cancelledCount > 0 ? "cancelled" : "completed";
   const summary = [...buckets].map(([bucket, activities]) => bucketLabel(bucket, activities, failureCount > 0)).join(" · ");
-  const headlineKind = draft.tools.reduce<ReturnType<typeof headlineKindForTool> | undefined>((dominant, activity) => {
+  const headlineKind = spanTools.reduce<ReturnType<typeof headlineKindForTool> | undefined>((dominant, activity) => {
     const candidate = activity.tool
       ? activity.tool.stepHeadline ?? headlineKindForTool(activity.tool)
       : undefined;
     if (!candidate) return dominant;
     if (!dominant || headlinePriority(candidate) > headlinePriority(dominant)) return candidate;
     return dominant;
-  }, dominantHeadlineKind(draft.tools.flatMap((activity) => activity.tool ? [activity.tool] : [])));
-  const resolvedHeadline = headlineKind ?? (draft.tools.some((activity) => activity.tool?.toolName === "run_command") ? "execute" : "read");
+  }, dominantHeadlineKind(spanTools.flatMap((activity) => activity.tool ? [activity.tool] : [])));
+  const resolvedHeadline = headlineKind ?? (spanTools.some((activity) => activity.tool?.toolName === "run_command") ? "execute" : "read");
   return {
-    aggregateId: `tool_aggregate:${draft.segmentId}`,
+    aggregateId: `tool_aggregate:${ctx.segmentId}`,
     cancelledCount,
     failureCount,
     headlineKind: resolvedHeadline,
     headlineLabel: headlineLabel(resolvedHeadline),
-    memberActivityIds: settled.map((activity) => activity.activityId),
-    runId: draft.runId,
+    // The expanded member list includes still-running tools in the closed span
+    // (they show sweep inside the expanded content; the left rail has no dot).
+    memberActivityIds: spanTools.map((activity) => activity.activityId),
+    runId: ctx.runId,
     semantic: delegationOnly ? "delegation" : undefined,
     status,
     successCount: delegationOnly
       ? settled.filter((activity) => activity.delegation?.status === "completed").length
       : settled.filter((activity) => activity.status === "completed").length,
     summaryLabel: [summary, suffix].filter(Boolean).join(" · "),
-    totalCalls: settled.length
+    totalCalls: spanTools.length
   };
 }
 
 function finishSegment(draft: SegmentDraft): DisplaySegment | undefined {
-  const activitySlots = projectActivitySlots(draft.transients.slice(draft.transientBoundary));
-  const aggregate = projectAggregate(draft);
-  if (!draft.mainActivity && !aggregate && activitySlots.length === 0) return undefined;
+  // A span is either LIVE (no closing content yet — transientBoundary still at
+  // its start, all transients are "after" it) or SEALED (a content message
+  // arrived and advanced transientBoundary to transients.length, closing the
+  // span). The two slices are mutually exclusive because sealing always opens a
+  // fresh segment. Decide what to render from the closed span:
+  //   closed tools ≥2 → aggregate (REPLACES the activity slot for this span)
+  //   closed tools  1 → that lone done tool lingers as a hollow-ring slot
+  //   closed tools  0 → fall through to the live span (latest running tool)
+  const closedTransients = draft.transients.slice(0, draft.transientBoundary);
+  const liveTransients = draft.transients.slice(draft.transientBoundary);
+  const closedToolTransients = closedTransients.filter(
+    (transient) => toolCategory(transient.activity) !== undefined
+  );
+  const closedToolCount = closedToolTransients.length;
+
+  let aggregate: ToolAggregate | undefined;
+  let activitySlots: ActivitySlot[] = [];
+
+  if (closedToolCount >= 2) {
+    // Content closed a ≥2-tool span → the aggregate materializes and replaces
+    // the activity slot.
+    aggregate = projectAggregate(
+      closedToolTransients.map((transient) => transient.activity),
+      { segmentId: draft.segmentId, runId: draft.runId }
+    );
+  } else if (closedToolCount === 1) {
+    // Content closed a 1-tool span → no aggregate; the lone done tool lingers
+    // as a hollow-ring activity slot (the span's final representation).
+    activitySlots = projectActivitySlots(closedToolTransients);
+  } else if (liveTransients.length > 0) {
+    // Span still live (content has not closed it) → the activity slot reflects
+    // the latest tool: running (breathing dot) or just-done (hollow ring).
+    activitySlots = projectActivitySlots(liveTransients);
+  }
+
+  if (!draft.mainActivity && !aggregate && activitySlots.length === 0) {
+    return undefined;
+  }
   return {
     activitySlots,
     aggregate,

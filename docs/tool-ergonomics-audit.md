@@ -178,6 +178,7 @@ DeepCreator 工具链在**正确性与安全**上已超过 Claude Code 的细度
 | # | 动作 | 依据 | 备注 |
 |---|---|---|---|
 | 3.1 | `run_command` 增 `timeout_ms` + `run_in_background` | P0-5 大步 | 对照 Claude Code Bash |
+| 3.1b | **harness 回调(turn-scheduler)**:命令 exit → 自动注入续写消息 + 唤醒 runner 主循环开新 turn(新增第 5 条 launch 通道,现仅 startRun / resumeRun / 崩溃续跑 / dev-eval resume / delegation 五处) | **砍 `wait_command`/`stop_command` 的前提** | 命令完成即把结果送回模型,无需模型主动 wait。落地后**删 wait/stop 两个工具**;`completionGate` 的 `running_commands` 门([completionGate.ts:27-33](../server/app/completionGate.ts:27))改为"有未终态后台命令 → 等回调(不结束 Run、不报错、不再逼模型调 wait/stop)"。现状缺这一环是经三角度工作流核实的([commandManager.ts:281](../server/infra/commandManager.ts:281) 的 onSettled 只写 store/context_update,不唤醒 [runner.ts:185](../server/app/runner.ts:185) 循环) |
 | 3.2 | `git_diff`(只读真实 hunk)+ `git_commit`(受审批) | P1,Git 残缺 | |
 | 3.3 | `delegate` 增第三个角色 reviewer(只读+可跑验证命令) | P1 | |
 | 3.4 | 沙盒:protected paths 强制只读(.git 递归保护)+ 网络独立开关 + on-failure 升级审批 | P1 | 平台级隔离(Landlock/Seatbelt/job objects)投入更大,可后置 |
